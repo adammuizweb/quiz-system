@@ -1,0 +1,14 @@
+{
+  "name": "adammuizweb/quiz-system",
+  "description": "Quiz, proctoring, and online test management for Jyavani CMS.",
+  "type": "jyavani-plugin",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.3",
+    "phpoffice/phpspreadsheet": "~5.8.1"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true
+  }
+}

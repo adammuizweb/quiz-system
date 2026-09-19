@@ -1,0 +1,28 @@
+# Local editor state
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+credentials.*
+*.pem
+*.key
+
+# Runtime and local data
+*.log
+*.bak
+*.backup
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+backups/
+private_files/
+uploads/

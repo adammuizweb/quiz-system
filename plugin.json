@@ -1,0 +1,664 @@
+{
+  "name": "quiz",
+  "version": "1.4.12",
+  "title": "Quiz",
+  "description": "Quiz, proctoring, dan manajemen tes online.",
+  "author": "Adam Muiz",
+  "author_uri": "https://adammuiz.com",
+  "plugin_uri": "https://github.com/adammuizweb/quiz-system",
+  "homepage": "https://github.com/adammuizweb/quiz-system",
+  "github_url": "https://github.com/adammuizweb/quiz-system",
+  "icon": "icon.png",
+  "store": {
+    "url": "https://jyavani.com/plugin-store",
+    "slug": "quiz"
+  },
+  "requires": {
+    "jyavani": ">=2.3.74",
+    "php": ">=8.3",
+    "extensions": [
+      "pdo",
+      "json",
+      "mbstring"
+    ]
+  },
+  "admin": {
+    "pages": [
+      {
+        "route": "admin/quiz",
+        "file": "admin/index.php",
+        "title": "Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.dashboard.access"
+      },
+      {
+        "route": "admin/quiz/settings",
+        "file": "admin/settings/index.php",
+        "title": "Configuration",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.settings.manage"
+      },
+      {
+        "route": "admin/quiz/quizzes",
+        "file": "admin/quizzes/index.php",
+        "title": "Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/questions",
+        "file": "admin/questions/index.php",
+        "title": "Soal Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/questions/bulk",
+        "file": "admin/questions/bulk.php",
+        "title": "Bulk Soal Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/students",
+        "file": "admin/student/index.php",
+        "title": "Peserta Quiz",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.students.manage"
+      },
+      {
+        "route": "admin/quiz/attempts",
+        "file": "admin/student/attempts/index.php",
+        "title": "Quiz Attempts",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.attempts.view"
+      },
+      {
+        "route": "admin/quiz/attempts/view",
+        "file": "admin/student/attempts/view.php",
+        "title": "Quiz Attempt Detail",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.attempts.view"
+      },
+      {
+        "route": "admin/quiz/attempts/export",
+        "file": "admin/student/attempts/export.php",
+        "title": "Export Quiz Attempts",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.attempts.export"
+      },
+      {
+        "route": "admin/quiz/attempts/action_generate_otp",
+        "file": "admin/student/attempts/action_generate_otp.php",
+        "title": "Generate Quiz OTP",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.attempts.operate"
+      },
+      {
+        "route": "admin/quiz/attempts/action_update_delivery_mode",
+        "file": "admin/student/attempts/action_update_delivery_mode.php",
+        "title": "Update Quiz Delivery Mode",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.attempts.operate"
+      },
+      {
+        "route": "admin/quiz/attempts/action_verify_manual",
+        "file": "admin/student/attempts/action_verify_manual.php",
+        "title": "Verify Quiz Attempt",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.attempts.operate"
+      },
+      {
+        "route": "admin/quiz/attempts/action_reset",
+        "file": "admin/student/attempts/action_reset.php",
+        "title": "Reset Quiz Attempt",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.attempts.operate"
+      },
+      {
+        "route": "admin/quiz/attempts/action_delete",
+        "file": "admin/student/attempts/action_delete.php",
+        "title": "Delete Quiz Attempt",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.attempts.delete"
+      },
+      {
+        "route": "admin/quiz/master",
+        "file": "admin/master/index.php",
+        "title": "Quiz Master Builder",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/categories/index",
+        "file": "admin/categories/index.php",
+        "title": "Kategori Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/categories/add",
+        "file": "admin/categories/add.php",
+        "title": "Tambah Kategori Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/categories/edit",
+        "file": "admin/categories/edit.php",
+        "title": "Edit Kategori Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/categories/delete",
+        "file": "admin/categories/delete.php",
+        "title": "Hapus Kategori Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/passages/index",
+        "file": "admin/passages/index.php",
+        "title": "Passage Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/passages/add",
+        "file": "admin/passages/add.php",
+        "title": "Tambah Passage Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/passages/edit",
+        "file": "admin/passages/edit.php",
+        "title": "Edit Passage Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/passages/delete",
+        "file": "admin/passages/delete.php",
+        "title": "Hapus Passage Quiz",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/quizzes/collaborators",
+        "file": "admin/quizzes/collaborators.php",
+        "title": "Quiz Collaborators",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.content.manage-any"
+      },
+      {
+        "route": "admin/quiz/quizzes/add",
+        "file": "admin/quizzes/add.php",
+        "title": "Tambah Quiz",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.quizzes.manage"
+      },
+      {
+        "route": "admin/quiz/quizzes/edit",
+        "file": "admin/quizzes/edit.php",
+        "title": "Edit Quiz",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.quizzes.manage"
+      },
+      {
+        "route": "admin/quiz/quizzes/delete",
+        "file": "admin/quizzes/delete.php",
+        "title": "Hapus Quiz",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.quizzes.manage"
+      },
+      {
+        "route": "admin/quiz/quizzes/duplicate",
+        "file": "admin/quizzes/duplicate.php",
+        "title": "Duplikat Quiz",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.quizzes.manage"
+      },
+      {
+        "route": "admin/quiz/quizzes/bulk_status",
+        "file": "admin/quizzes/bulk_status.php",
+        "title": "Bulk Status Quiz",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.quizzes.manage"
+      },
+      {
+        "route": "admin/quiz/quizzes/set_primary",
+        "file": "admin/quizzes/set_primary.php",
+        "title": "Set Primary Quiz",
+        "roles": [
+          "admin"
+        ],
+        "permission": "plugin.quiz.primary.manage"
+      },
+      {
+        "route": "admin/quiz/dump",
+        "file": "admin/dump/index.php",
+        "title": "Quiz Quality Control",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/questions_list",
+        "file": "admin/master/api/questions_list.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/question_get",
+        "file": "admin/master/api/question_get.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/question_save",
+        "file": "admin/master/api/question_save.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/question_delete",
+        "file": "admin/master/api/question_delete.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/questions_reorder",
+        "file": "admin/master/api/questions_reorder.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/answer_save",
+        "file": "admin/master/api/answer_save.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/answer_delete",
+        "file": "admin/master/api/answer_delete.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/answers_reorder",
+        "file": "admin/master/api/answers_reorder.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/bulk_import",
+        "file": "admin/master/api/bulk_import.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/passages_list",
+        "file": "admin/master/api/passages_list.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/filter_passages",
+        "file": "admin/master/api/filter_passages.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/passage_get",
+        "file": "admin/master/api/passage_get.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/passage_save",
+        "file": "admin/master/api/passage_save.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/passage_delete",
+        "file": "admin/master/api/passage_delete.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/passages_reorder",
+        "file": "admin/master/api/passages_reorder.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/categories_list",
+        "file": "admin/master/api/categories_list.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/category_get",
+        "file": "admin/master/api/category_get.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/category_save",
+        "file": "admin/master/api/category_save.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/category_delete",
+        "file": "admin/master/api/category_delete.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/master/api/category_order",
+        "file": "admin/master/api/category_order.php",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.workspace.access"
+      }
+    ]
+  },
+  "static": {
+    "copy": [
+      {
+        "from": "assets/admin.css",
+        "to": "static/plugins/quiz/admin.css"
+      },
+      {
+        "from": "assets/admin.js",
+        "to": "static/plugins/quiz/admin.js"
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "key": "plugin.quiz.dashboard.access",
+      "label": "Access Quiz Dashboard",
+      "supports_scope": false,
+      "default_roles": [
+        "admin",
+        "editor"
+      ],
+      "delegable": true
+    },
+    {
+      "key": "plugin.quiz.workspace.access",
+      "label": "Access Quiz Workspace",
+      "supports_scope": false,
+      "default_roles": [
+        "admin",
+        "editor"
+      ],
+      "delegable": true
+    },
+    {
+      "key": "plugin.quiz.quizzes.manage",
+      "label": "Create and Manage Quizzes",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    },
+    {
+      "key": "plugin.quiz.attempts.view",
+      "label": "View Quiz Attempts and Participant Progress",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": true
+    },
+    {
+      "key": "plugin.quiz.attempts.export",
+      "label": "Export Quiz Attempt Monitoring Data",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": true
+    },
+    {
+      "key": "plugin.quiz.attempt-otp.view",
+      "label": "View Active Quiz Attempt OTP",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": true
+    },
+    {
+      "key": "plugin.quiz.attempt-responses.view",
+      "label": "View Quiz Attempt Questions and Responses",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    },
+    {
+      "key": "plugin.quiz.attempts.operate",
+      "label": "Operate and Reset Quiz Attempts",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": true
+    },
+    {
+      "key": "plugin.quiz.attempts.delete",
+      "label": "Permanently Delete Quiz Attempts",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    },
+    {
+      "key": "plugin.quiz.settings.manage",
+      "label": "Manage Global Quiz Settings",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    },
+    {
+      "key": "plugin.quiz.students.manage",
+      "label": "Manage Global Quiz Students",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    },
+    {
+      "key": "plugin.quiz.primary.manage",
+      "label": "Manage the Global Primary Quiz",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    },
+    {
+      "key": "plugin.quiz.content.manage-any",
+      "label": "Manage Quiz Content Owned by Any User",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    }
+  ]
+}
