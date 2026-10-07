@@ -248,6 +248,10 @@ $helperFile = __DIR__ . '/includes/helpers.php';
 if (is_file($helperFile)) {
     require_once $helperFile;
 }
+$extensionFile = __DIR__ . '/includes/extensions.php';
+if (is_file($extensionFile)) {
+    require_once $extensionFile;
+}
 
 function quiz_is_public_request(): bool {
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
@@ -271,8 +275,8 @@ add_action('jy_head', function (): void {
 
 add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
-    echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=1.4.12">' . PHP_EOL;
-    echo '<script src="/static/plugins/quiz/admin.js?v=1.4.12" defer></script>' . PHP_EOL;
+    echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=1.4.13">' . PHP_EOL;
+    echo '<script src="/static/plugins/quiz/admin.js?v=1.4.13" defer></script>' . PHP_EOL;
 });
 
 // --- Admin sidebar menu ---

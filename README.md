@@ -92,6 +92,15 @@ location.
 
 Source repository: <https://github.com/adammuizweb/quiz-system>
 
+## Extension API
+
+Sibling plugins may declare a manifest dependency on Quiz and use the stable
+`quiz_extension_api_version()` capability check plus the callable
+`quiz_extension_context()` metadata API. This contract does not expose Quiz
+tables, public entrypoints, proctoring state, or private request helpers;
+extensions must own their own data and lifecycle. The API is callable instead
+of event-based so dependency-first plugin loading cannot miss a lifecycle event.
+
 ## License
 
 MIT. See `LICENSE`.

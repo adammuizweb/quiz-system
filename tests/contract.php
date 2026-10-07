@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.4.12', 'plugin version must be 1.4.12');
+$check(($manifest['version'] ?? null) === '1.4.13', 'plugin version must be 1.4.13');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -98,7 +98,7 @@ $permissionDefinitions = [];
 foreach ($manifest['permissions'] ?? [] as $permission) {
     if (is_array($permission)) $permissionDefinitions[(string)($permission['key'] ?? '')] = $permission;
 }
-$check(array_keys($permissionDefinitions) === array_keys($permissionPolicies), 'manifest must declare the exact ordered 1.4.12 Quiz permission set');
+$check(array_keys($permissionDefinitions) === array_keys($permissionPolicies), 'manifest must declare the exact ordered 1.4.13 Quiz permission set');
 $check(!isset($permissionDefinitions['plugin.quiz.control.manage']), 'broad control.manage permission must be removed');
 $check(!isset($permissionDefinitions['plugin.quiz.attempts.manage']), 'legacy attempts.manage permission must be removed');
 foreach ($permissionPolicies as $key => [$defaultRoles, $delegable]) {
@@ -144,7 +144,7 @@ $manifestRoutePermissions = [];
 foreach (is_array($pages) ? $pages : [] as $page) {
     if (is_array($page)) $manifestRoutePermissions[(string)($page['route'] ?? '')] = (string)($page['permission'] ?? '');
 }
-$check($manifestRoutePermissions == $routePermissions, 'manifest must declare the exact 1.4.12 admin route map');
+$check($manifestRoutePermissions == $routePermissions, 'manifest must declare the exact 1.4.13 admin route map');
 foreach (is_array($pages) ? $pages : [] as $page) {
     $route = is_array($page) ? (string)($page['route'] ?? '') : '';
     $relative = is_array($page) ? (string)($page['file'] ?? '') : '';
@@ -236,7 +236,12 @@ foreach ([
 $check(!preg_match('/CREATE TABLE IF NOT EXISTS `question_answers` \(.*?`created_by`/s', $schemaSource), 'answer ownership must be inherited from its question');
 
 $pluginSource = (string)file_get_contents($pluginRoot . '/plugin.php');
-$check(str_contains($pluginSource, "\$schemaRevision = '20260821-resource-owners'"), '1.4.12 must use the resource-owner schema revision');
+$extensionSource = (string)file_get_contents($pluginRoot . '/includes/extensions.php');
+$check(str_contains($extensionSource, "return '1.0.0';"), 'Quiz extension API exposes a stable version');
+$check(str_contains($pluginSource, "require_once \$extensionFile")
+    && !str_contains($pluginSource, "do_action('quiz_loaded'")
+    && !str_contains($pluginSource, "do_action_isolated('quiz_loaded'"), 'Quiz publishes a load-order-safe callable extension API');
+$check(str_contains($pluginSource, "\$schemaRevision = '20260821-resource-owners'"), '1.4.13 must use the resource-owner schema revision');
 $check(str_contains($pluginSource, "'question_categories' => 'idx_question_categories_owner'")
     && str_contains($pluginSource, "'question_passages' => 'idx_question_passages_owner'")
     && str_contains($pluginSource, "'questions' => 'idx_questions_owner'"), 'migration must cover every owned question-bank table');
@@ -289,7 +294,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.4.12']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.4.13']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -309,8 +314,8 @@ if ($render('admin_head') !== '' || $render('admin_footer') !== '' || $render('j
 $_GET = ['page' => 'admin/quiz/attempts'];
 $head = $render('admin_head');
 $footer = $render('admin_footer');
-if (!str_contains($head, '/static/plugins/quiz/admin.css?v=1.4.12') || str_contains($head, 'quiz.css')) exit(31);
-if (!str_contains($head, '/static/plugins/quiz/admin.js?v=1.4.12') || !str_contains($head, ' defer')) exit(32);
+if (!str_contains($head, '/static/plugins/quiz/admin.css?v=1.4.13') || str_contains($head, 'quiz.css')) exit(31);
+if (!str_contains($head, '/static/plugins/quiz/admin.js?v=1.4.13') || !str_contains($head, ' defer')) exit(32);
 if ($footer !== '') exit(34);
 $_SERVER['REQUEST_URI'] = '/quiz/register/';
 if (!str_contains($render('jy_head'), 'Quiz - Public Frontend Styles')) exit(33);
@@ -333,7 +338,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.4.12']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.4.13']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -352,7 +357,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.4.12'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.4.13'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20260821-resource-owners'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
