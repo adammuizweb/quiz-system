@@ -2,6 +2,8 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
+Current release: `1.5.0`.
+
 ## Requirements
 
 - Jyavani Core 2.3.74 or newer
@@ -71,6 +73,53 @@ receive it through workspace access.
 Existing category, passage, and question rows are assigned to their quiz owner
 when the `1.4.0` ownership migration first runs.
 
+## TPA Readiness
+
+Quiz `1.5.0` adds opt-in answer ordering, timer warnings, mark-for-review, and
+participant result pages. Upgrade defaults deliberately preserve `1.4.13`
+behavior: answers remain shuffled, timer warnings are empty, review marking is
+off, participant results are hidden, and proctor behavior is unchanged. Quiz
+add/edit pages configure warning thresholds in whole minutes; they are stored
+as normalized remaining seconds.
+
+Submissions and timer expiry share one idempotent finalizer. It records elapsed
+seconds and category/domain aggregates while preserving the legacy
+`quiz_attempts.total_score` and dashboard `Nilai 100` calculations. Answer
+changes are append-only revisions; identical save retries do not create a
+revision. Questions and options referenced by attempts are protected by
+application-level deletion guards.
+
+### Delivery Snapshots
+
+For packages prepared by `1.5.0`, each assigned question freezes its text, type,
+media and file references, passage, effective category, package limits, active
+answer IDs and labels, option scores, delivery order, and available score before
+responses are accepted. Participant delivery, scoring, navigation, and admin
+response history use those snapshots rather than mutable bank presentation.
+This lets lecturers continue non-destructive PMB authoring after a package is
+fully snapshotted.
+
+During the `1.5.0` admin-side schema upgrade, Quiz backfills every legacy
+assignment, including assignments on submitted attempts. Attempts are processed
+in ID order with one transaction per attempt. Existing complete snapshot fields
+are never rewritten, so an interrupted migration can safely retry after MySQL
+DDL commits. The backfill freezes the question-bank state available at migration
+time without changing existing response records. The schema revision and plugin
+version are recorded only after a global completeness check succeeds. A failed
+assignment leaves the revision pending and public Quiz routes unavailable until
+an administrator retries the upgrade. Attempt status, scores, answers, ordering,
+PMB settings/content, and participant identity are not changed by this migration.
+
+This release intentionally retains the legacy foreign keys and does not perform
+a destructive rewrite of old attempts. Question deletion therefore remains
+blocked while any assignment references it, and answer deletion remains blocked
+while current or revision history references it. Direct database writes and
+external writers can still bypass application-level guards or trigger legacy
+foreign-key cascades. Participant result links are withheld unless delivery,
+option, denominator, and final category snapshots are internally complete;
+older or ambiguous submissions remain unavailable rather than exposing a raw
+score.
+
 ## Development
 
 Run the compatibility contract against the local canonical Core checkout:
@@ -96,10 +145,14 @@ Source repository: <https://github.com/adammuizweb/quiz-system>
 
 Sibling plugins may declare a manifest dependency on Quiz and use the stable
 `quiz_extension_api_version()` capability check plus the callable
-`quiz_extension_context()` metadata API. This contract does not expose Quiz
-tables, public entrypoints, proctoring state, or private request helpers;
-extensions must own their own data and lifecycle. The API is callable instead
-of event-based so dependency-first plugin loading cannot miss a lifecycle event.
+`quiz_extension_context()` metadata API. API `1.1.0` also provides
+`quiz_extension_subscribe()` for the post-commit `attempt.submitted`,
+`answer.saved`, and `question.review_changed` events. Listener failures are
+logged and isolated. Event payloads contain identifiers and non-sensitive
+state only; they exclude tokens, OTP/contact data, IP/UA data, raw answers,
+selected options, scores, and correctness.
+This contract does not expose Quiz tables, public entrypoints, proctoring state,
+or private request helpers; extensions must own their own data and lifecycle.
 
 ## License
 

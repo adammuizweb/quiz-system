@@ -14,6 +14,7 @@ try {
   $userId = (int)$user['id'];
   $pdo->beginTransaction();
   qz_lock_category_for_mutation($pdo, $quiz_id, $id, $userId);
+  qz_assert_related_delivery_snapshots_complete($pdo, 'category', $id);
   $ownerStmt = $pdo->prepare('SELECT created_by FROM quizzes WHERE id=:id LIMIT 1');
   $ownerStmt->execute([':id' => $quiz_id]);
   $currentQuizOwner = (int)$ownerStmt->fetchColumn();
@@ -37,6 +38,9 @@ try {
   $del->execute([':id'=>$id, ':quiz_id'=>$quiz_id]);
   $pdo->commit();
   jok(['id'=>$id]);
+} catch (QuizAssignedContentException $e) {
+  if ($pdo->inTransaction()) $pdo->rollBack();
+  jfail($e->getMessage(), 409, ['code' => 'assigned_content_locked']);
 } catch (Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   jfail($e->getMessage(), $e instanceof RuntimeException ? 409 : 500);

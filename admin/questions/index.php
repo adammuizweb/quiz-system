@@ -73,7 +73,9 @@ if ($do === 'delete') {
   if ($id > 0 && csrf_check($csrf)) {
     try {
       $pdo->beginTransaction();
+      qz_lock_quiz_for_workspace_mutation($pdo, $quiz_id, (int)$user['id']);
       qz_lock_question_for_mutation($pdo, $quiz_id, $id, (int)$user['id']);
+      qz_assert_question_not_used_by_attempt($pdo, $id);
       $pdo->prepare("DELETE FROM questions WHERE id=:id AND quiz_id=:qid LIMIT 1")->execute([':id'=>$id,':qid'=>$quiz_id]);
       $pdo->commit();
       quiz_redirect("$base/?page=$pluginPage&quiz_id=$quiz_id&msg=".urlencode("Soal dihapus."));
@@ -147,7 +149,10 @@ if ($do === 'edit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!$errors) {
     try {
       $pdo->beginTransaction();
-      qz_lock_question_for_mutation($pdo, $quiz_id, $qid, (int)$user['id']);
+      qz_lock_quiz_for_workspace_mutation($pdo, $quiz_id, (int)$user['id']);
+      $currentQuestion = qz_lock_question_for_mutation($pdo, $quiz_id, $qid, (int)$user['id']);
+      qz_assert_question_snapshots_complete($pdo, $qid, true, true);
+      qz_assert_question_type_change_safe($pdo, $qid, (string)$currentQuestion['question_type'], $qtype);
       $currentQuizStmt = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1');
       $currentQuizStmt->execute([':id'=>$quiz_id]);
       $currentQuiz = $currentQuizStmt->fetch(PDO::FETCH_ASSOC);
@@ -180,7 +185,9 @@ if ($do === 'edit' && $_SERVER['REQUEST_METHOD'] === 'POST') {
       quiz_redirect("$base/?page=$pluginPage&quiz_id=$quiz_id&msg=".urlencode("Soal diupdate."));
     } catch (Throwable $error) {
       if ($pdo->inTransaction()) $pdo->rollBack();
-      $errors[] = 'Question could not be saved or access is no longer valid.';
+      $errors[] = $error instanceof QuizAssignedContentException
+        ? $error->getMessage()
+        : 'Question could not be saved or access is no longer valid.';
     }
   }
 }

@@ -171,11 +171,11 @@ switch ($start_order) {
 /* ============== 4) List quiz ============== */
 try {
   $selectCols = $hasPrimary
-    ? 'q.id, q.title, q.description, q.is_primary, q.start_at, q.end_at'
-    : 'q.id, q.title, q.description, q.start_at, q.end_at';
+    ? 'q.id, q.title, q.description, q.is_primary, q.start_at, q.end_at, q.result_visibility'
+    : 'q.id, q.title, q.description, q.start_at, q.end_at, q.result_visibility';
 
   if ($student_id > 0) {
-    $selectCols .= ', a.attempt_alias, a.status, a.submitted_at';
+    $selectCols .= ', a.id AS attempt_id, a.attempt_alias, a.status, a.submitted_at';
     $sql = "
       SELECT {$selectCols}
       FROM quizzes q
@@ -241,10 +241,16 @@ if (!empty($rows)) {
       $alias = (string)($r['attempt_alias'] ?? '');
 
       if ($st === 'submitted') {
-        $btnText = 'Already submitted';
-        $btnHref = '#';
-        $btnCls  = 'qz-btn disabled';
-        $btnAttr = ' aria-disabled="true" onclick="return false"';
+        if (quiz_safe_result_visibility($r['result_visibility'] ?? 'hidden') !== 'hidden' && $alias !== ''
+            && quiz_attempt_result_is_ready($pdo, (int)($r['attempt_id'] ?? 0))) {
+          $btnText = 'View result';
+          $btnHref = '/quiz/result/?a=' . rawurlencode($alias);
+        } else {
+          $btnText = 'Already submitted';
+          $btnHref = '#';
+          $btnCls  = 'qz-btn disabled';
+          $btnAttr = ' aria-disabled="true" onclick="return false"';
+        }
       } elseif (in_array($st, ['verified','in_progress'], true) && $alias !== '') {
         $btnText = 'Continue';
         $btnHref = '/quiz/take/?a=' . rawurlencode($alias);

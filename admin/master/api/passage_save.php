@@ -68,6 +68,7 @@ try {
   }
   if ($id > 0) {
     qz_lock_passage_for_mutation($pdo, $quiz_id, $id, (int)$user['id']);
+    qz_assert_related_delivery_snapshots_complete($pdo, 'passage', $id);
     $up = $pdo->prepare("UPDATE question_passages SET category_id=:cid, title=:title, passage_text=:txt, image_media_id=:mid, file_id=:fid, youtube_url=:yt, shuffle_questions=:sh, min_questions=:mn, max_questions=:mq, is_active=:act WHERE id=:id AND quiz_id=:quiz_id LIMIT 1");
     $up->execute([':cid'=>$category_id, ':title'=>$title, ':txt'=>$passage_text, ':mid'=>$image_media_id, ':fid'=>$file_id, ':yt'=>$youtube_url, ':sh'=>$shuffle, ':mn'=>$min_questions, ':mq'=>$max_questions, ':act'=>$is_active, ':id'=>$id, ':quiz_id'=>$quiz_id]);
     $pdo->commit();
@@ -79,6 +80,9 @@ try {
   $newId = (int)$pdo->lastInsertId();
   $pdo->commit();
   jok(['id'=>$newId, 'sort_order'=>$sort_order]);
+} catch (QuizAssignedContentException $e) {
+  if ($pdo->inTransaction()) $pdo->rollBack();
+  jfail($e->getMessage(), 409, ['code' => 'assigned_content_locked']);
 } catch (Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   jfail('DB error: '.$e->getMessage(), 500);

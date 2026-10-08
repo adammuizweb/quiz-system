@@ -1,7 +1,7 @@
 <?php
 // /quiz/verify/index.php
 // GET  : UI verifikasi OTP (pilih channel + input OTP)
-// POST : verifikasi OTP -> set in_progress + generate attempt_questions -> redirect /quiz/take/?a=ALIAS
+// POST : verifikasi OTP -> set verified -> redirect /quiz/take/?a=ALIAS
 //
 // SECURITY:
 // - wajib cookie quiz_cid
@@ -285,13 +285,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
               ? 'Too many OTP attempts. Please contact admin to reset attempts.'
               : ('Verification failed. OTP is incorrect. Remaining attempts: ' . $left . 'x.');
           } else {
-            // benar -> set in_progress + email_verified_at + counter update
+            // benar -> tandai verified; paket soal dan timer dimulai oleh take POST
             $stmt = $pdo->prepare("
               UPDATE quiz_attempts
               SET email_verified_at = NOW(),
                   verified_via = COALESCE(verified_via,'email'),
-                  status = 'in_progress',
-                  started_at = COALESCE(started_at, NOW()),
+                  status = 'verified',
                   last_activity_at = NOW(),
                   otp_try_count = :t
               WHERE id = :id
@@ -299,30 +298,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
               LIMIT 1
             ");
             $stmt->execute([':id' => $attempt_id, ':t' => $triesNew]);
-
-            // generate attempt_questions if empty
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM attempt_questions WHERE attempt_id = :aid");
-            $stmt->execute([':aid' => $attempt_id]);
-            $cnt = (int)$stmt->fetchColumn();
-
-            if ($cnt === 0) {
-              $limit = (int)($quiz['questions_per_attempt'] ?? 25);
-              if ($limit <= 0) $limit = 25;
-
-              $pdo->exec("SET @row := 0");
-              $ins = $pdo->prepare("
-                INSERT INTO attempt_questions (attempt_id, question_id, seq)
-                SELECT :aid, t.id, (@row := @row + 1) AS seq
-                FROM (
-                  SELECT id
-                  FROM questions
-                  WHERE quiz_id = :quiz_id AND is_active = 1
-                  ORDER BY RAND()
-                  LIMIT {$limit}
-                ) t
-              ");
-              $ins->execute([':aid' => $attempt_id, ':quiz_id' => $quiz_id]);
-            }
 
             $pdo->commit();
 
@@ -344,7 +319,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
 
     } catch (Throwable $e) {
       if ($pdo->inTransaction()) $pdo->rollBack();
-      error_log("[quiz/verify] verify/generate error: " . $e->getMessage());
+      error_log("[quiz/verify] verification error: " . $e->getMessage());
       $errors[] = 'Failed to process verification. Please try again.';
     }
   }

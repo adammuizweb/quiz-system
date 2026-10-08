@@ -130,7 +130,7 @@ try {
 
   if ($attemptAlias !== '') {
     $stmt = $pdo->prepare("
-      SELECT a.*, q.duration_minutes
+      SELECT a.*, q.duration_minutes, q.shuffle_answers, q.timer_warning_seconds
       FROM quiz_attempts a
       JOIN quizzes q ON q.id = a.quiz_id
       WHERE a.attempt_alias = :a AND a.student_id = :sid
@@ -139,7 +139,7 @@ try {
     $stmt->execute([':a'=>$attemptAlias, ':sid'=>$student_id]);
   } else {
     $stmt = $pdo->prepare("
-      SELECT a.*, q.duration_minutes
+      SELECT a.*, q.duration_minutes, q.shuffle_answers, q.timer_warning_seconds
       FROM quiz_attempts a
       JOIN quizzes q ON q.id = a.quiz_id
       WHERE a.quiz_id=:quiz_id AND a.student_id=:student_id
@@ -166,9 +166,31 @@ try {
 
   $attempt_id = (int)$attempt['id'];
 
+  $pdo->beginTransaction();
+  $lock = $pdo->prepare('SELECT quiz_id, status, email_verified_at, token_hash, user_agent_hash FROM quiz_attempts WHERE id=:id LIMIT 1 FOR UPDATE');
+  $lock->execute([':id' => $attempt_id]);
+  $lockedAttempt = $lock->fetch(PDO::FETCH_ASSOC);
+  if (!$lockedAttempt || (int)$lockedAttempt['quiz_id'] !== $quiz_id
+      || (string)$lockedAttempt['status'] === 'submitted'
+      || empty($lockedAttempt['email_verified_at'])
+      || (string)$lockedAttempt['status'] === 'registered'
+      || !hash_equals((string)$lockedAttempt['token_hash'], $token_hash)
+      || !hash_equals((string)$lockedAttempt['user_agent_hash'], $user_agent_hash)) {
+    $pdo->rollBack();
+    json_fail(403, 'Access not valid');
+  }
+  if (!quiz_attempt_package_is_complete($pdo, $attempt_id)) {
+    $pdo->rollBack();
+    json_fail(409, 'Quiz preparation required.', ['preparation_required' => true]);
+  }
+
   /* ===== TIMER ENFORCE (MySQL based) ===== */
   $durMin = (int)($attempt['duration_minutes'] ?? 0);
-  $timer = qz_timer_enforce($pdo, $attempt_id, $durMin, true, true);
+  $timer = qz_timer_enforce($pdo, $attempt_id, $durMin, true, true, $attempt['timer_warning_seconds'] ?? null);
+  $pdo->commit();
+  if (!empty($timer['finalized'])) quiz_extension_emit('attempt.submitted', [
+    'attempt_id' => $attempt_id, 'quiz_id' => $quiz_id, 'reason' => 'timer_expired', 'status' => 'submitted'
+  ]);
   if (!empty($timer['time_up'])) {
     json_fail(403, 'The exam time is over.', ['time_up'=>true, 'timer'=>$timer]);
   }
@@ -182,16 +204,12 @@ try {
   $stmt = $pdo->prepare("
     SELECT COUNT(*)
     FROM attempt_questions aq
-    JOIN questions q ON q.id = aq.question_id
     LEFT JOIN attempt_answers aa
       ON aa.attempt_id = aq.attempt_id AND aa.question_id = aq.question_id
     WHERE aq.attempt_id = :aid
       AND (
-        (q.question_type IN ('single_choice','yesno') AND aa.selected_answer_id IS NOT NULL)
-        OR
-        (q.question_type = 'multiple_choice' AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
-        OR
-        (q.question_type IN ('text','number') AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '')
+        aa.selected_answer_id IS NOT NULL
+        OR (aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
       )
   ");
   $stmt->execute([':aid'=>$attempt_id]);
@@ -201,18 +219,14 @@ try {
     $stmt = $pdo->prepare("
       SELECT aq.seq
       FROM attempt_questions aq
-      JOIN questions q ON q.id = aq.question_id
       LEFT JOIN attempt_answers aa
         ON aa.attempt_id = aq.attempt_id AND aa.question_id = aq.question_id
       WHERE aq.attempt_id = :aid
       ORDER BY
         CASE
           WHEN (
-            (q.question_type IN ('single_choice','yesno') AND aa.selected_answer_id IS NOT NULL)
-            OR
-            (q.question_type = 'multiple_choice' AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
-            OR
-            (q.question_type IN ('text','number') AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '')
+            aa.selected_answer_id IS NOT NULL
+            OR (aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
           ) THEN 1 ELSE 0 END ASC,
         aq.seq ASC
       LIMIT 1
@@ -249,7 +263,10 @@ try {
 
   $stmt = $pdo->prepare("
     SELECT
-      aq.seq,
+       aq.id AS attempt_question_id,
+       aq.seq,
+       aq.marked_for_review,
+       aq.delivery_snapshot_json,
       q.id AS question_id,
       q.question_text,
       q.question_type,
@@ -299,6 +316,47 @@ try {
   $q = $stmt->fetch(PDO::FETCH_ASSOC);
   if (!$q) json_fail(404, 'Question not found');
 
+  $deliverySnapshot = json_decode((string)($q['delivery_snapshot_json'] ?? ''), true);
+  $hasDeliverySnapshot = is_array($deliverySnapshot) && (int)($deliverySnapshot['version'] ?? 0) === 1
+    && is_array($deliverySnapshot['question'] ?? null);
+  $snapshotQuestionFile = null;
+  $snapshotPassageFile = null;
+  if ($hasDeliverySnapshot) {
+    $deliverySnapshot = quiz_revalidate_delivery_snapshot_assets($pdo, $deliverySnapshot);
+    $questionDelivery = $deliverySnapshot['question'];
+    $hasPassageDelivery = is_array($deliverySnapshot['passage'] ?? null);
+    $passageDelivery = $hasPassageDelivery ? $deliverySnapshot['passage'] : [];
+    $categoryDelivery = is_array($deliverySnapshot['category'] ?? null) ? $deliverySnapshot['category'] : [];
+    $q['question_text'] = (string)($questionDelivery['text'] ?? '');
+    $q['question_type'] = (string)($questionDelivery['type'] ?? '');
+    $q['image_media_id'] = $questionDelivery['image_media_id'] ?? null;
+    $q['image_url'] = (string)($questionDelivery['image_url'] ?? '');
+    $q['file_id'] = $questionDelivery['file_id'] ?? null;
+    $q['youtube_url'] = (string)($questionDelivery['youtube_url'] ?? '');
+    $snapshotQuestionFile = ['file_label' => (string)($questionDelivery['file_label'] ?? ''),
+      'file_url' => (string)($questionDelivery['file_url'] ?? '')];
+    $q['passage_id'] = $passageDelivery['id'] ?? null;
+    $q['passage_title'] = (string)($passageDelivery['title'] ?? '');
+    $q['passage_text'] = (string)($passageDelivery['text'] ?? '');
+    $q['passage_min_questions'] = (int)($passageDelivery['min_questions'] ?? 0);
+    $q['passage_max_questions'] = $passageDelivery['max_questions'] ?? null;
+    $q['passage_image_media_id'] = $passageDelivery['image_media_id'] ?? null;
+    $q['passage_image_url'] = (string)($passageDelivery['image_url'] ?? '');
+    $q['passage_file_id'] = $passageDelivery['file_id'] ?? null;
+    $q['passage_youtube_url'] = (string)($passageDelivery['youtube_url'] ?? '');
+    $snapshotPassageFile = $hasPassageDelivery
+      ? ['file_label' => (string)($passageDelivery['file_label'] ?? ''), 'file_url' => (string)($passageDelivery['file_url'] ?? '')]
+      : null;
+    $q['passage_category_id'] = $categoryDelivery['id'] ?? null;
+    $q['passage_category_name'] = (string)($categoryDelivery['name'] ?? '');
+    $q['passage_category_min_questions'] = (int)($categoryDelivery['min_questions'] ?? 0);
+    $q['passage_category_max_questions'] = $categoryDelivery['max_questions'] ?? null;
+    $q['question_category_id'] = $categoryDelivery['id'] ?? null;
+    $q['question_category_name'] = (string)($categoryDelivery['name'] ?? '');
+    $q['question_category_min_questions'] = (int)($categoryDelivery['min_questions'] ?? 0);
+    $q['question_category_max_questions'] = $categoryDelivery['max_questions'] ?? null;
+  }
+
   // decode entity tags
   $q['question_text'] = maybe_decode_entities((string)($q['question_text'] ?? ''));
   $q['passage_text']  = maybe_decode_entities((string)($q['passage_text'] ?? ''));
@@ -315,47 +373,23 @@ try {
 
   $answers = [];
   if (!in_array((string)$q['question_type'], ['text','number'], true)) {
-// === ANSWER SHUFFLE (stable per attempt+question) ===
-// ganti salt ini dengan string random milikmu (jangan umum)
-if (!defined('QZ_ANSWER_SHUFFLE_SALT')) {
-  define('QZ_ANSWER_SHUFFLE_SALT', 'CHANGE_ME_to_random_long_string');
-}
-
-$answers = [];
-if (!in_array((string)$q['question_type'], ['text','number'], true)) {
-
-  // seed unik per siswa(attempt) + per soal
-  $seed = hash('sha256',
-    QZ_ANSWER_SHUFFLE_SALT.'|'.$attempt_id.'|'.(int)$q['question_id'].'|'.(string)($attempt['token_hash'] ?? '')
-  );
-
-  $stmt = $pdo->prepare("
-    SELECT id, answer_text
-    FROM question_answers
-    WHERE question_id = :qid AND is_active = 1
-    ORDER BY MD5(CONCAT(:seed, ':', id)) ASC, id ASC
-  ");
-  $stmt->execute([
-    ':qid'  => (int)$q['question_id'],
-    ':seed' => $seed,
-  ]);
-
-  $answers = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-  foreach ($answers as &$a) {
-    $a['answer_text'] = maybe_decode_entities((string)($a['answer_text'] ?? ''));
-  }
-  unset($a);
-}
-
+    $stmt = $pdo->prepare('SELECT source_answer_id AS id, answer_text FROM attempt_question_options
+      WHERE attempt_question_id=:attempt_question_id ORDER BY delivery_seq ASC');
+    $stmt->execute([':attempt_question_id' => (int)$q['attempt_question_id']]);
+    $answers = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     foreach ($answers as &$a) {
       $a['answer_text'] = maybe_decode_entities((string)($a['answer_text'] ?? ''));
     }
     unset($a);
   }
-
   $existing_selected_answer_id = $existing['selected_answer_id'] ?? null;
   $existing_selected_answer_ids = null;
+
+  if (in_array((string)$q['question_type'], ['single_choice', 'yesno'], true)
+      && (int)$existing_selected_answer_id <= 0) {
+    $snapshottedSourceId = filter_var(trim((string)($existing['answer_text'] ?? '')), FILTER_VALIDATE_INT);
+    if ($snapshottedSourceId !== false && $snapshottedSourceId > 0) $existing_selected_answer_id = $snapshottedSourceId;
+  }
 
   if ((string)$q['question_type'] === 'multiple_choice') {
     $arr = [];
@@ -414,10 +448,12 @@ if (!in_array((string)$q['question_type'], ['text','number'], true)) {
 
   // resolve file info question + passage
   $fileId = (int)($q['file_id'] ?? 0);
-  $fileInfo = resolve_file_info($pdo, $fileId);
+  $fileInfo = $snapshotQuestionFile ?? resolve_file_info($pdo, $fileId);
+  $fileInfo['file_url'] = normalize_public_url((string)($fileInfo['file_url'] ?? ''));
 
   $pFileId = (int)($q['passage_file_id'] ?? 0);
-  $pFileInfo = resolve_file_info($pdo, $pFileId);
+  $pFileInfo = $snapshotPassageFile ?? resolve_file_info($pdo, $pFileId);
+  $pFileInfo['file_url'] = normalize_public_url((string)($pFileInfo['file_url'] ?? ''));
 
   $passage = null;
 
@@ -454,6 +490,7 @@ if (!in_array((string)$q['question_type'], ['text','number'], true)) {
       'question_id' => (int)$q['question_id'],
       'question_text' => (string)$q['question_text'],
       'question_type' => (string)$q['question_type'],
+      'marked_for_review' => !empty($q['marked_for_review']),
 
       'answers' => $answers,
 
@@ -484,6 +521,7 @@ if (!in_array((string)$q['question_type'], ['text','number'], true)) {
   ]);
 
 } catch (Throwable $e) {
+  if ($pdo->inTransaction()) $pdo->rollBack();
   error_log("[quiz/api/get_question] FAIL: ".$e->getMessage());
   json_fail(500, 'Server error');
 }

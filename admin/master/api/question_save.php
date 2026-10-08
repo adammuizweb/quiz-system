@@ -77,6 +77,8 @@ try {
   qz_lock_quiz_for_workspace_mutation($pdo, $quiz_id, (int)$user['id']);
   if ($id > 0) {
     $cur = qz_lock_question_for_mutation($pdo, $quiz_id, $id, (int)$user['id']);
+    qz_assert_question_snapshots_complete($pdo, $id, true, true);
+    qz_assert_question_type_change_safe($pdo, $id, (string)$cur['question_type'], $question_type);
     $curCat = isset($cur['category_id']) ? (int)$cur['category_id'] : null;
     if ($curCat !== null && $curCat <= 0) $curCat = null;
     $final_category_id = null;
@@ -116,6 +118,9 @@ try {
   }
   $pdo->commit();
   jok(['id'=>$id, 'sort_order'=>$sort_order]);
+} catch (QuizAssignedContentException $e) {
+  if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+  jfail($e->getMessage(), 409, ['code' => 'assigned_content_locked']);
 } catch (Throwable $e) {
   if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
   jfail('DB error: '.$e->getMessage(), 500);

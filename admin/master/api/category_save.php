@@ -40,6 +40,7 @@ try {
   qz_lock_quiz_for_workspace_mutation($pdo, $quiz_id, (int)$user['id']);
   if ($id > 0) {
     qz_lock_category_for_mutation($pdo, $quiz_id, $id, (int)$user['id']);
+    qz_assert_related_delivery_snapshots_complete($pdo, 'category', $id);
     $up = $pdo->prepare("UPDATE question_categories SET name=:name, description=:descr, shuffle_passages=:sp, shuffle_questions=:sq, max_questions=:mx, min_questions=:mn, is_active=:act WHERE id=:id AND quiz_id=:quiz_id LIMIT 1");
     $up->execute([':name'=>$name, ':descr'=>($description===''?null:$description), ':sp'=>$shuffle_passages, ':sq'=>$shuffle_questions, ':mx'=>$max_questions, ':mn'=>$min_questions, ':act'=>$is_active, ':id'=>$id, ':quiz_id'=>$quiz_id]);
     $pdo->commit();
@@ -51,6 +52,9 @@ try {
   $newId = (int)$pdo->lastInsertId();
   $pdo->commit();
   jok(['id'=>$newId, 'sort_order'=>$sort_order]);
+} catch (QuizAssignedContentException $e) {
+  if ($pdo->inTransaction()) $pdo->rollBack();
+  jfail($e->getMessage(), 409, ['code' => 'assigned_content_locked']);
 } catch (Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   jfail('DB error: '.$e->getMessage(), 500);

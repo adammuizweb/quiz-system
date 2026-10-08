@@ -66,6 +66,12 @@ function quiz_upgrade_schema(\PDO $pdo): void {
         return (int)$stmt->fetchColumn() > 0;
     };
 
+    $addColumn = static function (string $table, string $column, string $definition) use ($pdo, $columnExists): void {
+        if (!$columnExists($table, $column)) {
+            $pdo->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        }
+    };
+
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS quiz_collaborators (
           quiz_id INT UNSIGNED NOT NULL,
@@ -128,12 +134,154 @@ function quiz_upgrade_schema(\PDO $pdo): void {
             $pdo->exec("ALTER TABLE {$table} ADD KEY {$ownerIndex} (quiz_id, created_by)");
         }
     }
+
+    // 1.5.0 is additive only. Existing quiz rows receive the exact 1.4.13 behavior.
+    $addColumn('quizzes', 'shuffle_answers', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER duration_minutes');
+    $addColumn('quizzes', 'timer_warning_seconds', 'VARCHAR(255) NULL AFTER shuffle_answers');
+    $addColumn('quizzes', 'allow_mark_for_review', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER timer_warning_seconds');
+    $addColumn('quizzes', 'result_visibility', "ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden' AFTER allow_mark_for_review");
+    $addColumn('quiz_attempts', 'elapsed_seconds', 'INT UNSIGNED NULL AFTER submitted_at');
+    $addColumn('attempt_questions', 'marked_for_review', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER seq');
+    $addColumn('attempt_questions', 'marked_at', 'DATETIME NULL AFTER marked_for_review');
+    $addColumn('attempt_questions', 'available_score_snapshot', 'INT UNSIGNED NULL AFTER marked_at');
+    $addColumn('attempt_questions', 'category_key_snapshot', 'VARCHAR(100) NULL AFTER available_score_snapshot');
+    $addColumn('attempt_questions', 'category_id_snapshot', 'INT UNSIGNED NULL AFTER category_key_snapshot');
+    $addColumn('attempt_questions', 'category_name_snapshot', 'VARCHAR(255) NULL AFTER category_id_snapshot');
+    $addColumn('attempt_questions', 'options_snapshotted_at', 'DATETIME NULL AFTER category_name_snapshot');
+    $addColumn('attempt_questions', 'delivery_snapshot_json', 'LONGTEXT NULL AFTER options_snapshotted_at');
+    $addColumn('attempt_questions', 'delivery_snapshotted_at', 'DATETIME NULL AFTER delivery_snapshot_json');
+    $addColumn('attempt_questions', 'snapshot_at', 'DATETIME NULL AFTER delivery_snapshotted_at');
+    $addColumn('attempt_answers', 'revision_count', 'INT UNSIGNED NOT NULL DEFAULT 0 AFTER computed_score');
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS attempt_answer_revisions (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      attempt_answer_id INT UNSIGNED NOT NULL,
+      attempt_id INT UNSIGNED NOT NULL,
+      question_id INT UNSIGNED NOT NULL,
+      revision_number INT UNSIGNED NOT NULL,
+      selected_answer_id INT UNSIGNED NULL,
+      answer_text LONGTEXT NULL,
+      computed_score INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_attempt_answer_revision (attempt_answer_id, revision_number),
+      KEY idx_attempt_answer_revisions_attempt (attempt_id, question_id),
+      KEY idx_attempt_answer_revisions_selected (selected_answer_id),
+      CONSTRAINT fk_attempt_answer_revisions_answer FOREIGN KEY (attempt_answer_id) REFERENCES attempt_answers (id) ON DELETE CASCADE,
+      CONSTRAINT fk_attempt_answer_revisions_attempt FOREIGN KEY (attempt_id) REFERENCES quiz_attempts (id) ON DELETE CASCADE,
+      CONSTRAINT fk_attempt_answer_revisions_question FOREIGN KEY (question_id) REFERENCES questions (id) ON DELETE CASCADE,
+      CONSTRAINT fk_attempt_answer_revisions_selected FOREIGN KEY (selected_answer_id) REFERENCES question_answers (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS attempt_question_options (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      attempt_question_id INT UNSIGNED NOT NULL,
+      attempt_id INT UNSIGNED NOT NULL,
+      question_id INT UNSIGNED NOT NULL,
+      source_answer_id INT UNSIGNED NOT NULL,
+      answer_text LONGTEXT NOT NULL,
+      score INT NOT NULL DEFAULT 0,
+      delivery_seq INT UNSIGNED NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_attempt_question_option_source (attempt_question_id, source_answer_id),
+      UNIQUE KEY uq_attempt_question_option_seq (attempt_question_id, delivery_seq),
+      KEY idx_attempt_question_options_attempt (attempt_id, question_id),
+      KEY idx_attempt_question_options_source (source_answer_id),
+      CONSTRAINT fk_attempt_question_options_question FOREIGN KEY (attempt_question_id) REFERENCES attempt_questions (id) ON DELETE CASCADE,
+      CONSTRAINT fk_attempt_question_options_attempt FOREIGN KEY (attempt_id) REFERENCES quiz_attempts (id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS attempt_category_scores (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      attempt_id INT UNSIGNED NOT NULL,
+      category_key VARCHAR(100) NOT NULL,
+      category_id INT UNSIGNED NULL,
+      category_name VARCHAR(255) NOT NULL,
+      question_count INT UNSIGNED NOT NULL DEFAULT 0,
+      answered_count INT UNSIGNED NOT NULL DEFAULT 0,
+      correct_count INT UNSIGNED NOT NULL DEFAULT 0,
+      earned_score INT NOT NULL DEFAULT 0,
+      available_score INT UNSIGNED NOT NULL DEFAULT 0,
+      percent DECIMAL(7,2) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_attempt_category_score (attempt_id, category_key),
+      KEY idx_attempt_category_scores_category (category_id),
+      CONSTRAINT fk_attempt_category_scores_attempt FOREIGN KEY (attempt_id) REFERENCES quiz_attempts (id) ON DELETE CASCADE,
+      CONSTRAINT fk_attempt_category_scores_category FOREIGN KEY (category_id) REFERENCES question_categories (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshotAttempt = null, int $batchSize = 100): void {
+    try {
+        if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
+    } catch (\Throwable $error) {
+        throw new \RuntimeException('Quiz snapshot migration database driver is unavailable.', 0, $error);
+    }
+
+    if (!function_exists('quiz_snapshot_attempt_questions')
+        || !function_exists('quiz_attempt_question_snapshot_incomplete_condition')) {
+        $helperFile = __DIR__ . '/includes/helpers.php';
+        if (is_file($helperFile)) require_once $helperFile;
+    }
+    if (!function_exists('quiz_snapshot_attempt_questions')
+        || !function_exists('quiz_attempt_question_snapshot_incomplete_condition')) {
+        throw new \RuntimeException('Quiz snapshot migration support is unavailable.');
+    }
+
+    $snapshotAttempt ??= 'quiz_snapshot_attempt_questions';
+    $batchSize = max(1, min(500, $batchSize));
+    $incomplete = quiz_attempt_question_snapshot_incomplete_condition('aq');
+    $afterAttemptId = 0;
+
+    do {
+        $stmt = $pdo->prepare("SELECT DISTINCT aq.attempt_id, a.status
+            FROM attempt_questions aq
+            JOIN quiz_attempts a ON a.id=aq.attempt_id
+            WHERE aq.attempt_id>:after_attempt_id AND a.status='submitted' AND {$incomplete}
+            ORDER BY aq.attempt_id ASC LIMIT {$batchSize}");
+        $stmt->execute([':after_attempt_id' => $afterAttemptId]);
+        $attempts = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($attempts as $attempt) {
+            $attemptId = (int)($attempt['attempt_id'] ?? 0);
+            if ($attemptId <= $afterAttemptId) {
+                throw new \RuntimeException('Quiz snapshot migration returned an invalid attempt order.');
+            }
+            try {
+                if (!$pdo->beginTransaction()) {
+                    throw new \RuntimeException('Attempt snapshot transaction could not start.');
+                }
+                $snapshotAttempt($pdo, $attemptId);
+                $verify = $pdo->prepare("SELECT COUNT(*) FROM attempt_questions aq
+                    WHERE aq.attempt_id=:attempt_id AND {$incomplete}");
+                $verify->execute([':attempt_id' => $attemptId]);
+                if ((int)$verify->fetchColumn() !== 0) {
+                    throw new \RuntimeException('Attempt still has incomplete snapshots.');
+                }
+                if (!$pdo->commit()) {
+                    throw new \RuntimeException('Attempt snapshot transaction could not commit.');
+                }
+            } catch (\Throwable $error) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                error_log('[quiz] Snapshot backfill failed: attempt_id=' . $attemptId
+                    . ' error=' . get_class($error) . ' code=' . (string)$error->getCode());
+                throw new \RuntimeException('Legacy attempt snapshots could not be completed.', 0, $error);
+            }
+            $afterAttemptId = $attemptId;
+        }
+    } while (count($attempts) === $batchSize);
+
+    $verifyAll = $pdo->query("SELECT COUNT(*) FROM attempt_questions aq
+        JOIN quiz_attempts a ON a.id=aq.attempt_id
+        WHERE a.status='submitted' AND {$incomplete}");
+    if ($verifyAll === false || (int)$verifyAll->fetchColumn() !== 0) {
+        throw new \RuntimeException('Legacy attempt snapshot verification failed.');
+    }
 }
 
 // --- Idempotent schema installation on Quiz requests ---
-function quiz_install_schema(\PDO $pdo): void {
+function quiz_install_schema(\PDO $pdo): bool {
     try {
-        $schemaRevision = '20260821-resource-owners';
+        $schemaRevision = '20261008-submitted-delivery-snapshot-backfill';
         $manifest = plugin_manifest('quiz');
         $version = is_array($manifest) && is_string($manifest['version'] ?? null)
             ? $manifest['version']
@@ -142,35 +290,35 @@ function quiz_install_schema(\PDO $pdo): void {
             throw new \RuntimeException('Plugin version is unavailable.');
         }
         $installedVersion = settings_get($pdo, 'quiz_test_version', '');
-        if ($installedVersion === $version) {
-            if (settings_get($pdo, 'quiz_schema_revision', '') !== $schemaRevision) {
-                quiz_upgrade_schema($pdo);
-                if (!settings_set($pdo, 'quiz_schema_revision', $schemaRevision)) {
-                    throw new \RuntimeException('Schema revision could not be recorded.');
-                }
-            }
-            return;
+        $installedRevision = settings_get($pdo, 'quiz_schema_revision', '');
+        if ($installedVersion === $version && $installedRevision === $schemaRevision) {
+            return true;
         }
 
-        $schemaFile = __DIR__ . '/schema.sql';
-        $sql = is_file($schemaFile) ? file_get_contents($schemaFile) : false;
-        if (!is_string($sql) || trim($sql) === '') {
-            throw new \RuntimeException('Schema file is missing or unreadable.');
-        }
-        if ($pdo->exec($sql) === false) {
-            $error = $pdo->errorInfo();
-            throw new \RuntimeException((string)($error[2] ?? 'Schema execution failed.'));
+        if ($installedVersion !== $version) {
+            $schemaFile = __DIR__ . '/schema.sql';
+            $sql = is_file($schemaFile) ? file_get_contents($schemaFile) : false;
+            if (!is_string($sql) || trim($sql) === '') {
+                throw new \RuntimeException('Schema file is missing or unreadable.');
+            }
+            if ($pdo->exec($sql) === false) {
+                $error = $pdo->errorInfo();
+                throw new \RuntimeException((string)($error[2] ?? 'Schema execution failed.'));
+            }
         }
         quiz_upgrade_schema($pdo);
+        quiz_backfill_attempt_question_snapshots($pdo);
         if (!settings_set($pdo, 'quiz_schema_revision', $schemaRevision)) {
             throw new \RuntimeException('Schema revision could not be recorded.');
         }
-        if (!settings_set($pdo, 'quiz_test_version', $version)) {
+        if ($installedVersion !== $version && !settings_set($pdo, 'quiz_test_version', $version)) {
             throw new \RuntimeException('Schema version could not be recorded.');
         }
+        return true;
     } catch (\Throwable $e) {
         // Leave the stored version unchanged so the next request retries.
-        error_log('[quiz] Schema migration failed: ' . $e->getMessage());
+        error_log('[quiz] Schema migration failed: error=' . get_class($e) . ' code=' . (string)$e->getCode());
+        return false;
     }
 }
 
@@ -179,7 +327,7 @@ function quiz_schema_is_ready(\PDO $pdo): bool {
     $version = is_array($manifest) ? (string)($manifest['version'] ?? '') : '';
     return $version !== ''
         && settings_get($pdo, 'quiz_test_version', '') === $version
-        && settings_get($pdo, 'quiz_schema_revision', '') === '20260821-resource-owners';
+        && settings_get($pdo, 'quiz_schema_revision', '') === '20261008-submitted-delivery-snapshot-backfill';
 }
 
 /** Resolve only explicitly supported public PHP entrypoints. */
@@ -197,12 +345,15 @@ function quiz_frontend_entrypoint(string $route): ?string {
         'start/confirm/index.php' => 'start/confirm/index.php',
         'take' => 'take/index.php',
         'take/index.php' => 'take/index.php',
+        'result' => 'result/index.php',
+        'result/index.php' => 'result/index.php',
         'reset' => 'reset/index.php',
         'reset/index.php' => 'reset/index.php',
         'send_otp.php' => 'send_otp.php',
         'api/get_question.php' => 'api/get_question.php',
         'api/proctor_event.php' => 'api/proctor_event.php',
         'api/save_answer.php' => 'api/save_answer.php',
+        'api/set_review.php' => 'api/set_review.php',
         'api/submit.php' => 'api/submit.php',
     ];
 
@@ -275,8 +426,8 @@ add_action('jy_head', function (): void {
 
 add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
-    echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=1.4.13">' . PHP_EOL;
-    echo '<script src="/static/plugins/quiz/admin.js?v=1.4.13" defer></script>' . PHP_EOL;
+    echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=1.5.0">' . PHP_EOL;
+    echo '<script src="/static/plugins/quiz/admin.js?v=1.5.0" defer></script>' . PHP_EOL;
 });
 
 // --- Admin sidebar menu ---
@@ -342,7 +493,10 @@ add_action('plugin_uninstall', function(string $name): void {
     if ($name !== 'quiz') return;
     global $pdo;
     $tables = [
+        'attempt_answer_revisions',
+        'attempt_category_scores',
         'attempt_answers',
+        'attempt_question_options',
         'attempt_questions',
         'question_answers',
         'quiz_attempt_proctor_logs',

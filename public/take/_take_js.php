@@ -10,6 +10,13 @@ $csrfToken    = qz_public_csrf_token();
 $scriptJsonFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE;
 $attemptJson     = json_encode($attemptAlias, $scriptJsonFlags);
 $answeredMapJson = json_encode(($ctx['answered_map'] ?? []), $scriptJsonFlags);
+$reviewMapJson   = json_encode(($ctx['review_map'] ?? []), $scriptJsonFlags);
+$timerJson       = json_encode([
+  'server_now_ts' => (int)($ctx['server_now_ts'] ?? 0),
+  'duration_sec' => (int)($ctx['duration_sec'] ?? 0),
+  'ends_at_ts' => (int)($ctx['ends_at_ts'] ?? 0),
+  'warning_seconds' => $ctx['warning_seconds'] ?? [],
+], $scriptJsonFlags);
 $csrfTokenJson   = json_encode($csrfToken, $scriptJsonFlags);
 
 // OPTIONAL (kalau sudah kamu isi di _take_ctx.php)
@@ -18,6 +25,8 @@ $navCatMapJson   = json_encode(($ctx['nav_cat_map'] ?? []), $scriptJsonFlags);
 
 if ($attemptJson === false) $attemptJson = '""';
 if ($answeredMapJson === false) $answeredMapJson = '{}';
+if ($reviewMapJson === false) $reviewMapJson = '{}';
+if ($timerJson === false) $timerJson = '{}';
 if ($csrfTokenJson === false) $csrfTokenJson = '""';
 if ($navSectionsJson === false) $navSectionsJson = '[]';
 if ($navCatMapJson === false) $navCatMapJson = '{}';
@@ -73,7 +82,9 @@ function makeOptBadge(i){
   const NAV_CAT_MAP  = {$navCatMapJson} || {};
 
   let answeredMap = {$answeredMapJson} || {};
+  let reviewMap = {$reviewMapJson} || {};
   let currentSeq = null;
+  let currentQuestionId = null;
 
   let qLoadBusy = false;
   let qLoadAbort = null;
@@ -96,6 +107,7 @@ function makeOptBadge(i){
   const btnPrev = document.getElementById("btnPrev");
   const btnNext = document.getElementById("btnNext");
   const btnSubmit = document.getElementById("btnSubmit");
+  const btnReview = document.getElementById("btnReview");
   const alertBox = document.getElementById("alertBox");
   const navGrid = document.getElementById("navGrid");
   const navSections = document.getElementById("navSections");
@@ -289,6 +301,7 @@ function makeOptBadge(i){
   const API_GET    = "/quiz/api/get_question.php";
   const API_SAVE   = "/quiz/api/save_answer.php";
   const API_SUBMIT = "/quiz/api/submit.php";
+  const API_REVIEW = "/quiz/api/set_review.php";
   const PROCTOR_API = "/quiz/api/proctor_event.php";
 
   // ===== TIMER STATE =====
@@ -300,6 +313,12 @@ function makeOptBadge(i){
   let timerTicking = false;
   let timerHandle = null;
   let timeUpTriggered = false;
+  let warningSeconds = [];
+  const shownTimerWarnings = new Set();
+  const timerWarningKey = "take_timer_warnings_" + attempt;
+  try {
+    JSON.parse(sessionStorage.getItem(timerWarningKey) || "[]").forEach(value=>shownTimerWarnings.add(Number(value)));
+  } catch(e) {}
 
   function nowServerTs(){
     return Math.floor(Date.now()/1000) + serverOffsetSec;
@@ -320,6 +339,9 @@ function makeOptBadge(i){
     const sn = Number(t.server_now_ts || 0);
     const ea = Number(t.ends_at_ts || 0);
     const du = Number(t.duration_sec || 0);
+    if (Array.isArray(t.warning_seconds)) {
+      warningSeconds = Array.from(new Set(t.warning_seconds.map(Number).filter(n=>n>0))).sort((a,b)=>b-a);
+    }
 
     if (sn > 0) {
       const clientNow = Math.floor(Date.now()/1000);
@@ -351,6 +373,14 @@ function makeOptBadge(i){
       }
       return;
     }
+
+    warningSeconds.forEach(threshold=>{
+      if (remain <= threshold && !shownTimerWarnings.has(threshold)) {
+        shownTimerWarnings.add(threshold);
+        try { sessionStorage.setItem(timerWarningKey, JSON.stringify(Array.from(shownTimerWarnings))); } catch(e) {}
+        showAlert("error", "Time warning: " + fmtMMSS(remain) + " remaining.");
+      }
+    });
 
     elTimer.textContent = fmtMMSS(remain);
   }
@@ -1065,6 +1095,18 @@ function refreshProgressUI(){
     if (btn) btn.classList.add("active");
   }
 
+  function setReviewState(seq, marked){
+    reviewMap[seq] = marked ? 1 : 0;
+    if (navGrid) {
+      const dot = navGrid.querySelector('.qt-dot[data-seq="'+seq+'"]');
+      if (dot) dot.classList.toggle("reviewed", !!marked);
+    }
+    if (btnReview && Number(currentSeq) === Number(seq)) {
+      btnReview.setAttribute("aria-pressed", marked ? "true" : "false");
+      btnReview.textContent = marked ? "Remove review mark" : "Mark for review";
+    }
+  }
+
   function ensureProctorOrThrow(){
     if (!proctorOk()) {
       const info = explainProctorBlock();
@@ -1119,9 +1161,11 @@ function refreshProgressUI(){
 
   function renderQuestion(payload){
     currentSeq = payload.seq;
+    currentQuestionId = Number(payload.question_id || 0);
     setActiveDot(currentSeq);
     setActiveSection(currentSeq);
     refreshProgressUI();
+    if (btnReview) setReviewState(payload.seq, !!payload.marked_for_review);
 
     const catName = labelOther(payload.category_name);
     if (elCatPill){
@@ -1390,6 +1434,17 @@ if (elCatPill){
     if (currentSeq<total) loadQuestion(currentSeq+1);
   });
 
+  if (btnReview) btnReview.addEventListener("click", async ()=>{
+    if (!currentSeq || !currentQuestionId) return;
+    const requestedSeq = Number(currentSeq);
+    const requestedQuestionId = Number(currentQuestionId);
+    const marked = !reviewMap[requestedSeq];
+    const response = await api(API_REVIEW, {
+      attempt: attempt, quiz_id: quizId, question_id: requestedQuestionId, marked: marked ? 1 : 0
+    }).catch(e=>{ showAlert("error", e.message); return null; });
+    if (response) setReviewState(requestedSeq, !!(response.data && response.data.marked_for_review));
+  });
+
 async function doSubmit(autoFlag, confirmIncomplete){
   try{
     submitting = true;
@@ -1400,7 +1455,8 @@ async function doSubmit(autoFlag, confirmIncomplete){
       confirm_incomplete: confirmIncomplete ? 1 : 0
     });
     showAlert("ok", "Submitted successfully.");
-    setTimeout(()=>location.reload(), 650);
+    const resultUrl = resp && resp.data ? String(resp.data.result_url || "") : "";
+    setTimeout(()=>{ if (resultUrl) location.assign(resultUrl); else location.reload(); }, 650);
     return resp;
   }catch(e){
     showAlert("error", e.message);
@@ -1443,6 +1499,7 @@ if (btnSubmit) btnSubmit.addEventListener("click", async ()=>{
 
   refreshProgressUI();
   buildSectionsUI();
+  syncTimerFrom({timer: {$timerJson}});
 
   (async function startExam(){
     try{

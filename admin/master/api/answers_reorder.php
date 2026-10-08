@@ -15,7 +15,9 @@ require_question_in_quiz($quiz_id, $qid);
 try {
   $userId = (int)qz_api_user()['id'];
   $pdo->beginTransaction();
+  qz_lock_quiz_for_workspace_mutation($pdo, $quiz_id, $userId);
   qz_lock_answer_for_mutation($pdo, $quiz_id, $qid, $ordered[0], $userId);
+  qz_assert_question_snapshots_complete($pdo, $qid, false, true);
   $rows = lock_order_collection($pdo, 'answers', $qid);
   if (!hash_equals(order_revision($rows), $expectedRevision) || !order_members_match($ordered, $rows)) order_conflict($pdo);
   $upd = $pdo->prepare("UPDATE question_answers SET sort_order=:sort WHERE id=:id AND question_id=:qid");
@@ -27,6 +29,9 @@ try {
     $ordered,
     array_keys($ordered)
   ))]);
+} catch (QuizAssignedContentException $e) {
+  if ($pdo->inTransaction()) $pdo->rollBack();
+  jfail($e->getMessage(), 409, ['code' => 'assigned_content_locked']);
 } catch (Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   jfail('DB error: '.$e->getMessage(), 500);

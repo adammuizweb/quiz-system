@@ -23,6 +23,7 @@ try {
   qz_lock_attempt_for_mutation($pdo, $attempt_id, (int)qz_admin_user($pdo)['id'], 'plugin.quiz.attempts.operate');
   $pdo->prepare("DELETE FROM attempt_answers WHERE attempt_id=:id")->execute([':id' => $attempt_id]);
   $pdo->prepare("DELETE FROM attempt_questions WHERE attempt_id=:id")->execute([':id' => $attempt_id]);
+  $pdo->prepare("DELETE FROM attempt_category_scores WHERE attempt_id=:id")->execute([':id' => $attempt_id]);
 
   $otp = (string)random_int(100000, 999999);
 
@@ -36,6 +37,7 @@ try {
         status = 'registered',
         started_at = NULL,
         submitted_at = NULL,
+        elapsed_seconds = NULL,
         otp_email_sent_at = NULL,
         otp_wa_sent_at = NULL,
         otp_try_count = 0,

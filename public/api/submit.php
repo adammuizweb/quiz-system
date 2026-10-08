@@ -63,7 +63,7 @@ try {
 
   // lock attempt (+ duration)
   $stmt = $pdo->prepare("
-    SELECT a.*, q.duration_minutes
+    SELECT a.*, q.duration_minutes, q.timer_warning_seconds, q.result_visibility
     FROM quiz_attempts a
     JOIN quizzes q ON q.id = a.quiz_id
     WHERE a.attempt_alias = :a AND a.student_id = :sid
@@ -81,11 +81,19 @@ try {
   if (empty($attempt['email_verified_at']) || (string)$attempt['status'] === 'registered') {
     $pdo->rollBack(); json_fail(403, 'Not verified');
   }
+  if (!quiz_attempt_package_is_complete($pdo, (int)$attempt['id'])) {
+    $pdo->rollBack(); json_fail(409, 'Quiz preparation required.', ['preparation_required' => true]);
+  }
 
   if ((string)$attempt['status'] === 'submitted') {
     // idempotent
     $pdo->commit();
-    echo json_encode(['ok'=>true,'data'=>['already_submitted'=>true]], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+    $alreadyData = ['already_submitted'=>true];
+    if (quiz_safe_result_visibility($attempt['result_visibility'] ?? 'hidden') !== 'hidden'
+        && quiz_attempt_result_is_ready($pdo, (int)$attempt['id'])) {
+      $alreadyData['result_url'] = '/quiz/result/?a=' . rawurlencode($attemptAlias);
+    }
+    echo json_encode(['ok'=>true,'data'=>$alreadyData], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
     exit;
   }
 
@@ -95,7 +103,7 @@ try {
   $durMin = (int)($attempt['duration_minutes'] ?? 0);
 
   // jangan finalize di helper; submit yang finalize.
-  $timer = qz_timer_enforce($pdo, $attempt_id, $durMin, true, false);
+  $timer = qz_timer_enforce($pdo, $attempt_id, $durMin, true, false, $attempt['timer_warning_seconds'] ?? null);
   $timeUp = !empty($timer['time_up']);
 
   if ($timeUp) {
@@ -113,16 +121,12 @@ try {
   $stmt = $pdo->prepare("
     SELECT COUNT(*)
     FROM attempt_questions aq
-    JOIN questions q ON q.id = aq.question_id
     LEFT JOIN attempt_answers aa
       ON aa.attempt_id = aq.attempt_id AND aa.question_id = aq.question_id
     WHERE aq.attempt_id = :aid
       AND (
-        (q.question_type IN ('single_choice','yesno') AND aa.selected_answer_id IS NOT NULL)
-        OR
-        (q.question_type = 'multiple_choice' AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
-        OR
-        (q.question_type IN ('text','number') AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '')
+        aa.selected_answer_id IS NOT NULL
+        OR (aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
       )
   ");
   $stmt->execute([':aid'=>$attempt_id]);
@@ -132,16 +136,12 @@ if ($answered < $total && !$isAuto && !$confirmIncomplete) {
   $stmt = $pdo->prepare("
     SELECT aq.seq
     FROM attempt_questions aq
-    JOIN questions q ON q.id = aq.question_id
     LEFT JOIN attempt_answers aa
       ON aa.attempt_id = aq.attempt_id AND aa.question_id = aq.question_id
     WHERE aq.attempt_id = :aid
       AND NOT (
-        (q.question_type IN ('single_choice','yesno') AND aa.selected_answer_id IS NOT NULL)
-        OR
-        (q.question_type = 'multiple_choice' AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
-        OR
-        (q.question_type IN ('text','number') AND aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '')
+        aa.selected_answer_id IS NOT NULL
+        OR (aa.answer_text IS NOT NULL AND TRIM(aa.answer_text) <> '' AND TRIM(aa.answer_text) <> '[]')
       )
     ORDER BY aq.seq ASC
     LIMIT 50
@@ -153,34 +153,24 @@ if ($answered < $total && !$isAuto && !$confirmIncomplete) {
   json_fail(400, "Belum semua soal dijawab ({$answered}/{$total}).", ['missing_seq'=>$missing, 'timer'=>$timer]);
 }
 
-  // compute total score
-  $stmt = $pdo->prepare("SELECT COALESCE(SUM(computed_score),0) FROM attempt_answers WHERE attempt_id = :aid");
-  $stmt->execute([':aid'=>$attempt_id]);
-  $total_score = (int)$stmt->fetchColumn();
-
-  // mark submitted (idempotent)
-  $stmt = $pdo->prepare("
-    UPDATE quiz_attempts
-    SET total_score = :score,
-        status = 'submitted',
-        submitted_at = COALESCE(submitted_at, NOW()),
-        last_activity_at = NOW()
-    WHERE id = :id AND status <> 'submitted'
-    LIMIT 1
-  ");
-  $stmt->execute([':score'=>$total_score, ':id'=>$attempt_id]);
+  $finalized = quiz_finalize_attempt($pdo, $attempt_id);
 
   $pdo->commit();
 
+  if (!empty($finalized['finalized'])) quiz_extension_emit('attempt.submitted', [
+    'attempt_id' => $attempt_id,
+    'quiz_id' => $quiz_id,
+    'reason' => $timeUp ? 'timer_expired' : 'participant_submit',
+    'status' => 'submitted',
+  ]);
+
+  $resultVisibility = quiz_safe_result_visibility($attempt['result_visibility'] ?? 'hidden');
+  $responseData = quiz_participant_submit_payload($attempt_id, $total, $answered, $timeUp,
+    $resultVisibility, quiz_attempt_result_is_ready($pdo, $attempt_id), $attemptAlias);
+
   echo json_encode([
     'ok' => true,
-    'data' => [
-      'attempt_id' => $attempt_id,
-      'total_questions' => $total,
-      'answered_count' => $answered,
-      'total_score' => $total_score,
-      'time_up' => $timeUp,
-    ],
+    'data' => $responseData,
     'timer' => $timer,
   ], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
   exit;

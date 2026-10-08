@@ -17,9 +17,10 @@ declare(strict_types=1);
  *   'started_at'    => string|null,
  * ]
  */
-function qz_timer_enforce(PDO $pdo, int $attempt_id, int $durMin, bool $startIfMissing = true, bool $finalizeIfExpired = true): array
+function qz_timer_enforce(PDO $pdo, int $attempt_id, int $durMin, bool $startIfMissing = true, bool $finalizeIfExpired = true, mixed $warningSeconds = null): array
 {
     $durMin = max(0, (int)$durMin);
+    $warningSeconds = quiz_safe_timer_warning_seconds($warningSeconds);
 
     // default (no timer)
     $timer = [
@@ -28,9 +29,48 @@ function qz_timer_enforce(PDO $pdo, int $attempt_id, int $durMin, bool $startIfM
         'ends_at_ts'    => 0,
         'time_up'       => false,
         'started_at'    => null,
+        'warning_seconds' => $warningSeconds,
+        'finalized'     => false,
     ];
 
     if ($durMin <= 0) {
+        if ($startIfMissing) {
+            $startedLocalTx = false;
+            try {
+                if (!$pdo->inTransaction()) {
+                    $pdo->beginTransaction();
+                    $startedLocalTx = true;
+                }
+                $lock = $pdo->prepare('SELECT started_at, status, email_verified_at FROM quiz_attempts WHERE id=:id LIMIT 1 FOR UPDATE');
+                $lock->execute([':id' => $attempt_id]);
+                $attempt = $lock->fetch(PDO::FETCH_ASSOC);
+                if (!$attempt) throw new RuntimeException('Attempt not found for timer.');
+                $status = (string)($attempt['status'] ?? '');
+                if (empty($attempt['email_verified_at']) || $status === 'registered') {
+                    throw new RuntimeException('Attempt is not verified for timer mutation.');
+                }
+                if ($status === 'submitted') throw new RuntimeException('Attempt is already submitted.');
+                if (!in_array($status, ['verified', 'in_progress'], true)) {
+                    throw new RuntimeException('Attempt status is not eligible for timer mutation.');
+                }
+                $startedAt = $attempt['started_at'] ?? null;
+                if ($startedAt === null || $startedAt === '') {
+                    $pdo->prepare("UPDATE quiz_attempts SET started_at=NOW(), status=IF(status='verified','in_progress',status), last_activity_at=NOW() WHERE id=:id LIMIT 1")
+                        ->execute([':id' => $attempt_id]);
+                } else {
+                    $pdo->prepare('UPDATE quiz_attempts SET last_activity_at=NOW() WHERE id=:id LIMIT 1')->execute([':id' => $attempt_id]);
+                }
+                $now = $pdo->prepare('SELECT UNIX_TIMESTAMP(NOW()), started_at FROM quiz_attempts WHERE id=:id LIMIT 1');
+                $now->execute([':id' => $attempt_id]);
+                $row = $now->fetch(PDO::FETCH_NUM) ?: [];
+                $timer['server_now_ts'] = (int)($row[0] ?? time());
+                $timer['started_at'] = isset($row[1]) ? (string)$row[1] : null;
+                if ($startedLocalTx) $pdo->commit();
+            } catch (Throwable $error) {
+                if ($startedLocalTx && $pdo->inTransaction()) $pdo->rollBack();
+                throw $error;
+            }
+        }
         return $timer;
     }
 
@@ -61,7 +101,7 @@ function qz_timer_enforce(PDO $pdo, int $attempt_id, int $durMin, bool $startIfM
 
         // lock attempt
         $st = $pdo->prepare("
-            SELECT started_at, status
+            SELECT started_at, status, email_verified_at
             FROM quiz_attempts
             WHERE id = :id
             FOR UPDATE
@@ -75,6 +115,13 @@ function qz_timer_enforce(PDO $pdo, int $attempt_id, int $durMin, bool $startIfM
 
         $startedAt = (string)($row['started_at'] ?? '');
         $status    = (string)($row['status'] ?? '');
+        if (empty($row['email_verified_at']) || $status === 'registered') {
+            throw new RuntimeException('Attempt is not verified for timer mutation.');
+        }
+        if ($status === 'submitted') throw new RuntimeException('Attempt is already submitted.');
+        if (!in_array($status, ['verified', 'in_progress'], true)) {
+            throw new RuntimeException('Attempt status is not eligible for timer mutation.');
+        }
 
         // start only once (idempotent)
         if ($startIfMissing && $startedAt === '') {
@@ -120,26 +167,21 @@ function qz_timer_enforce(PDO $pdo, int $attempt_id, int $durMin, bool $startIfM
         $timeUp = ($endTs > 0 && $nowTs > $endTs);
         $timer['time_up'] = $timeUp;
 
+        $finalizedAttempt = null;
         if ($timeUp && $finalizeIfExpired) {
-            // idempotent finalize
-            $sc = $pdo->prepare("SELECT COALESCE(SUM(computed_score),0) FROM attempt_answers WHERE attempt_id = :aid");
-            $sc->execute([':aid' => $attempt_id]);
-            $total_score = (int)$sc->fetchColumn();
-
-            $fin = $pdo->prepare("
-                UPDATE quiz_attempts
-                SET total_score = :score,
-                    status = 'submitted',
-                    submitted_at = COALESCE(submitted_at, NOW()),
-                    last_activity_at = NOW()
-                WHERE id = :id AND status <> 'submitted'
-                LIMIT 1
-            ");
-            $fin->execute([':score' => $total_score, ':id' => $attempt_id]);
+            $finalizedAttempt = quiz_finalize_attempt($pdo, $attempt_id);
+            $timer['finalized'] = !empty($finalizedAttempt['finalized']);
         }
-
         if ($startedLocalTx) {
             $pdo->commit();
+            if (!empty($finalizedAttempt['finalized']) && function_exists('quiz_extension_emit')) {
+                quiz_extension_emit('attempt.submitted', [
+                    'attempt_id' => (int)$finalizedAttempt['attempt_id'],
+                    'quiz_id' => (int)$finalizedAttempt['quiz_id'],
+                    'reason' => 'timer_expired',
+                    'status' => 'submitted',
+                ]);
+            }
         }
 
         return $timer;

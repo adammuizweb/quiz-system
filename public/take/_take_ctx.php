@@ -850,7 +850,8 @@ if ($alias !== '') set_cookie('quiz_attempt', $alias);
    3) load quiz info
    ========================= */
 $st = $pdo->prepare("
-  SELECT id, title, description, is_active, start_at, end_at, questions_per_attempt, duration_minutes
+  SELECT id, title, description, is_active, start_at, end_at, questions_per_attempt, duration_minutes,
+         shuffle_answers, timer_warning_seconds, allow_mark_for_review, result_visibility
   FROM quizzes
   WHERE id = :id
   LIMIT 1
@@ -911,6 +912,10 @@ $status = (string)($attempt['status'] ?? '');
 $verified_at = (string)($attempt['email_verified_at'] ?? '');
 
 if ($status === 'submitted') {
+$resultLink = quiz_safe_result_visibility($quiz['result_visibility'] ?? 'hidden') !== 'hidden'
+  && quiz_attempt_result_is_ready($pdo, $attempt_id)
+  ? '<a class="st-btn primary" href="/quiz/result/?a=' . rawurlencode($alias) . '">View Result</a>'
+  : '<a class="st-btn primary" href="/">Back</a>';
 $content_html = '
   <section class="st">
     <div class="st-wrap">
@@ -920,7 +925,7 @@ $content_html = '
         <div class="st-desc">You cannot retake this quiz.</div>
       </div>
       <div class="st-box ok">
-        <a class="st-btn primary" href="/">Back</a>
+         ' . $resultLink . '
       </div>
     </div>
   </section>';
@@ -934,23 +939,12 @@ if ($verified_at === '' || $status === 'registered') {
 }
 
 /* =========================
-   6) ensure attempt_questions exists (idempotent) + touch activity
-   + AUTO-REBUILD (strict caps) jika belum ada jawaban
+   6) prepare the immutable question package on confirmed POST only
    ========================= */
 $requestMethod = (string)($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $isBeginRequest = $requestMethod === 'POST';
-$limit = max(1, min(200, (int)($quiz['questions_per_attempt'] ?? 25)));
-$countStmt = $pdo->prepare('SELECT COUNT(*) FROM attempt_questions WHERE attempt_id = :aid');
-$countStmt->execute([':aid' => $attempt_id]);
-$preparedCount = (int)$countStmt->fetchColumn();
-$answerStmt = $pdo->prepare('SELECT 1 FROM attempt_answers WHERE attempt_id = :aid LIMIT 1');
-$answerStmt->execute([':aid' => $attempt_id]);
-$hasPreparedAnswer = (bool)$answerStmt->fetchColumn();
-$needsRebuild = false;
-if ($preparedCount > 0 && !$hasPreparedAnswer) {
-  $needsRebuild = !empty(qz_attempt_needs_rebuild($pdo, $attempt_id, $quiz_id, $limit)['need']);
-}
-$needsPreparation = $preparedCount === 0 || $needsRebuild || empty($attempt['started_at']);
+$packageComplete = quiz_attempt_package_is_complete($pdo, $attempt_id);
+$needsPreparation = !$packageComplete || empty($attempt['started_at']);
 
 if ($needsPreparation && !$isBeginRequest) {
   $csrf = qz_public_csrf_token();
@@ -975,7 +969,7 @@ try {
   $pdo->beginTransaction();
 
   $lock = $pdo->prepare("
-    SELECT id, status, email_verified_at
+    SELECT id, status, email_verified_at, started_at
     FROM quiz_attempts
     WHERE id = :id
     FOR UPDATE
@@ -1001,42 +995,41 @@ try {
     go('/quiz/verify/?quiz=' . $quiz_id . '&next=' . urlencode($next));
   }
 
-  $pdo->prepare("
-    UPDATE quiz_attempts
-    SET last_activity_at = NOW()
-    WHERE id = :id
-    LIMIT 1
-  ")->execute([':id'=>$attempt_id]);
+  $limit = quiz_questions_per_attempt_limit($quiz['questions_per_attempt'] ?? null);
 
-  $c = $pdo->prepare("SELECT COUNT(*) FROM attempt_questions WHERE attempt_id = :aid");
-  $c->execute([':aid'=>$attempt_id]);
-  $cnt = (int)$c->fetchColumn();
+  $assignments = $pdo->prepare('SELECT aq.id, aq.snapshot_at, aq.available_score_snapshot,
+      aq.category_key_snapshot, aq.category_id_snapshot, aq.category_name_snapshot,
+      aq.options_snapshotted_at, aq.delivery_snapshot_json, aq.delivery_snapshotted_at,
+      EXISTS(SELECT 1 FROM attempt_question_options aqo WHERE aqo.attempt_question_id=aq.id) AS has_snapshotted_options
+    FROM attempt_questions aq WHERE aq.attempt_id=:aid ORDER BY aq.id ASC FOR UPDATE');
+  $assignments->execute([':aid' => $attempt_id]);
+  $assignmentRows = $assignments->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-  $limit = (int)($quiz['questions_per_attempt'] ?? 25);
-  if ($limit <= 0) $limit = 25;
-  if ($limit > 200) $limit = 200;
-
-  // apakah sudah ada jawaban?
-  $stAns = $pdo->prepare("SELECT 1 FROM attempt_answers WHERE attempt_id = :aid LIMIT 1");
+  $stAns = $pdo->prepare("SELECT 1 FROM attempt_answers WHERE attempt_id = :aid LIMIT 1 FOR UPDATE");
   $stAns->execute([':aid'=>$attempt_id]);
   $hasAnyAnswer = (bool)$stAns->fetchColumn();
 
-  // decide rebuild
-  $needRebuild = false;
-  $rebuildReason = '';
-  if ($cnt > 0 && !$hasAnyAnswer) {
-    $rb = qz_attempt_needs_rebuild($pdo, $attempt_id, $quiz_id, $limit);
-    if (!empty($rb['need'])) {
-      $needRebuild = true;
-      $rebuildReason = (string)($rb['reason'] ?? 'unknown');
+  $hasAnySnapshot = false;
+  foreach ($assignmentRows as $assignmentRow) {
+    if (!empty($assignmentRow['has_snapshotted_options'])) {
+      $hasAnySnapshot = true;
+      break;
+    }
+    foreach (['snapshot_at', 'available_score_snapshot', 'category_key_snapshot', 'category_id_snapshot',
+        'category_name_snapshot', 'options_snapshotted_at', 'delivery_snapshot_json', 'delivery_snapshotted_at'] as $column) {
+      if ($assignmentRow[$column] !== null) {
+        $hasAnySnapshot = true;
+        break 2;
+      }
     }
   }
 
-  if ($cnt === 0 || $needRebuild) {
-    if ($needRebuild) {
-      error_log("[quiz/take] AUTO-REBUILD attempt_id={$attempt_id} reason={$rebuildReason}");
-      // aman karena belum ada jawaban (tapi tetap delete answers just in case)
-      $pdo->prepare("DELETE FROM attempt_answers WHERE attempt_id = :aid")->execute([':aid'=>$attempt_id]);
+  $buildPackage = $assignmentRows === [] || (!$hasAnyAnswer && !$hasAnySnapshot);
+  if ($assignmentRows === [] && $hasAnyAnswer) {
+    throw new RuntimeException('Attempt answers exist without an assigned question package.');
+  }
+  if ($buildPackage) {
+    if ($assignmentRows !== []) {
       $pdo->prepare("DELETE FROM attempt_questions WHERE attempt_id = :aid")->execute([':aid'=>$attempt_id]);
     }
 
@@ -1055,16 +1048,21 @@ try {
       ]);
     }
 
-    // rapihkan urutan
     qz_resequence_attempt_questions($pdo, $attempt_id);
-
-  } else {
-    // attempt lama: resequence hanya jika belum ada jawaban
-    if (!$hasAnyAnswer) {
-      qz_resequence_attempt_questions($pdo, $attempt_id);
-    }
   }
 
+  if (!$hasAnySnapshot && !quiz_attempt_assignment_is_valid($pdo, $attempt_id)) {
+    throw new RuntimeException('Attempt assignment structure is invalid and requires a reset.');
+  }
+  if (!quiz_attempt_package_is_complete($pdo, $attempt_id)) {
+    quiz_snapshot_attempt_questions($pdo, $attempt_id);
+  }
+  if (!quiz_attempt_package_is_complete($pdo, $attempt_id)) {
+    throw new RuntimeException('Attempt package preparation did not complete.');
+  }
+
+  $pdo->prepare("UPDATE quiz_attempts SET last_activity_at=NOW() WHERE id=:id LIMIT 1")
+      ->execute([':id' => $attempt_id]);
   $pdo->commit();
 
 } catch (Throwable $e) {
@@ -1072,7 +1070,7 @@ try {
   error_log("[quiz/take] ensure ctx error: " . $e->getMessage());
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">
     <h1 style="margin:0 0 8px">Terjadi kendala</h1>
-    <p style="margin:0 0 14px;opacity:.8">Gagal menyiapkan soal. Silakan ulangi dari Start.</p>
+    <p style="margin:0 0 14px;opacity:.8">Paket soal tidak valid dan perlu di-reset oleh admin sebelum dapat dilanjutkan.</p>
     <a class="st-btn primary" href="/quiz/start/">Kembali ke Start</a>
   </div>';
   $ctx = null;
@@ -1084,9 +1082,8 @@ try {
    7) build answered map
    ========================= */
 $st = $pdo->prepare("
-  SELECT aq.seq, q.question_type, aa.selected_answer_id, aa.answer_text
+  SELECT aq.seq, aq.marked_for_review, aa.selected_answer_id, aa.answer_text
   FROM attempt_questions aq
-  JOIN questions q ON q.id = aq.question_id
   LEFT JOIN attempt_answers aa
     ON aa.attempt_id = aq.attempt_id AND aa.question_id = aq.question_id
   WHERE aq.attempt_id = :aid
@@ -1097,24 +1094,16 @@ $rows = $st->fetchAll(PDO::FETCH_ASSOC);
 
 $total = count($rows);
 $answeredMap = [];
+$reviewMap = [];
 $answeredCount = 0;
 
 foreach ($rows as $r) {
   $seq = (int)$r['seq'];
-  $type = (string)($r['question_type'] ?? 'single_choice');
-
-  $ok = false;
-  if (in_array($type, ['single_choice','yesno'], true)) {
-    $ok = !empty($r['selected_answer_id']);
-  } elseif ($type === 'multiple_choice') {
-    $t = trim((string)($r['answer_text'] ?? ''));
-    $ok = ($t !== '' && $t !== '[]');
-  } else {
-    $t = trim((string)($r['answer_text'] ?? ''));
-    $ok = ($t !== '');
-  }
+  $answerText = trim((string)($r['answer_text'] ?? ''));
+  $ok = !empty($r['selected_answer_id']) || ($answerText !== '' && $answerText !== '[]');
 
   $answeredMap[$seq] = $ok ? 1 : 0;
+  $reviewMap[$seq] = !empty($r['marked_for_review']) ? 1 : 0;
   if ($ok) $answeredCount++;
 }
 
@@ -1135,6 +1124,7 @@ $joinQc = $hasQCatCol
 $stNav = $pdo->prepare("
   SELECT
     aq.seq,
+    aq.delivery_snapshot_json,
     q.passage_id,
     p.title AS passage_title,
     p.passage_text,
@@ -1158,6 +1148,19 @@ $nav_cat_map = [];
 foreach ($navRows as $r) {
   $seq = (int)($r['seq'] ?? 0);
   if ($seq <= 0) continue;
+
+  $delivery = json_decode((string)($r['delivery_snapshot_json'] ?? ''), true);
+  if (is_array($delivery) && (int)($delivery['version'] ?? 0) === 1) {
+    $passage = is_array($delivery['passage'] ?? null) ? $delivery['passage'] : [];
+    $category = is_array($delivery['category'] ?? null) ? $delivery['category'] : [];
+    $r['passage_id'] = $passage['id'] ?? null;
+    $r['passage_title'] = (string)($passage['title'] ?? '');
+    $r['passage_text'] = (string)($passage['text'] ?? '');
+    $r['passage_category_id'] = $category['id'] ?? null;
+    $r['passage_category_name'] = (string)($category['name'] ?? '');
+    $r['question_category_id'] = $category['id'] ?? null;
+    $r['question_category_name'] = (string)($category['name'] ?? '');
+  }
 
   $pid  = (int)($r['passage_id'] ?? 0);
   $ptxt = trim((string)($r['passage_text'] ?? ''));
@@ -1220,7 +1223,8 @@ if ($cur !== null) $nav_sections[] = $cur;
    ========================= */
 require_once __DIR__ . '/../api/_timer_helper.php';
 $durMin = (int)($quiz['duration_minutes'] ?? 0);
-$timer = qz_timer_enforce($pdo, $attempt_id, $durMin, $isBeginRequest, $isBeginRequest);
+$warningSeconds = quiz_safe_timer_warning_seconds($quiz['timer_warning_seconds'] ?? null);
+$timer = qz_timer_enforce($pdo, $attempt_id, $durMin, $isBeginRequest, $isBeginRequest, $warningSeconds);
 
 /* =========================
    10) final ctx
@@ -1235,6 +1239,8 @@ $ctx = [
   'total'          => $total,
   'answered_count' => $answeredCount,
   'answered_map'   => $answeredMap,
+  'review_map'     => $reviewMap,
+  'allow_mark_for_review' => quiz_safe_bool($quiz['allow_mark_for_review'] ?? 0, 0),
 
   // nav
   'nav_cat_map'    => $nav_cat_map,
@@ -1244,4 +1250,5 @@ $ctx = [
   'server_now_ts'  => (int)($timer['server_now_ts'] ?? 0),
   'duration_sec'   => (int)($timer['duration_sec'] ?? 0),
   'ends_at_ts'     => (int)($timer['ends_at_ts'] ?? 0),
+  'warning_seconds' => $warningSeconds,
 ];

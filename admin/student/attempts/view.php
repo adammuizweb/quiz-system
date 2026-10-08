@@ -46,7 +46,7 @@ $stmt = $pdo->prepare("
     a.id, a.attempt_alias, a.nomor_test, a.status, a.delivery_mode,
     a.identity_locked, a.contact_name, a.contact_email, a.contact_phone,
     a.email_verified_at, a.verified_via, a.reset_count,
-    a.created_at, a.started_at, a.submitted_at, a.last_activity_at,
+    a.created_at, a.started_at, a.submitted_at, a.elapsed_seconds, a.last_activity_at,
     {$otpColumns}
     s.name AS student_name, s.email AS student_email, s.phone AS student_phone,
     q.title AS quiz_title
@@ -65,6 +65,8 @@ if (!$A) {
 $attempt_id = (int)$A['id'];
 $alias = (string)($A['attempt_alias'] ?? '');
 $attemptLabel = $alias !== '' ? $alias : '#' . $attempt_id;
+$manualVerificationEligible = in_array((string)($A['status'] ?? ''), ['registered', 'verified'], true)
+  && empty($A['started_at']) && empty($A['submitted_at']);
 
 /* =========================
    Identity (source of truth)
@@ -104,14 +106,20 @@ $stmt->execute([':id'=>$attempt_id]);
 $totalScore = (int)$stmt->fetchColumn();
 
 $items = [];
+$revisionsByAnswer = [];
+$optionLabels = [];
+$legacyOptionLabels = [];
 if ($user['can_view_attempt_responses']) {
   $stmt = $pdo->prepare("
     SELECT
       aq.seq,
+      aq.delivery_snapshot_json,
       q.id AS question_id,
       q.question_text,
       q.question_type,
       aa.selected_answer_id,
+      aa.id AS attempt_answer_id,
+      aa.revision_count,
       aa.answer_text,
       aa.computed_score,
       qa.answer_text AS selected_answer_text
@@ -126,7 +134,62 @@ if ($user['can_view_attempt_responses']) {
   ");
   $stmt->execute([':id'=>$attempt_id]);
   $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  foreach ($items as &$item) {
+    $delivery = json_decode((string)($item['delivery_snapshot_json'] ?? ''), true);
+    if (is_array($delivery) && (int)($delivery['version'] ?? 0) === 1 && is_array($delivery['question'] ?? null)) {
+      $item['question_text'] = (string)($delivery['question']['text'] ?? '');
+      $item['question_type'] = (string)($delivery['question']['type'] ?? '');
+    }
+  }
+  unset($item);
+  $optionStmt = $pdo->prepare('SELECT question_id, source_answer_id, answer_text FROM attempt_question_options
+    WHERE attempt_id=:id ORDER BY attempt_question_id ASC, delivery_seq ASC');
+  $optionStmt->execute([':id' => $attempt_id]);
+  foreach ($optionStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $option) {
+    $optionLabels[(int)$option['question_id']][(int)$option['source_answer_id']] = (string)$option['answer_text'];
+  }
+  $legacyOptionStmt = $pdo->prepare('SELECT qa.question_id, qa.id, qa.answer_text FROM question_answers qa
+    JOIN attempt_questions aq ON aq.question_id=qa.question_id AND aq.attempt_id=:id ORDER BY qa.id ASC');
+  $legacyOptionStmt->execute([':id' => $attempt_id]);
+  foreach ($legacyOptionStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $option) {
+    $legacyOptionLabels[(int)$option['question_id']][(int)$option['id']] = (string)$option['answer_text'];
+  }
+  $revisionStmt = $pdo->prepare("SELECT r.attempt_answer_id, r.question_id, r.revision_number,
+      r.selected_answer_id, r.answer_text, r.computed_score,
+      r.created_at, qa.answer_text AS selected_answer_text
+    FROM attempt_answer_revisions r
+    LEFT JOIN question_answers qa ON qa.id=r.selected_answer_id
+    WHERE r.attempt_id=:id ORDER BY r.attempt_answer_id ASC, r.revision_number ASC");
+  $revisionStmt->execute([':id' => $attempt_id]);
+  foreach ($revisionStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $revision) {
+    $revisionsByAnswer[(int)$revision['attempt_answer_id']][] = $revision;
+  }
 }
+
+$formatAttemptResponse = static function (int $questionId, string $type, mixed $selectedId, mixed $answerText, mixed $liveLabel = null)
+    use ($optionLabels, $legacyOptionLabels): string {
+  $labels = $optionLabels[$questionId] ?? $legacyOptionLabels[$questionId] ?? [];
+  if ($type === 'multiple_choice') {
+    $ids = json_decode((string)$answerText, true);
+    if (!is_array($ids) || $ids === []) return '—';
+    $resolved = [];
+    foreach ($ids as $id) {
+      $sourceId = (int)$id;
+      if ($sourceId > 0) $resolved[] = $labels[$sourceId] ?? ('Option #' . $sourceId);
+    }
+    return $resolved === [] ? '—' : implode('; ', $resolved);
+  }
+  if (in_array($type, ['single_choice', 'yesno'], true)) {
+    $sourceId = (int)$selectedId;
+    if ($sourceId <= 0) {
+      $snapshottedSourceId = filter_var(trim((string)$answerText), FILTER_VALIDATE_INT);
+      if ($snapshottedSourceId !== false && $snapshottedSourceId > 0) $sourceId = $snapshottedSourceId;
+    }
+    if ($sourceId <= 0) return '—';
+    return (string)($labels[$sourceId] ?? (is_string($liveLabel) && $liveLabel !== '' ? $liveLabel : 'Option #' . $sourceId));
+  }
+  return trim((string)$answerText) !== '' ? (string)$answerText : '—';
+};
 
 function status_badge($st){
   $st = (string)$st;
@@ -256,6 +319,7 @@ $waSentAt    = $A['otp_wa_sent_at'] ?? null;
         <div class="muted">Dibuat: <?= h((string)($A['created_at'] ?? '—')) ?></div>
         <div class="muted">Mulai: <?= h((string)($A['started_at'] ?: '—')) ?></div>
         <div class="muted">Submit: <?= h((string)($A['submitted_at'] ?: '—')) ?></div>
+        <div class="muted">Durasi terpakai: <?= $A['elapsed_seconds'] === null ? '—' : h(sprintf('%d:%02d:%02d', intdiv((int)$A['elapsed_seconds'], 3600), intdiv((int)$A['elapsed_seconds'] % 3600, 60), (int)$A['elapsed_seconds'] % 60)) ?></div>
         <div class="muted">Aktivitas terakhir: <?= h((string)($A['last_activity_at'] ?: '—')) ?></div>
       </div>
 
@@ -286,12 +350,8 @@ $waSentAt    = $A['otp_wa_sent_at'] ?? null;
           <tr><td colspan="3" style="padding:1rem">Belum ada paket soal untuk attempt ini.</td></tr>
         <?php else: foreach ($items as $it): ?>
           <?php
-            $ans = '—';
-            if (($it['question_type'] === 'text' || $it['question_type'] === 'number')) {
-              $ans = ($it['answer_text'] !== null && $it['answer_text'] !== '') ? $it['answer_text'] : '—';
-            } else {
-              $ans = ($it['selected_answer_text'] !== null && $it['selected_answer_text'] !== '') ? $it['selected_answer_text'] : '—';
-            }
+            $ans = $formatAttemptResponse((int)$it['question_id'], (string)$it['question_type'],
+              $it['selected_answer_id'], $it['answer_text'], $it['selected_answer_text']);
           ?>
           <tr>
             <td><?= (int)$it['seq'] ?></td>
@@ -299,6 +359,16 @@ $waSentAt    = $A['otp_wa_sent_at'] ?? null;
               <div style="font-weight:800;line-height:1.45"><?= nl2br(h($it['question_text'])) ?></div>
               <div class="muted"><strong>Jawab:</strong> <?= nl2br(h($ans)) ?></div>
               <div class="muted">Type: <?= h($it['question_type']) ?></div>
+              <?php if ((int)($it['revision_count'] ?? 0) > 0): ?>
+                <details class="muted" style="margin-top:6px">
+                  <summary><?= (int)$it['revision_count'] ?> revision(s)</summary>
+                  <?php foreach ($revisionsByAnswer[(int)($it['attempt_answer_id'] ?? 0)] ?? [] as $revision): ?>
+                    <?php $revisionAnswer = $formatAttemptResponse((int)$revision['question_id'], (string)$it['question_type'],
+                      $revision['selected_answer_id'], $revision['answer_text'], $revision['selected_answer_text']); ?>
+                    <div style="margin-top:4px">#<?= (int)$revision['revision_number'] ?> · <?= h((string)$revision['created_at']) ?> · <?= nl2br(h((string)$revisionAnswer)) ?> · skor <?= (int)$revision['computed_score'] ?></div>
+                  <?php endforeach; ?>
+                </details>
+              <?php endif; ?>
             </td>
             <td style="font-weight:900"><?= (int)$it['computed_score'] ?></td>
           </tr>
@@ -385,6 +455,7 @@ $waSentAt    = $A['otp_wa_sent_at'] ?? null;
         </button>
       </form>
 
+      <?php if ($manualVerificationEligible): ?>
       <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_verify_manual" style="margin-bottom:12px">
         <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
         <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
@@ -405,6 +476,7 @@ $waSentAt    = $A['otp_wa_sent_at'] ?? null;
           Verify Manual
         </button>
       </form>
+      <?php endif; ?>
 
   <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_reset" style="flex:1">
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">

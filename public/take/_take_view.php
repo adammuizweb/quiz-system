@@ -24,6 +24,7 @@ $answeredCount = (int)($ctx['answered_count'] ?? 0);
 
 $navSections = (isset($ctx['nav_sections']) && is_array($ctx['nav_sections'])) ? $ctx['nav_sections'] : [];
 $navCatMap   = (isset($ctx['nav_cat_map']) && is_array($ctx['nav_cat_map'])) ? $ctx['nav_cat_map'] : [];
+$allowReview = !empty($ctx['allow_mark_for_review']);
 
 // build sections buttons
 $sectionsHtml = '';
@@ -54,8 +55,11 @@ for ($i=1; $i<=$total; $i++) {
   if ($cname === '') $cname = 'Lainnya';
 
   $title = 'Soal '.$i.' • '.$cname;
-  $grid .= '<button type="button" class="qt-dot '.($done?'done':'todo').'" data-seq="'.$i.'" data-cat="'.h($cname).'" title="'.h($title).'">'.$i.'</button>';
+  $reviewed = $allowReview && !empty($ctx['review_map'][$i]);
+  $grid .= '<button type="button" class="qt-dot '.($done?'done':'todo').($reviewed?' reviewed':'').'" data-seq="'.$i.'" data-cat="'.h($cname).'" title="'.h($title).'">'.$i.'</button>';
 }
+$reviewLegend = $allowReview ? ' • Amber ring: marked for review' : '';
+$reviewButton = $allowReview ? '<button class="qt-btn ghost" id="btnReview" type="button" aria-pressed="false">Mark for review</button>' : '';
 
 // Optional WhatsApp help link, configured by the site administrator.
 $adminWa = settings_get($pdo, 'quiz_admin_wa', '') ?? '';
@@ -109,7 +113,7 @@ $content_html = <<<HTML
 
     </div>
 
-    <div id="alertBox" class="qt-alert" style="display:none"></div>
+    <div id="alertBox" class="qt-alert" role="status" aria-live="polite" style="display:none"></div>
 
     <div class="qt-layout">
 <aside class="qt-side" id="qtSide" aria-label="Question Navigation">
@@ -121,7 +125,7 @@ $content_html = <<<HTML
 
     <div class="qt-side-body">
       <div class="qt-side-title">Question Navigation</div>
-      <div class="qt-side-sub">Grey: unanswered • Green: answered</div>
+      <div class="qt-side-sub">Grey: unanswered • Green: answered{$reviewLegend}</div>
 
       <div id="navSections" class="qt-sections">
         {$sectionsHtml}
@@ -163,7 +167,8 @@ $content_html = <<<HTML
 
           <div class="qt-actions">
             <button class="qt-btn ghost" id="btnPrev" type="button">Previous</button>
-            <button class="qt-btn primary" id="btnNext" type="button">Next</button>
+             <button class="qt-btn primary" id="btnNext" type="button">Next</button>
+            {$reviewButton}
             <button class="qt-btn danger" id="btnSubmit" type="button">Submit</button>
           </div>
 
@@ -258,6 +263,7 @@ $content_html = <<<HTML
 }
 .qt-dot.todo{ background:#f1f5f9; }
 .qt-dot.done{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35); }
+.qt-dot.reviewed{ box-shadow: inset 0 0 0 3px #f59e0b; }
 .qt-dot.active{ outline: 3px solid rgba(99,102,241,.25); border-color: rgba(99,102,241,.45); }
 
 .qt-main .qt-card{

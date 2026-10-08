@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.4.13', 'plugin version must be 1.4.13');
+$check(($manifest['version'] ?? null) === '1.5.0', 'plugin version must be 1.5.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -98,7 +98,7 @@ $permissionDefinitions = [];
 foreach ($manifest['permissions'] ?? [] as $permission) {
     if (is_array($permission)) $permissionDefinitions[(string)($permission['key'] ?? '')] = $permission;
 }
-$check(array_keys($permissionDefinitions) === array_keys($permissionPolicies), 'manifest must declare the exact ordered 1.4.13 Quiz permission set');
+$check(array_keys($permissionDefinitions) === array_keys($permissionPolicies), 'manifest must preserve the exact ordered Quiz permission set');
 $check(!isset($permissionDefinitions['plugin.quiz.control.manage']), 'broad control.manage permission must be removed');
 $check(!isset($permissionDefinitions['plugin.quiz.attempts.manage']), 'legacy attempts.manage permission must be removed');
 foreach ($permissionPolicies as $key => [$defaultRoles, $delegable]) {
@@ -144,7 +144,7 @@ $manifestRoutePermissions = [];
 foreach (is_array($pages) ? $pages : [] as $page) {
     if (is_array($page)) $manifestRoutePermissions[(string)($page['route'] ?? '')] = (string)($page['permission'] ?? '');
 }
-$check($manifestRoutePermissions == $routePermissions, 'manifest must declare the exact 1.4.13 admin route map');
+$check($manifestRoutePermissions == $routePermissions, 'manifest must preserve the exact admin route map');
 foreach (is_array($pages) ? $pages : [] as $page) {
     $route = is_array($page) ? (string)($page['route'] ?? '') : '';
     $relative = is_array($page) ? (string)($page['file'] ?? '') : '';
@@ -234,14 +234,525 @@ foreach ([
     $check(str_contains($tableSchema, "KEY `{$ownerIndex}` (`quiz_id`, `created_by`)"), "{$table} must index quiz and resource owner");
 }
 $check(!preg_match('/CREATE TABLE IF NOT EXISTS `question_answers` \(.*?`created_by`/s', $schemaSource), 'answer ownership must be inherited from its question');
+$check(str_contains($schemaSource, '`shuffle_answers` TINYINT(1) NOT NULL DEFAULT 1')
+    && str_contains($schemaSource, '`timer_warning_seconds` VARCHAR(255) NULL')
+    && str_contains($schemaSource, '`allow_mark_for_review` TINYINT(1) NOT NULL DEFAULT 0')
+    && str_contains($schemaSource, "`result_visibility` ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden'"), 'new quiz settings must preserve 1.4.13 and PMB defaults with a strict result allowlist');
+$check(str_contains($schemaSource, '`elapsed_seconds` INT UNSIGNED NULL')
+    && str_contains($schemaSource, '`marked_for_review` TINYINT(1) NOT NULL DEFAULT 0')
+    && str_contains($schemaSource, '`revision_count` INT UNSIGNED NOT NULL DEFAULT 0'), 'attempt readiness columns must use backward-compatible defaults');
+$check(str_contains($schemaSource, '`available_score_snapshot` INT UNSIGNED NULL')
+    && str_contains($schemaSource, '`category_key_snapshot` VARCHAR(100) NULL')
+    && str_contains($schemaSource, '`category_id_snapshot` INT UNSIGNED NULL')
+    && str_contains($schemaSource, '`category_name_snapshot` VARCHAR(255) NULL')
+    && str_contains($schemaSource, '`options_snapshotted_at` DATETIME NULL')
+    && str_contains($schemaSource, '`delivery_snapshot_json` LONGTEXT NULL')
+    && str_contains($schemaSource, '`delivery_snapshotted_at` DATETIME NULL')
+    && str_contains($schemaSource, '`snapshot_at` DATETIME NULL'), 'assigned questions must support additive immutable denominator, option, category, and delivery snapshots');
+$check(str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_answer_revisions`')
+    && str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_category_scores`')
+    && str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_question_options`')
+    && str_contains($schemaSource, '`source_answer_id` INT UNSIGNED NOT NULL')
+    && str_contains($schemaSource, '`delivery_seq` INT UNSIGNED NOT NULL'), 'TPA audit, option snapshot, and aggregate tables must be idempotent on new installs');
 
 $pluginSource = (string)file_get_contents($pluginRoot . '/plugin.php');
 $extensionSource = (string)file_get_contents($pluginRoot . '/includes/extensions.php');
-$check(str_contains($extensionSource, "return '1.0.0';"), 'Quiz extension API exposes a stable version');
+$helperSource = (string)file_get_contents($pluginRoot . '/includes/helpers.php');
+require_once $pluginRoot . '/includes/helpers.php';
+require_once $pluginRoot . '/includes/extensions.php';
+require_once $pluginRoot . '/public/api/_timer_helper.php';
+$check(quiz_extension_api_version() === '1.1.0'
+    && array_keys(quiz_extension_context()) === ['plugin', 'version', 'api_version'], 'extension 1.0 callable metadata must remain backward compatible in API 1.1');
+$emittedLifecycle = null;
+quiz_extension_subscribe('answer.saved', static function (array $payload) use (&$emittedLifecycle): void { $emittedLifecycle = $payload; });
+quiz_extension_emit('answer.saved', ['attempt_id' => 7, 'question_id' => 9, 'token_hash' => 'secret',
+    'answer_text' => 'secret', 'selected_answer_id' => 4, 'computed_score' => 100]);
+$check(($emittedLifecycle['attempt_id'] ?? null) === 7 && ($emittedLifecycle['event'] ?? null) === 'answer.saved'
+    && !isset($emittedLifecycle['token_hash'], $emittedLifecycle['answer_text'], $emittedLifecycle['selected_answer_id'], $emittedLifecycle['computed_score']), 'answer.saved lifecycle payloads must exclude answers, selections, scores, and correctness');
+$submittedLifecycle = null;
+quiz_extension_subscribe('attempt.submitted', static function (array $payload) use (&$submittedLifecycle): void { $submittedLifecycle = $payload; });
+quiz_extension_emit('attempt.submitted', ['attempt_id' => 7, 'quiz_id' => 2, 'reason' => 'timer_expired',
+    'status' => 'submitted', 'total_score' => 100, 'elapsed_seconds' => 60]);
+$check(array_keys($submittedLifecycle ?? []) === ['event', 'api_version', 'attempt_id', 'quiz_id', 'reason', 'status'], 'all attempt.submitted listeners must receive the same score-free lifecycle shape');
+$hiddenSubmitPayload = quiz_participant_submit_payload(4, 10, 8, false, 'hidden', true, 'a_private');
+$check($hiddenSubmitPayload === ['attempt_id' => 4, 'total_questions' => 10, 'answered_count' => 8, 'time_up' => false]
+    && !isset($hiddenSubmitPayload['total_score'], $hiddenSubmitPayload['elapsed_seconds'], $hiddenSubmitPayload['result_url'], $hiddenSubmitPayload['category_scores']), 'hidden submit payload must expose no score, elapsed time, categories, or result URL');
+$check(isset(quiz_participant_submit_payload(4, 10, 8, false, 'summary', true, 'a_public')['result_url'])
+    && !isset(quiz_participant_submit_payload(4, 10, 8, false, 'summary', false, 'a_incomplete')['result_url']), 'submit result URLs require both visible configuration and a valid finalized snapshot');
+$check(quiz_normalize_timer_warning_seconds('60,300,60') === [300, 60]
+    && quiz_timer_warning_minutes_to_seconds('5, 1') === [300, 60]
+    && quiz_serialize_timer_warning_seconds([]) === null, 'timer warning helpers must normalize, deduplicate, sort, and preserve empty defaults');
+$normalizerRejected = false;
+try { quiz_normalize_result_visibility('answers'); } catch (InvalidArgumentException) { $normalizerRejected = true; }
+$check($normalizerRejected && quiz_safe_result_visibility('answers') === 'hidden'
+    && quiz_safe_bool(null, 1) === 1, 'quiz setting helpers must validate input strictly and fail closed for stored values');
+final class AssignmentContractStatement extends PDOStatement {
+    private array $rows = [];
+    private mixed $row = false;
+    public function __construct(private AssignmentContractPDO $pdo, private string $sql) {}
+    public function execute(?array $params = null): bool {
+        if (str_contains($this->sql, 'FROM quiz_attempts a JOIN quizzes q')) {
+            $this->row = ['quiz_id' => $this->pdo->quizId, 'questions_per_attempt' => $this->pdo->limit];
+        } elseif (str_contains($this->sql, 'FROM question_categories')) {
+            $this->rows = $this->pdo->categories;
+        } elseif (str_contains($this->sql, 'LEFT JOIN questions q ON q.id=aq.question_id')) {
+            $this->rows = $this->pdo->assignments;
+        } elseif (str_contains($this->sql, 'COUNT(*) AS assignment_count')) {
+            $this->row = ['assignment_count' => count($this->pdo->assignments),
+                'incomplete_count' => $this->pdo->incompleteSnapshots];
+        } else {
+            throw new RuntimeException('Unexpected assignment contract query.');
+        }
+        return true;
+    }
+    public function fetch(int $mode = PDO::FETCH_DEFAULT, int $cursorOrientation = PDO::FETCH_ORI_NEXT,
+        int $cursorOffset = 0): mixed { return $this->row; }
+    public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array { return $this->rows; }
+}
+final class AssignmentContractPDO extends PDO {
+    public int $quizId = 9;
+    public int $limit = 4;
+    public int $incompleteSnapshots = 0;
+    public array $categories = [];
+    public array $assignments = [];
+    public function __construct() {}
+    public function prepare(string $query, array $options = []): PDOStatement|false {
+        return new AssignmentContractStatement($this, $query);
+    }
+}
+$assignmentRow = static function (int $seq, int $questionId, int $questionCategoryId = 0,
+    int $passageId = 0, int $passageCategoryId = 0, ?string $passageText = null,
+    mixed $passageMinimum = null, mixed $passageMaximum = null): array {
+    return [
+        'id' => $questionId + 1000,
+        'seq' => $seq,
+        'question_id' => $questionId,
+        'question_quiz_id' => 9,
+        'question_category_id' => $questionCategoryId ?: null,
+        'question_passage_id' => $passageId ?: null,
+        'passage_id' => $passageId ?: null,
+        'passage_quiz_id' => $passageId > 0 ? 9 : null,
+        'passage_category_id' => $passageCategoryId ?: null,
+        'passage_text' => $passageText,
+        'passage_min_questions' => $passageMinimum,
+        'passage_max_questions' => $passageMaximum,
+    ];
+};
+$assignmentPdo = new AssignmentContractPDO();
+$assignmentPdo->categories = [
+    ['id' => 10, 'min_questions' => 2, 'max_questions' => 2],
+    ['id' => 20, 'min_questions' => 2, 'max_questions' => 2],
+];
+$validAssignments = [
+    $assignmentRow(1, 101, 20, 51, 10, 'Passage one', 2, 2),
+    $assignmentRow(2, 102, 20, 51, 10, 'Passage one', 2, 2),
+    $assignmentRow(3, 103, 20),
+    $assignmentRow(4, 104, 20),
+];
+$assignmentPdo->assignments = $validAssignments;
+$validQuotaPackage = quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = array_slice($validAssignments, 0, 3);
+$badCountRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [...$validAssignments, $assignmentRow(5, 105, 20)];
+$excessCountRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = $validAssignments;
+$assignmentPdo->assignments[1]['seq'] = 1;
+$badSequenceRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 10), $assignmentRow(2, 102, 10),
+    $assignmentRow(3, 103, 10), $assignmentRow(4, 104, 20),
+];
+$badQuotaRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 10), $assignmentRow(2, 102, 20),
+    $assignmentRow(3, 103, 10), $assignmentRow(4, 104, 20),
+];
+$badBlockOrderRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 10), $assignmentRow(2, 102, 10),
+    $assignmentRow(3, 103, 30), $assignmentRow(4, 104, 20),
+];
+$unknownCategoryRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 20, 61, 10, '__CATEGORY_CONTAINER__'),
+    $assignmentRow(2, 102, 10, 61, 0, '__CATEGORY_CONTAINER__'),
+    $assignmentRow(3, 103, 20), $assignmentRow(4, 104, 20),
+];
+$containerCategoryFallbackAccepted = quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->categories = [
+    ['id' => 10, 'min_questions' => 2, 'max_questions' => 2],
+    ['id' => 20, 'min_questions' => 1, 'max_questions' => 1],
+];
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 10), $assignmentRow(2, 102, 10),
+    $assignmentRow(3, 103, 20), $assignmentRow(4, 104),
+];
+$uncategorizedFinalAllowed = quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 10), $assignmentRow(2, 102),
+    $assignmentRow(3, 103, 10), $assignmentRow(4, 104, 20),
+];
+$uncategorizedMiddleRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->categories = [];
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(2, 102, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(3, 103), $assignmentRow(4, 104),
+];
+$exactPassageBoundsAccepted = quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(2, 102), $assignmentRow(3, 103), $assignmentRow(4, 104),
+];
+$underfilledPassageRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(2, 102, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(3, 103, 0, 51, 0, 'Passage one', 2, 2), $assignmentRow(4, 104),
+];
+$overfilledPassageRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(2, 102, 0, 51, 0, 'Passage one', 2, 3),
+    $assignmentRow(3, 103), $assignmentRow(4, 104),
+];
+$inconsistentPassageBoundsRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 0, 51, 0, 'Passage one', 3, 2),
+    $assignmentRow(2, 102, 0, 51, 0, 'Passage one', 3, 2),
+    $assignmentRow(3, 103), $assignmentRow(4, 104),
+];
+$malformedPassageBoundsRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 0, 61, 0, '__CATEGORY_CONTAINER__', 0, 0),
+    $assignmentRow(2, 102, 0, 61, 0, '__CATEGORY_CONTAINER__', 0, 0),
+    $assignmentRow(3, 103), $assignmentRow(4, 104),
+];
+$containerAndNonPassageAccepted = quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->assignments = [
+    $assignmentRow(1, 101, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(2, 102),
+    $assignmentRow(3, 103, 0, 51, 0, 'Passage one', 2, 2),
+    $assignmentRow(4, 104),
+];
+$splitPassageRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$assignmentPdo->categories = [['id' => 10, 'min_questions' => 3, 'max_questions' => 2]];
+$malformedBoundsRejected = !quiz_attempt_assignment_is_valid($assignmentPdo, 7);
+$check($validQuotaPackage && $badCountRejected && $excessCountRejected && $badSequenceRejected && $badQuotaRejected
+    && $badBlockOrderRejected && $unknownCategoryRejected && $containerCategoryFallbackAccepted
+    && $uncategorizedFinalAllowed && $uncategorizedMiddleRejected && $exactPassageBoundsAccepted
+    && $underfilledPassageRejected && $overfilledPassageRejected && $inconsistentPassageBoundsRejected
+    && $malformedPassageBoundsRejected && $containerAndNonPassageAccepted
+    && $splitPassageRejected && $malformedBoundsRejected,
+    'assignment validation must enforce exact count/seq, category and real-passage quotas, block order, metadata consistency, and container exclusions');
+
+final class PackageContractStatement extends PDOStatement {
+    private array $rows = [];
+    public function __construct(private PackageContractPDO $pdo, private string $sql) {}
+    public function execute(?array $params = null): bool {
+        $this->pdo->queries[] = $this->sql;
+        if (preg_match('/\b(?:quizzes|questions|question_categories|question_passages|question_answers)\b/', $this->sql)) {
+            throw new RuntimeException('Package validation queried mutable configuration.');
+        }
+        if (str_contains($this->sql, 'FROM attempt_questions')) $this->rows = $this->pdo->assignments;
+        elseif (str_contains($this->sql, 'FROM attempt_question_options')) $this->rows = $this->pdo->options;
+        else throw new RuntimeException('Unexpected package contract query.');
+        return true;
+    }
+    public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array { return $this->rows; }
+}
+final class PackageContractPDO extends PDO {
+    public array $assignments = [];
+    public array $options = [];
+    public array $queries = [];
+    public int $liveConfigurationVersion = 1;
+    public function __construct() {}
+    public function prepare(string $query, array $options = []): PDOStatement|false {
+        return new PackageContractStatement($this, $query);
+    }
+}
+$packageDelivery = static function (string $key, string $name, int $minimum, ?int $maximum,
+    ?array $passage = null, string $type = 'single_choice'): array {
+    return [
+        'version' => 1,
+        'question' => ['text' => 'Immutable question', 'type' => $type, 'image_media_id' => null,
+            'image_url' => '', 'file_id' => null, 'file_label' => '', 'file_url' => '', 'youtube_url' => ''],
+        'passage' => $passage,
+        'category' => ['id' => str_starts_with($key, 'category:') ? (int)substr($key, 9) : null,
+            'key' => $key, 'name' => $name, 'min_questions' => $minimum, 'max_questions' => $maximum],
+    ];
+};
+$packagePassage = ['id' => 51, 'title' => 'Immutable passage', 'text' => 'Passage text',
+    'min_questions' => 2, 'max_questions' => 2, 'image_media_id' => null, 'image_url' => '',
+    'file_id' => null, 'file_label' => '', 'file_url' => '', 'youtube_url' => ''];
+$packageRow = static function (int $seq, int $questionId, array $delivery): array {
+    return ['id' => 1000 + $questionId, 'attempt_id' => 7, 'question_id' => $questionId, 'seq' => $seq,
+        'available_score_snapshot' => 1, 'category_key_snapshot' => $delivery['category']['key'],
+        'category_id_snapshot' => $delivery['category']['id'], 'category_name_snapshot' => $delivery['category']['name'],
+        'options_snapshotted_at' => '2026-10-08 10:00:00',
+        'delivery_snapshot_json' => json_encode($delivery, JSON_THROW_ON_ERROR),
+        'delivery_snapshotted_at' => '2026-10-08 10:00:00', 'snapshot_at' => '2026-10-08 10:00:00'];
+};
+$basePackageRows = [
+    $packageRow(1, 101, $packageDelivery('category:10', 'Category A', 2, 2, $packagePassage)),
+    $packageRow(2, 102, $packageDelivery('category:10', 'Category A', 2, 2, $packagePassage)),
+    $packageRow(3, 103, $packageDelivery('category:20', 'Category B', 1, 1)),
+    $packageRow(4, 104, $packageDelivery('uncategorized', 'Other', 0, null)),
+];
+$basePackageOptions = [];
+foreach ($basePackageRows as $row) {
+    $basePackageOptions[] = ['attempt_question_id' => $row['id'], 'attempt_id' => 7,
+        'question_id' => $row['question_id'], 'source_answer_id' => 5000 + $row['question_id'],
+        'answer_text' => 'Immutable option', 'score' => 1, 'delivery_seq' => 1];
+}
+$setPackageCategory = static function (array &$row, array $category): void {
+    $delivery = json_decode($row['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+    $delivery['category'] = $category;
+    $row['category_key_snapshot'] = $category['key'];
+    $row['category_id_snapshot'] = $category['id'];
+    $row['category_name_snapshot'] = $category['name'];
+    $row['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+};
+$packagePdo = new PackageContractPDO();
+$packagePdo->assignments = $basePackageRows;
+$packagePdo->options = $basePackageOptions;
+$packageInitiallyComplete = quiz_attempt_package_is_complete($packagePdo, 7);
+$packagePdo->liveConfigurationVersion = 99;
+$packageAfterLiveMutation = quiz_attempt_package_is_complete($packagePdo, 7);
+$check($packageInitiallyComplete && $packageAfterLiveMutation && count($packagePdo->queries) === 4,
+    'package completeness must remain valid after live configuration and bank mutations by querying snapshots only');
+$packagePdo->assignments = $basePackageRows;
+$delivery = json_decode($packagePdo->assignments[1]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+$delivery['passage'] = null;
+$packagePdo->assignments[1]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject underfilled immutable real passages');
+$packagePdo->assignments = $basePackageRows;
+$delivery = json_decode($packagePdo->assignments[2]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+$delivery['passage'] = $packagePassage;
+$packagePdo->assignments[2]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject overfilled immutable real passages');
+$packagePdo->assignments = $basePackageRows;
+$delivery = json_decode($packagePdo->assignments[1]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+$delivery['passage']['max_questions'] = 3;
+$packagePdo->assignments[1]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject inconsistent immutable passage bounds');
+$packagePdo->assignments = $basePackageRows;
+$delivery = json_decode($packagePdo->assignments[0]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+$delivery['passage']['max_questions'] = 1;
+$packagePdo->assignments[0]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject malformed immutable passage bounds');
+$containerPassage = $packagePassage;
+$containerPassage['text'] = '__CATEGORY_CONTAINER__';
+$containerPassage['min_questions'] = 0;
+$containerPassage['max_questions'] = 0;
+$packagePdo->assignments = $basePackageRows;
+foreach ([0, 1] as $index) {
+    $delivery = json_decode($packagePdo->assignments[$index]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+    $delivery['passage'] = $containerPassage;
+    $packagePdo->assignments[$index]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+}
+$check(quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must exclude container passages from immutable passage quotas');
+$packagePdo->assignments = $basePackageRows;
+foreach ([0, 1] as $index) {
+    $delivery = json_decode($packagePdo->assignments[$index]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+    $delivery['passage'] = null;
+    $packagePdo->assignments[$index]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+}
+$check(quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must keep non-passage immutable assignments valid');
+$packageValidatorStart = (int)strpos($helperSource, 'function quiz_attempt_package_is_complete');
+$packageValidatorEnd = (int)strpos($helperSource, 'function quiz_snapshot_attempt_questions', $packageValidatorStart);
+$packageValidatorSource = substr($helperSource, $packageValidatorStart, $packageValidatorEnd - $packageValidatorStart);
+$check(!str_contains($packageValidatorSource, 'quiz_attempt_assignment_is_valid')
+    && !preg_match('/\b(?:quizzes|questions|question_categories|question_passages|question_answers)\b/', $packageValidatorSource),
+    'package completeness source must not call live assignment validation or query mutable quiz-bank tables');
+
+$packagePdo->assignments = [];
+$packagePdo->options = [];
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject empty assignments');
+$packagePdo->options = $basePackageOptions;
+$packagePdo->assignments = $basePackageRows;
+$packagePdo->assignments[1]['seq'] = 1;
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject duplicate or noncontiguous snapshot sequence numbers');
+$packagePdo->assignments = $basePackageRows;
+$delivery = json_decode($packagePdo->assignments[0]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+$delivery['version'] = 2;
+$packagePdo->assignments[0]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject incomplete or unsupported delivery snapshots');
+$packagePdo->assignments = $basePackageRows;
+$delivery = json_decode($packagePdo->assignments[0]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+$delivery['category']['min_questions'] = 3;
+$packagePdo->assignments[0]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject malformed or inconsistent snapshotted category bounds');
+$packagePdo->assignments = $basePackageRows;
+$categoryA = ['id' => 10, 'key' => 'category:10', 'name' => 'Category A', 'min_questions' => 2, 'max_questions' => 2];
+$categoryB = ['id' => 20, 'key' => 'category:20', 'name' => 'Category B', 'min_questions' => 1, 'max_questions' => 1];
+$setPackageCategory($packagePdo->assignments[1], $categoryB);
+$setPackageCategory($packagePdo->assignments[2], $categoryA);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject repeated category blocks in locally randomized packages');
+$packagePdo->assignments = $basePackageRows;
+$setPackageCategory($packagePdo->assignments[2],
+    ['id' => null, 'key' => 'uncategorized', 'name' => 'Other', 'min_questions' => 0, 'max_questions' => null]);
+$setPackageCategory($packagePdo->assignments[3], $categoryB);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must keep the uncategorized block final when represented');
+$packagePdo->assignments = $basePackageRows;
+$packagePdo->assignments[1]['delivery_snapshot_json'] = json_encode(
+    $packageDelivery('category:10', 'Category A', 2, 2), JSON_THROW_ON_ERROR);
+$delivery = json_decode($packagePdo->assignments[2]['delivery_snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+$delivery['passage'] = $packagePassage;
+$packagePdo->assignments[2]['delivery_snapshot_json'] = json_encode($delivery, JSON_THROW_ON_ERROR);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject split immutable real-passage blocks');
+$packagePdo->assignments = $basePackageRows;
+$setPackageCategory($packagePdo->assignments[1],
+    ['id' => 10, 'key' => 'category:10', 'name' => 'Changed name', 'min_questions' => 2, 'max_questions' => 2]);
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject inconsistent immutable metadata within a category block');
+$packagePdo->assignments = $basePackageRows;
+$packagePdo->options = $basePackageOptions;
+$packagePdo->options[0]['delivery_seq'] = 2;
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject malformed option snapshot ordering');
+$packagePdo->options = $basePackageOptions;
+$packagePdo->options[0]['question_id'] = 999;
+$check(!quiz_attempt_package_is_complete($packagePdo, 7), 'package completeness must reject option metadata inconsistent with its immutable assignment');
+
+final class ManualVerifyContractStatement extends PDOStatement {
+    private int $affected = 0;
+    public function __construct(private ManualVerifyContractPDO $pdo, public string $sql) {}
+    public function execute(?array $params = null): bool {
+        $this->pdo->executedSql = $this->sql;
+        if (in_array($this->pdo->status, ['registered', 'verified'], true)
+            && $this->pdo->startedAt === null && $this->pdo->submittedAt === null) {
+            $this->pdo->status = 'verified';
+            $this->pdo->verified = true;
+            $this->affected = 1;
+        }
+        return true;
+    }
+    public function rowCount(): int { return $this->affected; }
+}
+final class ManualVerifyContractPDO extends PDO {
+    public ?string $startedAt = null;
+    public ?string $submittedAt = null;
+    public string $status = 'registered';
+    public bool $verified = false;
+    public string $executedSql = '';
+    public function __construct() {}
+    public function prepare(string $query, array $options = []): PDOStatement|false {
+        return new ManualVerifyContractStatement($this, $query);
+    }
+}
+$manualVerifyPdo = new ManualVerifyContractPDO();
+quiz_mark_attempt_manually_verified($manualVerifyPdo, 7, 'manual', 3, null);
+$eligibleManualVerified = $manualVerifyPdo->verified && $manualVerifyPdo->startedAt === null;
+$inProgressVerifyPdo = new ManualVerifyContractPDO();
+$inProgressVerifyPdo->status = 'in_progress';
+$inProgressVerifyPdo->startedAt = '2026-10-08 12:00:00';
+$inProgressRejected = false;
+try { quiz_mark_attempt_manually_verified($inProgressVerifyPdo, 7, 'manual', 3, null); }
+catch (RuntimeException) { $inProgressRejected = !$inProgressVerifyPdo->verified && $inProgressVerifyPdo->status === 'in_progress'; }
+$submittedVerifyPdo = new ManualVerifyContractPDO();
+$submittedVerifyPdo->status = 'submitted';
+$submittedVerifyPdo->submittedAt = '2026-10-08 13:00:00';
+$submittedRejected = false;
+try { quiz_mark_attempt_manually_verified($submittedVerifyPdo, 7, 'manual', 3, null); }
+catch (RuntimeException) { $submittedRejected = !$submittedVerifyPdo->verified && $submittedVerifyPdo->status === 'submitted'; }
+$check($eligibleManualVerified && $inProgressRejected && $submittedRejected
+    && str_contains($manualVerifyPdo->executedSql, "status IN ('registered','verified')")
+    && str_contains($manualVerifyPdo->executedSql, 'started_at IS NULL')
+    && str_contains($manualVerifyPdo->executedSql, 'submitted_at IS NULL'),
+    'manual verification must atomically reject in-progress or submitted attempts and never reopen them');
+$manualVerifyActionSource = (string)file_get_contents($pluginRoot . '/admin/student/attempts/action_verify_manual.php');
+$manualVerifyViewSource = (string)file_get_contents($pluginRoot . '/admin/student/attempts/view.php');
+$check(str_contains($manualVerifyActionSource, 'quiz_mark_attempt_manually_verified(')
+    && str_contains($manualVerifyViewSource, '$manualVerificationEligible')
+    && str_contains($manualVerifyViewSource, 'if ($manualVerificationEligible)'),
+    'manual verification action must retain the server guard and only render its form for eligible attempts');
+
+final class TimerContractStatement extends PDOStatement {
+    private mixed $row = false;
+    public function __construct(private TimerContractPDO $pdo, private string $sql) {}
+    public function execute(?array $params = null): bool {
+        if (str_contains($this->sql, 'FOR UPDATE')) {
+            $this->row = ['started_at' => $this->pdo->startedAt, 'status' => $this->pdo->status,
+                'email_verified_at' => $this->pdo->verifiedAt];
+        } elseif (str_contains($this->sql, 'SET started_at')) {
+            $this->pdo->starts++;
+            $this->pdo->mutations++;
+            $this->pdo->startedAt = '2026-10-08 12:00:00';
+            if ($this->pdo->status === 'verified') $this->pdo->status = 'in_progress';
+        } elseif (str_contains($this->sql, 'SET last_activity_at')) {
+            $this->pdo->touches++;
+            $this->pdo->mutations++;
+        } elseif (str_contains($this->sql, 'UNIX_TIMESTAMP(NOW())')) {
+            $this->row = ['now_ts' => 1000, 'end_ts' => $this->pdo->startedAt === null ? 0 : 2000,
+                'started_at' => $this->pdo->startedAt];
+        } else {
+            throw new RuntimeException('Unexpected timer contract query.');
+        }
+        return true;
+    }
+    public function fetch(int $mode = PDO::FETCH_DEFAULT, int $cursorOrientation = PDO::FETCH_ORI_NEXT,
+        int $cursorOffset = 0): mixed {
+        if ($mode === PDO::FETCH_NUM && is_array($this->row)) {
+            return [1000, $this->row['started_at'] ?? null];
+        }
+        return $this->row;
+    }
+}
+final class TimerContractPDO extends PDO {
+    public ?string $startedAt = null;
+    public string $status = 'verified';
+    public ?string $verifiedAt = '2026-10-08 11:00:00';
+    public int $starts = 0;
+    public int $touches = 0;
+    public int $mutations = 0;
+    public int $rollbacks = 0;
+    private bool $transaction = false;
+    public function __construct() {}
+    public function prepare(string $query, array $options = []): PDOStatement|false {
+        return new TimerContractStatement($this, $query);
+    }
+    public function beginTransaction(): bool { $this->transaction = true; return true; }
+    public function commit(): bool { $this->transaction = false; return true; }
+    public function rollBack(): bool { $this->rollbacks++; $this->transaction = false; return true; }
+    public function inTransaction(): bool { return $this->transaction; }
+}
+$timerPdo = new TimerContractPDO();
+$startedTimer = qz_timer_enforce($timerPdo, 7, 10, true, true);
+$timerStartedOnce = $timerPdo->starts === 1 && $timerPdo->status === 'in_progress'
+    && ($startedTimer['started_at'] ?? null) === '2026-10-08 12:00:00';
+qz_timer_enforce($timerPdo, 7, 10, true, true);
+$timerRetryWasIdempotent = $timerPdo->starts === 1 && $timerPdo->touches === 1;
+$resetRacePdo = new TimerContractPDO();
+$resetRacePdo->status = 'registered';
+$resetRacePdo->verifiedAt = null;
+$resetRaceRejected = false;
+try { qz_timer_enforce($resetRacePdo, 7, 10, true, true); }
+catch (RuntimeException) { $resetRaceRejected = $resetRacePdo->mutations === 0 && $resetRacePdo->rollbacks === 1; }
+$timerlessResetPdo = new TimerContractPDO();
+$timerlessResetPdo->verifiedAt = null;
+$timerlessResetRejected = false;
+try { qz_timer_enforce($timerlessResetPdo, 7, 0, true, true); }
+catch (RuntimeException) { $timerlessResetRejected = $timerlessResetPdo->mutations === 0; }
+$submittedTimerPdo = new TimerContractPDO();
+$submittedTimerPdo->status = 'submitted';
+$submittedTimerRejected = false;
+try { qz_timer_enforce($submittedTimerPdo, 7, 10, true, true); }
+catch (RuntimeException) { $submittedTimerRejected = $submittedTimerPdo->mutations === 0; }
+$check($timerStartedOnce && $timerRetryWasIdempotent && $resetRaceRejected
+    && $timerlessResetRejected && $submittedTimerRejected,
+    'timer mutation must remain idempotent for verified attempts and reject reset, unverified, or submitted attempts under lock');
+$check(str_contains($extensionSource, "return '1.1.0';"), 'Quiz extension API exposes the 1.1.0 version');
+$check(str_contains($extensionSource, 'function quiz_extension_subscribe')
+    && str_contains($extensionSource, 'function quiz_extension_emit')
+    && str_contains($extensionSource, "['attempt.submitted', 'answer.saved', 'question.review_changed']"), 'extension API must preserve callables and add isolated lifecycle subscriptions');
 $check(str_contains($pluginSource, "require_once \$extensionFile")
     && !str_contains($pluginSource, "do_action('quiz_loaded'")
     && !str_contains($pluginSource, "do_action_isolated('quiz_loaded'"), 'Quiz publishes a load-order-safe callable extension API');
-$check(str_contains($pluginSource, "\$schemaRevision = '20260821-resource-owners'"), '1.4.13 must use the resource-owner schema revision');
+$check(str_contains($pluginSource, "\$schemaRevision = '20261008-submitted-delivery-snapshot-backfill'"), '1.5.0 must use the submitted-only delivery-snapshot backfill schema revision');
+$check(str_contains($pluginSource, "'shuffle_answers', 'TINYINT(1) NOT NULL DEFAULT 1")
+    && str_contains($pluginSource, "'result_visibility', \"ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden'")
+    && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_answer_revisions') === 1
+    && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_category_scores') === 1
+    && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_question_options') === 1, 'MySQL upgrade source must be additive and idempotent');
 $check(str_contains($pluginSource, "'question_categories' => 'idx_question_categories_owner'")
     && str_contains($pluginSource, "'question_passages' => 'idx_question_passages_owner'")
     && str_contains($pluginSource, "'questions' => 'idx_questions_owner'"), 'migration must cover every owned question-bank table');
@@ -263,8 +774,9 @@ function settings_get(PDO $pdo, string $key, ?string $default = null): ?string {
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
 $valid = ['', 'index.php', 'register', 'register/index.php', 'verify', 'verify/index.php', 'start', 'start/index.php',
-    'start/confirm', 'start/confirm/index.php', 'take', 'take/index.php', 'reset', 'reset/index.php', 'send_otp.php',
-    'api/get_question.php', 'api/proctor_event.php', 'api/save_answer.php', 'api/submit.php'];
+    'start/confirm', 'start/confirm/index.php', 'take', 'take/index.php', 'result', 'result/index.php',
+    'reset', 'reset/index.php', 'send_otp.php', 'api/get_question.php', 'api/proctor_event.php',
+    'api/save_answer.php', 'api/set_review.php', 'api/submit.php'];
 foreach ($valid as $route) {
     $file = quiz_frontend_entrypoint($route);
     if (!is_string($file) || !is_file($file)) exit(10);
@@ -294,7 +806,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.4.13']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -314,8 +826,8 @@ if ($render('admin_head') !== '' || $render('admin_footer') !== '' || $render('j
 $_GET = ['page' => 'admin/quiz/attempts'];
 $head = $render('admin_head');
 $footer = $render('admin_footer');
-if (!str_contains($head, '/static/plugins/quiz/admin.css?v=1.4.13') || str_contains($head, 'quiz.css')) exit(31);
-if (!str_contains($head, '/static/plugins/quiz/admin.js?v=1.4.13') || !str_contains($head, ' defer')) exit(32);
+if (!str_contains($head, '/static/plugins/quiz/admin.css?v=1.5.0') || str_contains($head, 'quiz.css')) exit(31);
+if (!str_contains($head, '/static/plugins/quiz/admin.js?v=1.5.0') || !str_contains($head, ' defer')) exit(32);
 if ($footer !== '') exit(34);
 $_SERVER['REQUEST_URI'] = '/quiz/register/';
 if (!str_contains($render('jy_head'), 'Quiz - Public Frontend Styles')) exit(33);
@@ -338,13 +850,14 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.4.13']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
     public bool $fail = true;
     public int $executions = 0;
     public function __construct() {}
+    public function getAttribute(int $attribute): mixed { return 'contract'; }
     public function exec(string $statement): int|false {
         $this->executions++;
         if ($this->fail) throw new PDOException('expected contract failure');
@@ -357,14 +870,14 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.4.13'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20260821-resource-owners'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.5.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261008-submitted-delivery-snapshot-backfill'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
 if ($pdo->executions !== 2) exit(23);
 unset($GLOBALS['contract_settings']['quiz_schema_revision']);
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20260821-resource-owners'
+if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261008-submitted-delivery-snapshot-backfill'
     || $pdo->executions !== 2) exit(24);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -377,6 +890,165 @@ if (is_resource($process)) {
     $migrationStatus = proc_close($process);
 }
 $check($migrationStatus === 0, 'schema migration must record only success and retry failures on Quiz requests');
+
+$backfillScript = <<<'PHP'
+function add_action(string $hook, callable $callback, int $priority = 10): void {}
+function register_frontend_route(string $prefix, callable|string $handler): void {}
+function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
+function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
+function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
+final class BackfillStatement extends PDOStatement {
+    private array $rows = [];
+    private mixed $column = false;
+    public function __construct(private BackfillPDO $pdo, private string $sql) {}
+    public function execute(?array $params = null): bool {
+        $params ??= [];
+        if (str_contains($this->sql, 'SELECT DISTINCT aq.attempt_id, a.status')) {
+            $after = (int)($params[':after_attempt_id'] ?? 0);
+            $ids = array_keys($this->pdo->incomplete);
+            sort($ids, SORT_NUMERIC);
+            foreach ($ids as $id) {
+                if ($id > $after && $this->pdo->incomplete[$id] === 'submitted') {
+                    $this->rows[] = ['attempt_id' => $id, 'status' => $this->pdo->incomplete[$id]];
+                }
+            }
+            return true;
+        }
+        if (str_contains($this->sql, 'WHERE aq.attempt_id=:attempt_id')) {
+            $id = (int)($params[':attempt_id'] ?? 0);
+            $this->pdo->currentAttempt = $id;
+            $this->column = (int)($this->pdo->verificationFailures[$id] ?? 0);
+            return true;
+        }
+        throw new RuntimeException('Unexpected fake statement.');
+    }
+    public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array { return $this->rows; }
+    public function fetchColumn(int $column = 0): mixed { return $this->column; }
+}
+final class BackfillPDO extends PDO {
+    public array $incomplete = [4 => 'submitted', 8 => 'in_progress', 12 => 'submitted'];
+    public array $verificationFailures = [12 => 1];
+    public array $snapshotted = [];
+    public ?int $currentAttempt = null;
+    public int $begins = 0;
+    public int $commits = 0;
+    public int $rollbacks = 0;
+    private bool $transaction = false;
+    public function __construct() {}
+    public function getAttribute(int $attribute): mixed { return 'mysql'; }
+    public function prepare(string $query, array $options = []): PDOStatement|false { return new BackfillStatement($this, $query); }
+    public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): PDOStatement|false {
+        return new class($this) extends PDOStatement {
+            public function __construct(private BackfillPDO $pdo) {}
+            public function fetchColumn(int $column = 0): mixed {
+                return count(array_filter($this->pdo->incomplete, static fn(string $status): bool => $status === 'submitted'));
+            }
+        };
+    }
+    public function beginTransaction(): bool { $this->begins++; $this->transaction = true; $this->currentAttempt = null; return true; }
+    public function commit(): bool {
+        $this->commits++;
+        if ($this->currentAttempt !== null) unset($this->incomplete[$this->currentAttempt]);
+        $this->transaction = false;
+        return true;
+    }
+    public function rollBack(): bool { $this->rollbacks++; $this->transaction = false; return true; }
+    public function inTransaction(): bool { return $this->transaction; }
+}
+$pdo = new BackfillPDO();
+require $argv[1];
+$snapshot = static function (PDO $connection, int $attemptId) use ($pdo): void { $pdo->snapshotted[] = $attemptId; };
+$failed = false;
+try {
+    quiz_backfill_attempt_question_snapshots($pdo, $snapshot, 10);
+} catch (RuntimeException $error) {
+    $failed = $error->getMessage() === 'Legacy attempt snapshots could not be completed.';
+}
+if (!$failed || $pdo->snapshotted !== [4, 12] || $pdo->begins !== 2 || $pdo->commits !== 1
+    || $pdo->rollbacks !== 1 || $pdo->incomplete !== [8 => 'in_progress', 12 => 'submitted']) exit(61);
+$pdo->verificationFailures[12] = 0;
+quiz_backfill_attempt_question_snapshots($pdo, $snapshot, 10);
+if ($pdo->snapshotted !== [4, 12, 12] || $pdo->begins !== 3 || $pdo->commits !== 2
+    || $pdo->rollbacks !== 1 || $pdo->incomplete !== [8 => 'in_progress']) exit(62);
+PHP;
+$process = proc_open([PHP_BINARY, '-r', $backfillScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+$backfillStatus = -1;
+if (is_resource($process)) {
+    stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $backfillStatus = proc_close($process);
+}
+$check($backfillStatus === 0, 'snapshot migration must process submitted attempts only and retry only uncommitted submitted work after failure');
+
+$migrationGateScript = <<<'PHP'
+$GLOBALS['contract_settings'] = [];
+function add_action(string $hook, callable $callback, int $priority = 10): void {}
+function register_frontend_route(string $prefix, callable|string $handler): void {}
+function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
+function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
+function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
+final class MigrationGateStatement extends PDOStatement {
+    public function __construct(private MigrationGatePDO $pdo, private string $sql) {}
+    public function execute(?array $params = null): bool { return true; }
+    public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array { return []; }
+    public function fetchColumn(int $column = 0): mixed {
+        if (str_contains($this->sql, 'information_schema.')) return 1;
+        if (str_contains($this->sql, 'COUNT(*) FROM attempt_questions aq')) return $this->pdo->globalIncomplete;
+        return false;
+    }
+}
+final class MigrationGatePDO extends PDO {
+    public int $globalIncomplete = 1;
+    public int $executions = 0;
+    public function __construct() {}
+    public function getAttribute(int $attribute): mixed { return 'mysql'; }
+    public function exec(string $statement): int|false { $this->executions++; return 0; }
+    public function prepare(string $query, array $options = []): PDOStatement|false { return new MigrationGateStatement($this, $query); }
+    public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): PDOStatement|false { return new MigrationGateStatement($this, $query); }
+}
+$pdo = new MigrationGatePDO();
+require $argv[1];
+if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] || $pdo->executions === 0) exit(71);
+$ddlExecutions = $pdo->executions;
+$pdo->globalIncomplete = 0;
+if (quiz_install_schema($pdo) !== true
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.5.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261008-submitted-delivery-snapshot-backfill'
+    || $pdo->executions <= $ddlExecutions) exit(72);
+PHP;
+$process = proc_open([PHP_BINARY, '-r', $migrationGateScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+$migrationGateStatus = -1;
+if (is_resource($process)) {
+    stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $migrationGateStatus = proc_close($process);
+}
+$check($migrationGateStatus === 0, 'incomplete global verification must leave version and revision unadvanced across implicit DDL commits, then succeed on retry');
+
+$backfillStart = (int)strpos($pluginSource, 'function quiz_backfill_attempt_question_snapshots');
+$installStart = (int)strpos($pluginSource, 'function quiz_install_schema');
+$backfillSource = substr($pluginSource, $backfillStart, $installStart - $backfillStart);
+$installSource = substr($pluginSource, $installStart, (int)strpos($pluginSource, 'function quiz_schema_is_ready') - $installStart);
+$backfillCall = strpos($installSource, 'quiz_backfill_attempt_question_snapshots($pdo)');
+$revisionWrite = strpos($installSource, "settings_set(\$pdo, 'quiz_schema_revision'");
+$check(str_contains($backfillSource, 'SELECT DISTINCT aq.attempt_id, a.status')
+    && substr_count($backfillSource, "a.status='submitted'") === 2
+    && str_contains($backfillSource, 'ORDER BY aq.attempt_id ASC')
+    && str_contains($backfillSource, '$pdo->beginTransaction()')
+    && str_contains($backfillSource, '$pdo->commit()')
+    && str_contains($backfillSource, '$pdo->rollBack()'), 'snapshot backfill must process only submitted attempts deterministically in one transaction per attempt');
+$check($backfillCall !== false && $revisionWrite !== false && $backfillCall < $revisionWrite
+    && str_contains($backfillSource, 'SELECT COUNT(*) FROM attempt_questions aq')
+    && str_contains($backfillSource, 'JOIN quiz_attempts a ON a.id=aq.attempt_id')
+    && str_contains($backfillSource, 'Legacy attempt snapshot verification failed.'), 'schema revision persistence must follow a global incomplete-assignment verification');
+$check(str_contains($backfillSource, "__DIR__ . '/includes/helpers.php'")
+    && str_contains($backfillSource, "function_exists('quiz_snapshot_attempt_questions')"), 'schema lifecycle must make the snapshot helper available before backfill');
+$check(!preg_match('/\b(?:UPDATE|DELETE FROM|INSERT INTO)\s+(?:quiz_attempts|attempt_answers|questions|quizzes|students)\b/i', $backfillSource), 'snapshot migration orchestration must not mutate attempts, answers, bank content, PMB settings, or participant identity');
+$check(str_contains((string)file_get_contents($pluginRoot . '/admin/_init.php'), "exit('Quiz upgrade could not be completed. Please retry.')"), 'admin migration failures must return a bounded generic error');
 
 $check(!str_contains($pluginSource, "add_action('init'"), 'schema migration must not run on every frontend request');
 $check(!str_contains($pluginSource, "add_action('admin_init'"), 'schema migration must not run before dashboard authentication');
@@ -421,12 +1093,238 @@ $check(!preg_match('/nav(?:Sections|CatMap)Json\s*=\s*json_encode\([^\n]+JSON_UN
 $takeView = (string)file_get_contents($pluginRoot . '/public/take/_take_view.php');
 $takeContext = (string)file_get_contents($pluginRoot . '/public/take/_take_ctx.php');
 $timerHelper = (string)file_get_contents($pluginRoot . '/public/api/_timer_helper.php');
-$check(str_contains($takeContext, '$needsPreparation && !$isBeginRequest')
+$saveAnswerSource = (string)file_get_contents($pluginRoot . '/public/api/save_answer.php');
+$submitSource = (string)file_get_contents($pluginRoot . '/public/api/submit.php');
+$reviewSource = (string)file_get_contents($pluginRoot . '/public/api/set_review.php');
+$resultSource = (string)file_get_contents($pluginRoot . '/public/result/index.php');
+$attemptViewSource = (string)file_get_contents($pluginRoot . '/admin/student/attempts/view.php');
+$readmeSource = (string)file_get_contents($pluginRoot . '/README.md');
+$check(str_contains($takeContext, '$needsPreparation = !$packageComplete || empty($attempt[\'started_at\'])')
+    && str_contains($takeContext, '$needsPreparation && !$isBeginRequest')
     && str_contains($takeContext, 'qz_public_csrf_check(qz_public_csrf_from_request())')
     && str_contains($takeContext, '$isBeginRequest, $isBeginRequest')
     && str_contains($timerHelper, 'if (!$startIfMissing && !$finalizeIfExpired)'), 'take-page GET is read-only and preparation requires CSRF-protected POST');
 $check(substr_count($takeJs, 'input.className = "qt-choice-input";') === 2, 'single and multiple choice controls must share aligned input styling');
 $check(str_contains($takeView, '.qt-answers .qt-choice-input{') && str_contains($takeView, 'margin:5px 0 0;'), 'choice controls must align vertically with the 28px answer badge');
+$check(str_contains($pluginSource, "'api/set_review.php' => 'api/set_review.php'")
+    && str_contains($pluginSource, "'result' => 'result/index.php'"), 'review and result routes must be explicitly allowlisted');
+$check(str_contains($reviewSource, 'qz_public_csrf_check') && str_contains($reviewSource, 'FOR UPDATE')
+    && str_contains($reviewSource, 'allow_mark_for_review') && str_contains($reviewSource, 'attempt_questions'), 'review mutation must enforce CSRF, locked ownership, opt-in, and assigned-question boundaries');
+$check(str_contains($resultSource, "header('Cache-Control: no-store")
+    && str_contains($resultSource, "status'] !== 'submitted'") && str_contains($resultSource, "visibility === 'hidden'")
+    && !str_contains($resultSource, 'attempt_answers aa.answer_text'), 'participant results must be no-store, submitted-only, opt-in, and response-free');
+$check(str_contains($saveAnswerSource, '$pdo->beginTransaction()') && str_contains($saveAnswerSource, 'LIMIT 1 FOR UPDATE')
+    && str_contains($saveAnswerSource, 'attempt_answer_revisions') && str_contains($saveAnswerSource, 'if (!$same)'), 'answer saves must lock, revise material changes, and ignore identical retries');
+$check(str_contains($submitSource, 'quiz_finalize_attempt($pdo, $attempt_id)')
+    && str_contains($timerHelper, 'quiz_finalize_attempt($pdo, $attempt_id)'), 'explicit and timer submission must share one finalizer');
+$finalizerSource = substr($helperSource, (int)strpos($helperSource, 'function quiz_finalize_attempt'));
+$check(str_contains($helperSource, 'function quiz_snapshot_attempt_questions')
+    && str_contains($finalizerSource, 'available_score_snapshot')
+    && !str_contains($finalizerSource, 'FROM question_answers'), 'finalization denominator and category grouping must use immutable assignment snapshots, not the mutable answer bank');
+$categoryValidationPosition = strpos($finalizerSource, 'SELECT id FROM question_categories');
+$categoryInsertPosition = strpos($finalizerSource, 'INSERT INTO attempt_category_scores');
+$check($categoryValidationPosition !== false && $categoryInsertPosition !== false
+    && $categoryValidationPosition < $categoryInsertPosition
+    && str_contains($finalizerSource, 'WHERE quiz_id=? AND id IN ($placeholders) FOR UPDATE')
+    && str_contains($finalizerSource, '$categoryId = isset($validCategoryIds[$categoryId]) ? $categoryId : 0;')
+    && str_contains($finalizerSource, "\$key = trim((string)(\$row['category_key_snapshot']")
+    && str_contains($finalizerSource, "\$categoryName = trim((string)(\$row['category_name_snapshot']"), 'finalization must bulk-check snapshot category IDs in the attempt quiz, null stale IDs, and retain immutable key/name aggregation');
+$getQuestionSource = (string)file_get_contents($pluginRoot . '/public/api/get_question.php');
+$check(str_contains($helperSource, 'INSERT INTO attempt_question_options')
+    && str_contains($helperSource, 'source_answer_id')
+    && str_contains($helperSource, 'delivery_seq')
+    && str_contains($helperSource, 'options_snapshotted_at IS NULL')
+    && str_contains($helperSource, 'COALESCE(options_snapshotted_at,NOW())'), 'option snapshots must capture immutable IDs, labels, scores, and stable delivery order exactly once');
+$check(str_contains($helperSource, "'version' => 1")
+    && str_contains($helperSource, "'question' => [")
+    && str_contains($helperSource, "'passage' =>")
+    && str_contains($helperSource, "'category' => [")
+    && str_contains($helperSource, 'delivery_snapshot_json=CASE WHEN :replace_delivery_json=1 THEN :delivery_snapshot ELSE delivery_snapshot_json END')
+    && str_contains($helperSource, 'available_score_snapshot=COALESCE(available_score_snapshot,:available_score)'), 'delivery and denominator snapshots must be versioned and write-once');
+$snapshotHelperSource = substr($helperSource, (int)strpos($helperSource, 'function quiz_snapshot_attempt_questions'),
+    (int)strpos($helperSource, '/** Results are public') - (int)strpos($helperSource, 'function quiz_snapshot_attempt_questions'));
+$check(str_contains($snapshotHelperSource, 'SELECT token_hash, quiz_id FROM quiz_attempts WHERE id=:attempt_id LIMIT 1 FOR UPDATE')
+    && str_contains($snapshotHelperSource, 'SELECT id FROM attempt_questions WHERE attempt_id=:attempt_id ORDER BY id ASC FOR UPDATE')
+    && str_contains($snapshotHelperSource, 'SELECT shuffle_answers FROM quizzes WHERE id=:quiz_id LIMIT 1')
+    && !str_contains($snapshotHelperSource, 'SELECT shuffle_answers FROM quizzes WHERE id=:quiz_id LIMIT 1 FOR UPDATE'), 'snapshot capture must lock attempt then assignments without taking a quiz-row lock');
+$check(!preg_match('/UPDATE\s+(?:quiz_attempts|attempt_answers|questions|quizzes|students)\b/i', $snapshotHelperSource)
+    && !str_contains($snapshotHelperSource, 'SET seq='), 'snapshot capture must not change attempt state, scores, answers, assignment order, bank content, settings, or identity');
+$check(str_contains($getQuestionSource, 'FROM attempt_question_options')
+    && !str_contains($getQuestionSource, 'FROM question_answers')
+    && substr_count($saveAnswerSource, 'attempt_question_options') >= 2
+    && str_contains($saveAnswerSource, 'SELECT score FROM attempt_question_options')
+    && !str_contains($saveAnswerSource, 'SELECT score FROM question_answers'), 'participant rendering, validation, and scoring must use snapshotted options exclusively');
+$check(str_contains($saveAnswerSource, '$answerText = (string)$selectedSourceId')
+    && str_contains($getQuestionSource, 'FILTER_VALIDATE_INT')
+    && str_contains($attemptViewSource, 'FILTER_VALIDATE_INT'), 'deleted but snapshotted single-choice options must remain selectable and readable without violating legacy foreign keys');
+$check(str_contains($getQuestionSource, "\$deliverySnapshot = json_decode")
+    && str_contains($getQuestionSource, "\$q['question_text'] = (string)(\$questionDelivery['text']")
+    && str_contains($saveAnswerSource, "\$delivery['question']['type']")
+    && str_contains($attemptViewSource, "\$item['question_text'] = (string)(\$delivery['question']['text']"), 'participant delivery, scoring type, and admin history must prefer immutable delivery snapshots');
+$check(str_contains($getQuestionSource, 'quiz_revalidate_delivery_snapshot_assets($pdo, $deliverySnapshot)')
+    && str_contains($helperSource, "visibility='public' AND storage_disk='public' AND access_scope='public'")
+    && str_contains($helperSource, "access_scope='public' AND is_downloadable=1"), 'snapshotted question and passage assets must recheck current public and downloadable authorization');
+
+final class SnapshotAssetContractStatement extends PDOStatement {
+    private array $rows = [];
+    public function __construct(private string $sql) {}
+    public function execute(?array $params = null): bool {
+        $allowed = str_contains($this->sql, 'FROM media') ? [11] : [22];
+        $this->rows = array_values(array_intersect($params ?? [], $allowed));
+        return true;
+    }
+    public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array { return $this->rows; }
+}
+final class SnapshotAssetContractPDO extends PDO {
+    public array $queries = [];
+    public function __construct() {}
+    public function prepare(string $query, array $options = []): PDOStatement|false {
+        $this->queries[] = $query;
+        return new SnapshotAssetContractStatement($query);
+    }
+}
+$assetPdo = new SnapshotAssetContractPDO();
+$filteredSnapshot = quiz_revalidate_delivery_snapshot_assets($assetPdo, [
+    'question' => ['image_media_id' => 11, 'image_url' => '/immutable-question.jpg',
+        'file_id' => 21, 'file_label' => 'Old question label', 'file_url' => '/immutable-question.pdf'],
+    'passage' => ['image_media_id' => 12, 'image_url' => '/immutable-passage.jpg',
+        'file_id' => 22, 'file_label' => 'Old passage label', 'file_url' => '/immutable-passage.pdf'],
+]);
+$assetQueries = implode("\n", $assetPdo->queries);
+$check(($filteredSnapshot['question']['image_media_id'] ?? null) === 11
+    && ($filteredSnapshot['question']['image_url'] ?? null) === '/immutable-question.jpg'
+    && ($filteredSnapshot['question']['file_id'] ?? null) === null
+    && ($filteredSnapshot['question']['file_label'] ?? null) === ''
+    && ($filteredSnapshot['question']['file_url'] ?? null) === ''
+    && ($filteredSnapshot['passage']['image_media_id'] ?? null) === null
+    && ($filteredSnapshot['passage']['image_url'] ?? null) === ''
+    && ($filteredSnapshot['passage']['file_id'] ?? null) === 22
+    && ($filteredSnapshot['passage']['file_label'] ?? null) === 'Old passage label'
+    && ($filteredSnapshot['passage']['file_url'] ?? null) === '/immutable-passage.pdf'
+    && substr_count($assetQueries, "visibility='public'") === 2
+    && substr_count($assetQueries, "storage_disk='public'") === 2
+    && substr_count($assetQueries, "access_scope='public'") === 2
+    && substr_count($assetQueries, 'is_downloadable=1') === 1, 'snapshot asset delivery must preserve authorized immutable metadata and fail closed for revoked or missing question and passage assets');
+$check(str_contains($verifySource, "status = 'verified'")
+    && !str_contains($verifySource, 'attempt_questions')
+    && !str_contains($verifySource, 'ORDER BY RAND()')
+    && !str_contains($verifySource, 'quiz_snapshot_attempt_questions')
+    && !str_contains($verifySource, 'started_at'),
+    'successful OTP verification must only mark verification and must not assign, randomize, snapshot, or start an attempt');
+$takePreparationSource = substr($takeContext, (int)strpos($takeContext, '$requestMethod ='));
+$takePickPosition = strpos($takePreparationSource, '$ids = qz_pick_attempt_question_ids($pdo, $quiz_id, $limit)');
+$takeResequencePosition = strpos($takePreparationSource, 'qz_resequence_attempt_questions($pdo, $attempt_id);');
+$takeAssignmentValidationPosition = strpos($takePreparationSource, 'quiz_attempt_assignment_is_valid($pdo, $attempt_id)');
+$takeSnapshotPosition = strpos($takePreparationSource, 'quiz_snapshot_attempt_questions($pdo, $attempt_id)');
+$takeCommitPosition = strpos($takePreparationSource, '$pdo->commit();', $takeSnapshotPosition === false ? 0 : $takeSnapshotPosition);
+$takeTimerPosition = strpos($takePreparationSource, 'qz_timer_enforce(', $takeCommitPosition === false ? 0 : $takeCommitPosition);
+$check($takePickPosition !== false && $takeResequencePosition !== false && $takeAssignmentValidationPosition !== false
+    && $takeSnapshotPosition !== false
+    && $takeCommitPosition !== false && $takeTimerPosition !== false
+    && $takePickPosition < $takeResequencePosition && $takeResequencePosition < $takeAssignmentValidationPosition
+    && $takeAssignmentValidationPosition < $takeSnapshotPosition
+    && str_contains($takePreparationSource, 'if (!$hasAnySnapshot && !quiz_attempt_assignment_is_valid($pdo, $attempt_id))')
+    && $takeSnapshotPosition < $takeCommitPosition && $takeCommitPosition < $takeTimerPosition,
+    'take POST must quota-pick, resequence, and live-validate only before the first snapshot, then start the timer after commit');
+$check(str_contains($takePreparationSource, '$hasAnyAnswer')
+    && str_contains($takePreparationSource, '$hasAnySnapshot')
+    && str_contains($takePreparationSource, '$buildPackage = $assignmentRows === [] || (!$hasAnyAnswer && !$hasAnySnapshot)')
+    && str_contains($takePreparationSource, 'if (!quiz_attempt_package_is_complete($pdo, $attempt_id))'),
+    'take preparation must preserve answered or snapshotted assignments while completing missing immutable package rows');
+$pickerSource = substr($takeContext, (int)strpos($takeContext, 'function qz_pick_attempt_question_ids'),
+    (int)strpos($takeContext, 'function qz_resequence_attempt_questions') - (int)strpos($takeContext, 'function qz_pick_attempt_question_ids'));
+$check(str_contains($pickerSource, 'sort_order ASC') && str_contains($pickerSource, '$catMaxById')
+    && str_contains($pickerSource, 'if ($cur >= $cap) return false;')
+    && str_contains($takePreparationSource, "DELETE FROM attempt_questions WHERE attempt_id = :aid"),
+    'new and unsnapshotted packages must rebuild through PMB category order and strict category caps');
+$finalizerReadinessPosition = strpos($finalizerSource, 'quiz_attempt_package_is_complete($pdo, $attemptId)');
+$finalizerRowsPosition = strpos($finalizerSource, 'FROM attempt_questions aq');
+$check($finalizerReadinessPosition !== false && $finalizerRowsPosition !== false
+    && $finalizerReadinessPosition < $finalizerRowsPosition
+    && !str_contains($finalizerSource, 'quiz_snapshot_attempt_questions('),
+    'attempt finalization must require a complete package and never create its first snapshot implicitly');
+foreach ([
+    'get question' => [$getQuestionSource, 'qz_timer_enforce('],
+    'save answer' => [$saveAnswerSource, 'qz_timer_enforce('],
+    'set review' => [$reviewSource, 'qz_timer_enforce('],
+    'submit' => [$submitSource, 'qz_timer_enforce('],
+] as $apiName => [$apiSource, $mutationNeedle]) {
+    $readinessPosition = strpos($apiSource, 'quiz_attempt_package_is_complete(');
+    $mutationPosition = strpos($apiSource, $mutationNeedle);
+    $check($readinessPosition !== false && $mutationPosition !== false && $readinessPosition < $mutationPosition
+        && (str_contains($apiSource, "json_fail(409, 'Quiz preparation required.'") || $apiName === 'set review'
+            && str_contains($apiSource, "\$fail(409, 'Quiz preparation required.'")),
+        "{$apiName} API must return bounded 409 preparation-required before timer or participant mutation");
+}
+$check(!str_contains($getQuestionSource, 'quiz_snapshot_attempt_questions(')
+    && !str_contains($saveAnswerSource, 'quiz_snapshot_attempt_questions(')
+    && !str_contains($reviewSource, 'quiz_snapshot_attempt_questions(')
+    && !str_contains($submitSource, 'quiz_snapshot_attempt_questions('),
+    'participant APIs must never lazily create the first package snapshot');
+$uninstallSource = substr($pluginSource, (int)strpos($pluginSource, "add_action('plugin_uninstall'"));
+$check(strpos($uninstallSource, "'attempt_question_options'") !== false
+    && strpos($uninstallSource, "'attempt_question_options'") < strpos($uninstallSource, "'attempt_questions'"), 'uninstall must drop option snapshots before assigned questions');
+$check(str_contains($helperSource, 'function quiz_attempt_result_is_ready')
+    && str_contains($resultSource, 'Result Unavailable')
+    && str_contains($resultSource, 'quiz_attempt_result_is_ready'), 'historical or inconsistent results must fail closed without a raw score');
+$startSource = (string)file_get_contents($pluginRoot . '/public/start/index.php');
+$check(str_contains($startSource, 'quiz_attempt_result_is_ready')
+    && str_contains($takeContext, 'quiz_attempt_result_is_ready'), 'start and take pages must withhold result links until finalized snapshots are valid');
+$check(str_contains($attemptViewSource, "if (\$user['can_view_attempt_responses'])")
+    && str_contains($attemptViewSource, 'FROM attempt_answer_revisions r'), 'revision history must remain behind the response-detail permission boundary');
+$adminInitSource = (string)file_get_contents($pluginRoot . '/admin/_init.php');
+$check(str_contains($adminInitSource, 'qz_assert_question_not_used_by_attempt')
+    && str_contains($adminInitSource, 'qz_assert_answer_not_used_by_attempt')
+    && str_contains($adminInitSource, 'qz_assert_question_snapshots_complete')
+    && str_contains($adminInitSource, 'qz_assert_related_delivery_snapshots_complete')
+    && str_contains($adminInitSource, 'qz_assert_question_type_change_safe')
+    && str_contains($adminInitSource, 'JSON_CONTAINS'), 'bank guards must reject incomplete legacy assignments and protect scalar or multiple-choice response references');
+$questionSaveSource = (string)file_get_contents($pluginRoot . '/admin/master/api/question_save.php');
+$check(str_contains($questionSaveSource, 'qz_assert_question_snapshots_complete')
+    && str_contains($questionSaveSource, 'qz_assert_question_type_change_safe')
+    && str_contains((string)file_get_contents($pluginRoot . '/admin/questions/index.php'), 'qz_assert_question_snapshots_complete'), 'every question editor must permit changes only after existing assignments have complete immutable snapshots');
+$snapshotGuardStart = (int)strpos($adminInitSource, 'function qz_assert_question_snapshots_complete');
+$snapshotGuardEnd = (int)strpos($adminInitSource, "if (!function_exists('qz_assert_related_delivery_snapshots_complete')", $snapshotGuardStart);
+$snapshotGuardSource = substr($adminInitSource, $snapshotGuardStart, $snapshotGuardEnd - $snapshotGuardStart);
+$check(str_contains($snapshotGuardSource, "COUNT(*) AS assigned_count")
+    && str_contains($snapshotGuardSource, "AS complete_count")
+    && str_contains($snapshotGuardSource, "['assigned_count'] ?? 0) !== (int)(\$counts['complete_count'] ?? 0)")
+    && !str_contains($snapshotGuardSource, "['assigned_count'] ?? 0) > 0"), 'fully snapshotted assignments must not lock non-destructive question authoring');
+$attemptLockPosition = strpos($saveAnswerSource, '$attemptStmt');
+$packageCheckPosition = strpos($saveAnswerSource, 'quiz_attempt_package_is_complete(');
+$assignedLockPosition = strpos($saveAnswerSource, '$questionStmt');
+$deliveryReadPosition = strpos($saveAnswerSource, '$delivery = json_decode');
+$optionLockPosition = strpos($saveAnswerSource, 'FROM attempt_question_options');
+$check($attemptLockPosition !== false && $packageCheckPosition !== false && $assignedLockPosition !== false
+    && $deliveryReadPosition !== false && $optionLockPosition !== false
+    && $attemptLockPosition < $packageCheckPosition && $packageCheckPosition < $assignedLockPosition
+    && $assignedLockPosition < $deliveryReadPosition && $deliveryReadPosition < $optionLockPosition
+    && !str_contains($saveAnswerSource, '$questionDefinitionStmt')
+    && substr_count($saveAnswerSource, 'FOR UPDATE') >= 4, 'answer save must lock auth, require package readiness, then use locked delivery and option snapshots in order');
+$check(str_contains($submitSource, 'quiz_participant_submit_payload')
+    && !str_contains($submitSource, "'total_score' =>")
+    && !str_contains($submitSource, "'elapsed_seconds' =>"), 'submit endpoint must not serialize score or elapsed fields directly');
+$check(str_contains($takeJs, 'const requestedSeq = Number(currentSeq)')
+    && str_contains($takeJs, 'setReviewState(requestedSeq,'), 'review UI must update the requested row rather than mutable navigation state');
+$lifecycleSources = $timerHelper . $saveAnswerSource . $reviewSource . $submitSource;
+$check(substr_count($lifecycleSources, "'status' => 'submitted'") === 4
+    && !str_contains($extensionSource, "'total_score', 'elapsed_seconds'")
+    && !str_contains($extensionSource, "'computed_score'"), 'explicit and timer lifecycle emitters must use consistent score-free payload allowlists');
+$answerSaveAdminSource = (string)file_get_contents($pluginRoot . '/admin/master/api/answer_save.php');
+$answerDeleteAdminSource = (string)file_get_contents($pluginRoot . '/admin/master/api/answer_delete.php');
+$answerReorderAdminSource = (string)file_get_contents($pluginRoot . '/admin/master/api/answers_reorder.php');
+$check(str_contains($answerSaveAdminSource, 'qz_assert_question_snapshots_complete')
+    && str_contains($answerDeleteAdminSource, 'qz_assert_answer_not_used_by_attempt')
+    && str_contains($answerReorderAdminSource, 'qz_assert_question_snapshots_complete')
+    && substr_count($answerSaveAdminSource . $answerDeleteAdminSource . $answerReorderAdminSource, "'assigned_content_locked'") === 3, 'answer mutation must require complete option snapshots, while deletion additionally protects response references with bounded domain errors');
+$check(str_contains($attemptViewSource, 'FROM attempt_question_options')
+    && str_contains($attemptViewSource, 'aq.delivery_snapshot_json')
+    && str_contains($attemptViewSource, "if (\$type === 'multiple_choice')")
+    && str_contains($attemptViewSource, "implode('; ', \$resolved)"), 'admin multiple-choice current and revision responses must render snapshotted labels instead of raw JSON IDs');
+$check(str_contains($readmeSource, 'Delivery Snapshots')
+    && str_contains($readmeSource, 'including assignments on submitted attempts')
+    && str_contains($readmeSource, 'one transaction per attempt')
+    && str_contains($readmeSource, 'retains the legacy foreign keys'), 'README must document the retry-safe legacy backfill and retained foreign-key limitation');
 
 $adminCss = (string)file_get_contents($pluginRoot . '/assets/admin.css');
 $adminJs = (string)file_get_contents($pluginRoot . '/assets/admin.js');
@@ -690,7 +1588,7 @@ function adiwira_require_permission(PDO $pdo, string $permission, bool $allowSco
     $GLOBALS['guard_permission'] = $permission;
     return [7, []];
 }
-function quiz_install_schema(PDO $pdo): void {}
+function quiz_install_schema(PDO $pdo): bool { return true; }
 function current_user_id(): int { return 7; }
 function user_can(PDO $pdo, int $userId, string $permission, array $context = []): bool {
     $GLOBALS['user_can_permissions'][] = $permission;
@@ -737,7 +1635,7 @@ define('DASHBOARD_CONTEXT', true);
 final class UnknownRoutePDO extends PDO { public function __construct() {} }
 $pdo = new UnknownRoutePDO();
 function adiwira_require_permission(PDO $pdo, string $permission, bool $allowScope): array { exit(51); }
-function quiz_install_schema(PDO $pdo): void {}
+function quiz_install_schema(PDO $pdo): bool { return true; }
 $GLOBALS['_plugin_current_route'] = ['route' => 'admin/quiz/unknown', 'permission' => 'plugin.quiz.workspace.access'];
 $_GET = [];
 require $argv[1];
@@ -825,6 +1723,11 @@ $check(str_contains($duplicateSource, 'qz_lock_quiz_for_workspace_mutation'), 'd
 $quizEditSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/edit.php');
 $quizDeleteSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/delete.php');
 $quizAddSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/add.php');
+$check(str_contains($quizAddSource, 'name="result_visibility"')
+    && str_contains($quizEditSource, 'name="result_visibility"')
+    && str_contains($quizAddSource, 'Disembunyikan menutup halaman hasil peserta.')
+    && str_contains($quizEditSource, 'Disembunyikan menutup halaman hasil peserta.'),
+    'quiz add/edit must expose and explain participant result visibility controls');
 $check(str_contains($quizAddSource, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.quiz.quizzes.manage')")
     && str_contains($quizAddSource, "\$user['can_manage_quizzes']"), 'quiz creation must repeat and evaluate exactly quizzes.manage');
 $check(strpos($quizAddSource, 'beginTransaction()') < strpos($quizAddSource, 'qz_require_workspace_mutation_access(')
@@ -1157,7 +2060,7 @@ $quizAssignmentLock = strpos($collaboratorSource, 'SELECT id, created_by FROM qu
 $check($selectedUserLock !== false && $quizAssignmentLock !== false && $selectedUserLock < $quizAssignmentLock, 'collaborator assignment locks selected users before the quiz to match mutation lock order');
 $answerSource = (string)file_get_contents($pluginRoot . '/public/api/save_answer.php');
 $proctorSource = (string)file_get_contents($pluginRoot . '/public/api/proctor_event.php');
-$check(str_contains($answerSource, 'strlen($txt) > 20000') && str_contains($answerSource, 'count($ids) > 100'), 'participant answers and option arrays have hard size limits');
+$check(str_contains($answerSource, 'strlen($answerText) > 20000') && str_contains($answerSource, 'count($ids) > 100'), 'participant answers and option arrays have hard size limits');
 $check(str_contains($proctorSource, 'INTERVAL 1 MINUTE') && str_contains($proctorSource, '>= 120') && str_contains($proctorSource, 'FOR UPDATE'), 'proctor events are transactionally rate-limited per attempt');
 
 $destructiveFiles = [

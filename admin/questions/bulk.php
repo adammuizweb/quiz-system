@@ -59,6 +59,7 @@ try {
   if ($action === 'delete') {
     $stmt = $pdo->prepare('DELETE FROM questions WHERE id=:id AND quiz_id=:quiz_id LIMIT 1');
     foreach ($ids as $id) {
+      qz_assert_question_not_used_by_attempt($pdo, $id);
       $stmt->execute([':id' => $id, ':quiz_id' => $quizId]);
       $changed += $stmt->rowCount();
     }

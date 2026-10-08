@@ -24,24 +24,7 @@ $admin_id = (int)($_SESSION['user_id'] ?? 0);
 try {
   $pdo->beginTransaction();
   qz_lock_attempt_for_mutation($pdo, $attempt_id, (int)qz_admin_user($pdo)['id'], 'plugin.quiz.attempts.operate');
-  $stmt = $pdo->prepare("
-    UPDATE quiz_attempts
-    SET email_verified_at = NOW(),
-        verified_via = :via,
-        verified_by = :by,
-        verified_note = :note,
-        status = 'verified',
-        started_at = COALESCE(started_at, NOW()),
-        last_activity_at = NOW()
-    WHERE id = :id
-    LIMIT 1
-  ");
-  $stmt->execute([
-    ':via'  => $via,
-    ':by'   => $admin_id ?: null,
-    ':note' => ($note === '' ? null : $note),
-    ':id'   => $attempt_id,
-  ]);
+  quiz_mark_attempt_manually_verified($pdo, $attempt_id, $via, $admin_id ?: null, $note === '' ? null : $note);
   $pdo->commit();
 } catch (Throwable $error) {
   if ($pdo->inTransaction()) $pdo->rollBack();

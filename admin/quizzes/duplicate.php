@@ -40,9 +40,11 @@ try {
   $insQuiz = $pdo->prepare("
     INSERT INTO quizzes
       (created_by, title, description, question_pool_size, questions_per_attempt, duration_minutes,
+       shuffle_answers, timer_warning_seconds, allow_mark_for_review, result_visibility,
        is_active, is_primary, start_at, end_at, created_at, updated_at)
     VALUES
-      (:created_by, :title, :description, 0, :qpa, :dur, 0, 0, NULL, NULL, NOW(), NOW())
+      (:created_by, :title, :description, 0, :qpa, :dur, :shuffle_answers, :timer_warnings, :allow_review, :result_visibility,
+       0, 0, NULL, NULL, NOW(), NOW())
   ");
   $insQuiz->execute([
     ':created_by' => $uid,
@@ -50,6 +52,10 @@ try {
     ':description'=> $srcQuiz['description'],
     ':qpa'        => (int)$srcQuiz['questions_per_attempt'],
     ':dur'        => $srcQuiz['duration_minutes'] !== null ? (int)$srcQuiz['duration_minutes'] : null,
+    ':shuffle_answers' => quiz_safe_bool($srcQuiz['shuffle_answers'] ?? 1, 1),
+    ':timer_warnings' => quiz_serialize_timer_warning_seconds(quiz_safe_timer_warning_seconds($srcQuiz['timer_warning_seconds'] ?? null)),
+    ':allow_review' => quiz_safe_bool($srcQuiz['allow_mark_for_review'] ?? 0, 0),
+    ':result_visibility' => quiz_safe_result_visibility($srcQuiz['result_visibility'] ?? 'hidden'),
   ]);
   if ($insQuiz->rowCount() !== 1) throw new RuntimeException('Quiz copy was not created.');
   $newQuizId = (int)$pdo->lastInsertId();

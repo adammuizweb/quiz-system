@@ -106,7 +106,10 @@ if ($quizPermission === null || ($requiredPermission !== null && $requiredPermis
 }
 [$quizUserId] = adiwira_require_permission($pdo, $quizPermission, false);
 $GLOBALS['_quiz_actor_id'] = (int)$quizUserId;
-quiz_install_schema($pdo);
+if (!quiz_install_schema($pdo)) {
+    http_response_code(503);
+    exit('Quiz upgrade could not be completed. Please retry.');
+}
 
 define('QUIZ_ADMIN', __DIR__);
 define('QUIZ_ROOT', dirname(__DIR__));
@@ -270,6 +273,96 @@ if (!function_exists('qz_lock_answer_for_mutation')) {
         $answer = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$answer) throw new RuntimeException('Answer not found or unauthorized.');
         return $answer;
+    }
+}
+
+if (!function_exists('qz_assert_question_not_used_by_attempt')) {
+    function qz_assert_question_not_used_by_attempt(PDO $pdo, int $questionId): void {
+        if (!$pdo->inTransaction()) throw new RuntimeException('Question deletion guard requires a transaction.');
+        $stmt = $pdo->prepare('SELECT 1 FROM attempt_questions WHERE question_id=:question_id LIMIT 1 FOR UPDATE');
+        $stmt->execute([':question_id' => $questionId]);
+        if ($stmt->fetchColumn()) throw new QuizAssignedContentException('Question is used by an attempt and cannot be deleted.');
+    }
+}
+
+if (!class_exists('QuizAssignedContentException')) {
+    class QuizAssignedContentException extends RuntimeException {}
+}
+
+if (!function_exists('qz_assert_question_snapshots_complete')) {
+    function qz_assert_question_snapshots_complete(PDO $pdo, int $questionId, bool $delivery = true, bool $options = true): void {
+        if (!$pdo->inTransaction()) throw new RuntimeException('Snapshot completeness guard requires a transaction.');
+        $requirements = [];
+        if ($delivery) $requirements[] = "delivery_snapshotted_at IS NOT NULL AND JSON_VALID(delivery_snapshot_json) AND JSON_EXTRACT(delivery_snapshot_json,'$.version')=1";
+        if ($options) $requirements[] = 'options_snapshotted_at IS NOT NULL';
+        if ($requirements === []) return;
+        $complete = implode(' AND ', $requirements);
+        $stmt = $pdo->prepare("SELECT COUNT(*) AS assigned_count,
+            COALESCE(SUM(CASE WHEN {$complete} THEN 1 ELSE 0 END),0) AS complete_count
+            FROM attempt_questions WHERE question_id=:question_id");
+        $stmt->execute([':question_id' => $questionId]);
+        $counts = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        if ((int)($counts['assigned_count'] ?? 0) !== (int)($counts['complete_count'] ?? 0)) {
+            throw new QuizAssignedContentException('Existing assignments must be snapshotted before this bank content can be changed.');
+        }
+    }
+}
+
+if (!function_exists('qz_assert_related_delivery_snapshots_complete')) {
+    function qz_assert_related_delivery_snapshots_complete(PDO $pdo, string $scope, int $resourceId): void {
+        if (!$pdo->inTransaction()) throw new RuntimeException('Delivery snapshot guard requires a transaction.');
+        $where = match ($scope) {
+            'quiz' => 'q.quiz_id=:resource_id',
+            'passage' => 'q.passage_id=:resource_id',
+            'category' => '(q.category_id=:resource_id OR p.category_id=:related_id)',
+            default => throw new InvalidArgumentException('Invalid delivery snapshot scope.'),
+        };
+        $stmt = $pdo->prepare("SELECT COUNT(*) AS assigned_count,
+            COALESCE(SUM(CASE WHEN aq.delivery_snapshotted_at IS NOT NULL
+              AND JSON_VALID(aq.delivery_snapshot_json)
+              AND JSON_EXTRACT(aq.delivery_snapshot_json,'$.version')=1 THEN 1 ELSE 0 END),0) AS complete_count
+            FROM attempt_questions aq
+            JOIN questions q ON q.id=aq.question_id
+            LEFT JOIN question_passages p ON p.id=q.passage_id AND p.quiz_id=q.quiz_id
+            WHERE {$where}");
+        $params = [':resource_id' => $resourceId];
+        if ($scope === 'category') $params[':related_id'] = $resourceId;
+        $stmt->execute($params);
+        $counts = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        if ((int)($counts['assigned_count'] ?? 0) !== (int)($counts['complete_count'] ?? 0)) {
+            throw new QuizAssignedContentException('Existing assignments must be snapshotted before this bank content can be changed.');
+        }
+    }
+}
+
+if (!function_exists('qz_assert_answer_not_used_by_attempt')) {
+    function qz_assert_answer_not_used_by_attempt(PDO $pdo, int $questionId, int $answerId): void {
+        if (!$pdo->inTransaction()) throw new RuntimeException('Answer deletion guard requires a transaction.');
+        qz_assert_question_snapshots_complete($pdo, $questionId, false, true);
+        $stmt = $pdo->prepare('SELECT id FROM attempt_answers WHERE question_id=:question_id AND selected_answer_id=:answer_id LIMIT 1 FOR UPDATE');
+        $stmt->execute([':question_id' => $questionId, ':answer_id' => $answerId]);
+        if ($stmt->fetchColumn()) throw new QuizAssignedContentException('This answer is referenced by an attempt response and cannot be deleted.');
+        $stmt = $pdo->prepare('SELECT id FROM attempt_answer_revisions WHERE question_id=:question_id AND selected_answer_id=:answer_id LIMIT 1 FOR UPDATE');
+        $stmt->execute([':question_id' => $questionId, ':answer_id' => $answerId]);
+        if ($stmt->fetchColumn()) throw new QuizAssignedContentException('This answer is referenced by response history and cannot be deleted.');
+        $answerJson = (string)$answerId;
+        $stmt = $pdo->prepare("SELECT id FROM attempt_answers WHERE question_id=:question_id
+            AND JSON_TYPE(IF(JSON_VALID(answer_text),answer_text,'null'))='ARRAY'
+            AND JSON_CONTAINS(IF(JSON_VALID(answer_text),answer_text,'null'),:answer_json,'$') LIMIT 1 FOR UPDATE");
+        $stmt->execute([':question_id' => $questionId, ':answer_json' => $answerJson]);
+        if ($stmt->fetchColumn()) throw new QuizAssignedContentException('This answer is referenced by an attempt response and cannot be deleted.');
+        $stmt = $pdo->prepare("SELECT id FROM attempt_answer_revisions WHERE question_id=:question_id
+            AND JSON_TYPE(IF(JSON_VALID(answer_text),answer_text,'null'))='ARRAY'
+            AND JSON_CONTAINS(IF(JSON_VALID(answer_text),answer_text,'null'),:answer_json,'$') LIMIT 1 FOR UPDATE");
+        $stmt->execute([':question_id' => $questionId, ':answer_json' => $answerJson]);
+        if ($stmt->fetchColumn()) throw new QuizAssignedContentException('This answer is referenced by response history and cannot be deleted.');
+    }
+}
+
+if (!function_exists('qz_assert_question_type_change_safe')) {
+    function qz_assert_question_type_change_safe(PDO $pdo, int $questionId, string $currentType, string $newType): void {
+        if ($currentType === $newType) return;
+        qz_assert_question_snapshots_complete($pdo, $questionId, true, true);
     }
 }
 

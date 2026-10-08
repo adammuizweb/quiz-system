@@ -18,6 +18,10 @@ $title = '';
 $description = '';
 $questions_per_attempt = 25;
 $duration_minutes = '';
+$shuffle_answers = 1;
+$timer_warning_minutes = '';
+$allow_mark_for_review = 0;
+$result_visibility = 'hidden';
 $is_active = 1;
 $start_at = '';
 $end_at = '';
@@ -36,13 +40,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $description = trim((string)($_POST['description'] ?? ''));
   $questions_per_attempt = (int)($_POST['questions_per_attempt'] ?? 25);
   $duration_minutes = trim((string)($_POST['duration_minutes'] ?? ''));
+  $timer_warning_minutes = trim((string)($_POST['timer_warning_minutes'] ?? ''));
   $is_active = (int)($_POST['is_active'] ?? 1);
   $start_at = trim((string)($_POST['start_at'] ?? ''));
   $end_at = trim((string)($_POST['end_at'] ?? ''));
 
+  try {
+    $is_active = quiz_normalize_bool($_POST['is_active'] ?? null, 1);
+    $shuffle_answers = quiz_normalize_bool($_POST['shuffle_answers'] ?? null, 1);
+    $allow_mark_for_review = quiz_normalize_bool($_POST['allow_mark_for_review'] ?? null, 0);
+    $result_visibility = quiz_normalize_result_visibility($_POST['result_visibility'] ?? '');
+    $timerWarningSeconds = quiz_timer_warning_minutes_to_seconds($timer_warning_minutes);
+  } catch (InvalidArgumentException $error) {
+    $errors[] = $error->getMessage();
+    $timerWarningSeconds = [];
+  }
+
   if ($title === '') $errors[] = 'Judul wajib diisi.';
   if ($questions_per_attempt <= 0 || $questions_per_attempt > 200) $errors[] = 'Jumlah soal per attempt tidak valid (1..200).';
   if ($duration_minutes !== '' && (!ctype_digit($duration_minutes) || (int)$duration_minutes <= 0)) $errors[] = 'Durasi harus angka menit.';
+  if ($timerWarningSeconds !== [] && ($duration_minutes === '' || max($timerWarningSeconds) > (int)$duration_minutes * 60)) $errors[] = 'Peringatan timer harus berada dalam durasi quiz.';
   if (!is_valid_dt($start_at)) $errors[] = 'Format start_at: YYYY-MM-DD HH:MM:SS';
   if (!is_valid_dt($end_at)) $errors[] = 'Format end_at: YYYY-MM-DD HH:MM:SS';
 
@@ -51,8 +68,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->beginTransaction();
       qz_require_workspace_mutation_access($pdo, $uid);
       $stmt = $pdo->prepare("
-        INSERT INTO quizzes (created_by, title, description, questions_per_attempt, duration_minutes, is_active, is_primary, start_at, end_at)
-        VALUES (:uid, :title, :desc, :qpa, :dur, :act, 0, :start_at, :end_at)
+        INSERT INTO quizzes (created_by, title, description, questions_per_attempt, duration_minutes, shuffle_answers,
+          timer_warning_seconds, allow_mark_for_review, result_visibility, is_active, is_primary, start_at, end_at)
+        VALUES (:uid, :title, :desc, :qpa, :dur, :shuffle_answers, :timer_warnings, :allow_review, :result_visibility, :act, 0, :start_at, :end_at)
       ");
       $stmt->execute([
         ':uid' => $uid,
@@ -60,6 +78,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':desc' => ($description === '' ? null : $description),
         ':qpa' => $questions_per_attempt,
         ':dur' => ($duration_minutes === '' ? null : (int)$duration_minutes),
+        ':shuffle_answers' => $shuffle_answers,
+        ':timer_warnings' => quiz_serialize_timer_warning_seconds($timerWarningSeconds),
+        ':allow_review' => $allow_mark_for_review,
+        ':result_visibility' => $result_visibility,
         ':act' => ($is_active ? 1 : 0),
         ':start_at' => ($start_at === '' ? null : $start_at),
         ':end_at' => ($end_at === '' ? null : $end_at),
@@ -94,6 +116,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div style="display:grid;gap:.5rem;margin-bottom:1rem">
       <label><strong>Deskripsi</strong> (opsional)</label>
       <textarea class="adam-input" name="description" rows="4"><?= h($description) ?></textarea>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+      <div style="display:grid;gap:.5rem">
+        <label><strong>Acak Jawaban</strong></label>
+        <select class="adam-input" name="shuffle_answers">
+          <option value="1" <?= $shuffle_answers===1?'selected':'' ?>>Aktif (default lama)</option>
+          <option value="0" <?= $shuffle_answers===0?'selected':'' ?>>Nonaktif</option>
+        </select>
+      </div>
+      <div style="display:grid;gap:.5rem">
+        <label><strong>Peringatan Timer (menit)</strong> (opsional)</label>
+        <input class="adam-input" name="timer_warning_minutes" value="<?= h($timer_warning_minutes) ?>" placeholder="mis. 10, 5, 1">
+      </div>
+      <div style="display:grid;gap:.5rem">
+        <label><strong>Tandai untuk Ditinjau</strong></label>
+        <select class="adam-input" name="allow_mark_for_review">
+          <option value="0" <?= $allow_mark_for_review===0?'selected':'' ?>>Nonaktif (default)</option>
+          <option value="1" <?= $allow_mark_for_review===1?'selected':'' ?>>Aktif</option>
+        </select>
+      </div>
+      <div style="display:grid;gap:.5rem">
+        <label><strong>Hasil Peserta</strong></label>
+        <select class="adam-input" name="result_visibility">
+          <option value="hidden" <?= $result_visibility==='hidden'?'selected':'' ?>>Disembunyikan (default)</option>
+          <option value="summary" <?= $result_visibility==='summary'?'selected':'' ?>>Ringkasan</option>
+          <option value="categories" <?= $result_visibility==='categories'?'selected':'' ?>>Ringkasan + kategori</option>
+        </select>
+        <div class="muted" style="font-size:12px">Disembunyikan menutup halaman hasil peserta. Ringkasan menampilkan total saja; kategori menambahkan rinciannya.</div>
+      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
