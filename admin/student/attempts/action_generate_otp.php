@@ -10,7 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit('Meth
 quiz_csrf_check();
 
 $attempt_id = (int)($_POST['attempt_id'] ?? 0);
-if ($attempt_id <= 0) { http_response_code(400); exit('Missing attempt_id'); }
+if ($attempt_id <= 0) { http_response_code(400); exit('Attempt ID is required.'); }
 qz_require_attempt_access($pdo, $attempt_id);
 
 $otp = (string)random_int(100000, 999999);
@@ -40,10 +40,10 @@ try {
   $pdo->commit();
 } catch (Throwable $error) {
   if ($pdo->inTransaction()) $pdo->rollBack();
-  http_response_code(403); exit('Attempt is no longer authorized.');
+  http_response_code(403); exit('You are no longer authorized to modify this Attempt.');
 }
 
 $loc = $base . '/?page=admin/quiz/attempts/view&attempt_id=' . $attempt_id;
-qz_flash_set('msg', 'OTP baru dibuat untuk attempt yang masih registered.');
+qz_flash_set('msg', 'New OTP generated for the Registered Attempt.');
 
 qz_redirect($loc);

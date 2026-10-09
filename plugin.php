@@ -426,8 +426,12 @@ add_action('jy_head', function (): void {
 
 add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
-    echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=1.5.0">' . PHP_EOL;
-    echo '<script src="/static/plugins/quiz/admin.js?v=1.5.0" defer></script>' . PHP_EOL;
+    $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
+    $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.6.0';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.6.0';
+    echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
+    echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });
 
 // --- Admin sidebar menu ---
@@ -449,9 +453,9 @@ add_action('admin_menu', function (): void {
         ['page' => 'admin/quiz',          'label' => 'Dashboard',      'icon' => 'house',     'prefixes' => ['admin/quiz']],
         ['page' => 'admin/quiz/quizzes',  'label' => 'Quiz',           'icon' => 'pen',       'prefixes' => ['admin/quiz/quizzes']],
         ['page' => 'admin/quiz/master',   'label' => 'Master Builder', 'icon' => 'cog',       'prefixes' => ['admin/quiz/master', 'admin/quiz/categories', 'admin/quiz/passages', 'admin/quiz/questions', 'admin/quiz/dump']],
-        ['page' => 'admin/quiz/students', 'label' => 'Student',        'icon' => 'users',     'prefixes' => ['admin/quiz/students']],
-        ['page' => 'admin/quiz/attempts', 'label' => 'Attempt',        'icon' => 'file-text', 'prefixes' => ['admin/quiz/attempts']],
-        ['page' => 'admin/quiz/settings', 'label' => 'Config',         'icon' => 'settings',  'prefixes' => ['admin/quiz/settings']],
+        ['page' => 'admin/quiz/students', 'label' => 'Students',       'icon' => 'users',     'prefixes' => ['admin/quiz/students']],
+        ['page' => 'admin/quiz/attempts', 'label' => 'Attempts',       'icon' => 'file-text', 'prefixes' => ['admin/quiz/attempts']],
+        ['page' => 'admin/quiz/settings', 'label' => 'Settings',       'icon' => 'settings',  'prefixes' => ['admin/quiz/settings']],
     ];
     $pages = array_values(array_filter($pages, static function (array $item) use ($pdo, $uid): bool {
         $route = plugin_resolve_route((string)$item['page']);
@@ -463,7 +467,7 @@ add_action('admin_menu', function (): void {
     echo '<li class="adam-nav-item' . $openClass . '" data-prefix="' . h($prefix) . '">';
     echo '<a class="adam-nav-link' . $activeClass . '" href="' . h($base . '/?page=' . $parentPage) . '">';
     echo '<span class="adam-nav-icon" aria-hidden="true">' . svg_ico('book-open') . '</span>';
-    echo '<span class="adam-nav-text">Sistem Quiz</span>';
+    echo '<span class="adam-nav-text">Quiz System</span>';
     echo '</a>';
 
     echo '<div class="adam-nav-sub" aria-hidden="' . ($isActive ? 'false' : 'true') . '">';

@@ -232,10 +232,10 @@ try {
 
   $pdo->commit();
 
-  qz_redirect($base."/?page=admin/quiz/master&quiz_id=".$newQuizId."&msg=".urlencode("Quiz berhasil diduplikat. Silakan atur min/max kategori."));
+  qz_redirect($base."/?page=admin/quiz/master&quiz_id=".$newQuizId."&msg=".urlencode("Quiz duplicated. Set the category minimum and maximum values."));
 
 } catch (\Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log("[quiz/duplicate] ".$e->getMessage());
-  qz_redirect($base."/?page=admin/quiz/quizzes&err=".urlencode("Gagal duplikat quiz. Cek error_log."));
+  qz_redirect($base."/?page=admin/quiz/quizzes&err=".urlencode("Could not duplicate the Quiz. Check error_log."));
 }

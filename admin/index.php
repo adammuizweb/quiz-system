@@ -13,6 +13,7 @@ $canAccessWorkspace = qz_user_can($pdo, $user['id'], 'plugin.quiz.workspace.acce
 $canManageStudents = $user['id'] > 0 && function_exists('user_can')
   && user_can($pdo, $user['id'], 'plugin.quiz.students.manage');
 $canViewAttempts = $user['can_view_attempts'];
+$canManageSettings = qz_user_can($pdo, $user['id'], 'plugin.quiz.settings.manage');
 
 $stats = ['quizzes'=>0,'categories'=>0,'passages'=>0,'questions'=>0,'answers'=>0,'students'=>0,'attempts'=>0,'submitted'=>0];
 try {
@@ -59,79 +60,81 @@ if ($canAccessWorkspace) try {
   $primaryQuiz = $st ? ($st->fetch(\PDO::FETCH_ASSOC) ?: null) : null;
 } catch (\Throwable $e) {}
 ?>
-<section class="adam-card">
+<section class="adam-card qz-card qz-shell">
   <?php qz_admin_breadcrumb([['label'=>'Dashboard']]); ?>
-  <h2>Dashboard Quiz</h2>
-  <p class="muted" style="margin:.6rem 0">Mulai dari daftar quiz, susun konten di Master Builder, lalu pantau student dan attempt.</p>
+  <header class="qz-page-head qz-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-eyebrow qz-kicker">Quiz operations</div>
+      <h1 class="qz-page-title">Quiz Dashboard</h1>
+      <p class="qz-page-description qz-meta">Manage Quizzes, Students, Attempts, and public access in one workflow.</p>
+    </div>
+    <div class="qz-page-actions qz-toolbar">
+      <?php if ($canAccessWorkspace): ?>
+        <a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/quizzes">Quiz List</a>
+      <?php endif; ?>
+      <?php if ($canAccessWorkspace && $user['can_manage_quizzes']): ?>
+        <a class="adam-button ghost" href="<?=h($base)?>/?page=admin/quiz/quizzes/add">Create Quiz</a>
+      <?php endif; ?>
+    </div>
+  </header>
 
-  <div style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap">
+  <div class="qz-metric-grid qz-stats" aria-label="Quiz operations summary">
     <?php if ($canAccessWorkspace): ?>
-    <span class="adam-stat">Quiz: <strong><?=$stats['quizzes']?></strong></span>
-    <span class="adam-stat">Kategori: <strong><?=$stats['categories']?></strong></span>
-    <span class="adam-stat">Passage: <strong><?=$stats['passages']?></strong></span>
-    <span class="adam-stat">Soal: <strong><?=$stats['questions']?></strong></span>
-    <span class="adam-stat">Jawaban: <strong><?=$stats['answers']?></strong></span>
+      <div class="qz-metric qz-stat"><span>Available Quizzes</span><strong><?=$stats['quizzes']?></strong></div>
     <?php endif; ?>
     <?php if ($canViewAttempts): ?>
-      <span class="adam-stat">Siswa: <strong><?=$stats['students']?></strong></span>
-      <span class="adam-stat">Attempt: <strong><?=$stats['attempts']?></strong></span>
-      <span class="adam-stat">Submitted: <strong><?=$stats['submitted']?></strong></span>
+      <div class="qz-metric qz-stat"><span>Students with Attempts</span><strong><?=$stats['students']?></strong></div>
+      <div class="qz-metric qz-stat"><span>Total Attempts</span><strong><?=$stats['attempts']?></strong></div>
+      <div class="qz-metric qz-stat qz-stat--result"><span>Submitted</span><strong><?=$stats['submitted']?></strong></div>
     <?php endif; ?>
   </div>
 
-  <div class="adam-grid" style="margin-top:14px">
+  <div class="qz-detail-grid adam-grid">
     <?php if ($canAccessWorkspace): ?>
-    <div class="adam-card-mini adam-col-6">
-      <h3>Quizzes</h3>
-      <p>Buat dan kelola quiz. Atur jumlah soal per attempt, durasi, jadwal aktif, dll.</p>
-      <p style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-        <a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/quizzes">Buka Quizzes</a>
-        <?php if ($user['can_manage_quizzes']): ?>
-        <a class="adam-button ghost" href="<?=h($base)?>/?page=admin/quiz/quizzes/add">+ Tambah Quiz</a>
-        <?php endif; ?>
-      </p>
-    </div>
-    <div class="adam-card-mini adam-col-6">
-      <h3>Konten Quiz (Kategori • Passage • Soal)</h3>
-      <p>Kategori dan passage itu <b>per quiz</b>, jadi aksesnya dari dalam quiz.</p>
+    <section class="qz-section adam-col-6" aria-labelledby="qz-dashboard-quiz">
+      <div class="qz-section__head">
+        <div>
+          <div class="qz-eyebrow qz-kicker">Step 1</div>
+          <h2 id="qz-dashboard-quiz">Prepare the Quiz</h2>
+        </div>
+      </div>
+      <div class="qz-section__body">
+        <p>Set the Quiz details, Questions per Attempt, duration, schedule, and status.</p>
       <?php if ($primaryQuiz && !empty($primaryQuiz['id'])): ?>
-        <p style="margin-top:10px;color:var(--adam-text,#0f172a)">Primary Quiz: <b><?=h($primaryQuiz['title'])?></b> <span style="opacity:.6">(ID: <?=(int)$primaryQuiz['id']?>)</span></p>
-        <p style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-          <a class="adam-button soft" href="<?=h($base)?>/?page=admin/quiz/categories/index&quiz_id=<?=(int)$primaryQuiz['id']?>">Buka Kategori</a>
-          <a class="adam-button soft" href="<?=h($base)?>/?page=admin/quiz/passages/index&quiz_id=<?=(int)$primaryQuiz['id']?>">Buka Passage</a>
-          <a class="adam-button soft" href="<?=h($base)?>/?page=admin/quiz/questions&quiz_id=<?=(int)$primaryQuiz['id']?>">Buka Soal</a>
-        </p>
+          <p class="qz-list-context">Current Primary Quiz: <strong><?=h($primaryQuiz['title'])?></strong> (ID <?=(int)$primaryQuiz['id']?>).</p>
       <?php else: ?>
-        <p style="margin-top:12px"><a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/quizzes">Pilih Quiz dulu</a></p>
+          <p class="qz-list-context">No Primary Quiz is set. Set one from the Quiz details when it is ready for public access.</p>
       <?php endif; ?>
-    </div>
+        <div class="qz-page-actions qz-toolbar"><a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/quizzes">Manage Quizzes</a></div>
+      </div>
+    </section>
     <?php endif; ?>
     <?php if ($canManageStudents): ?>
-    <div class="adam-card-mini adam-col-6">
-      <h3>Student Manager</h3>
-      <p>Kelola data siswa yang registrasi (nama/email/HP), serta akses ke attempt mereka.</p>
-      <p style="margin-top:12px">
-        <a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/students">Buka Siswa</a>
-      </p>
-    </div>
+    <section class="qz-section adam-col-6" aria-labelledby="qz-dashboard-student">
+      <div class="qz-section__head"><div><div class="qz-eyebrow qz-kicker">Step 2</div><h2 id="qz-dashboard-student">Manage Students</h2></div></div>
+      <div class="qz-section__body"><p>Confirm each Student's identity and contact details before the Quiz begins.</p><div class="qz-page-actions qz-toolbar"><a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/students">Open Students</a></div></div>
+    </section>
     <?php endif; ?>
     <?php if ($canViewAttempts): ?>
-    <div class="adam-card-mini adam-col-6">
-      <h3>Attempt Manager</h3>
-      <p>Monitoring attempt siswa: identitas, status, waktu, dan progress. Aksi tambahan mengikuti kapabilitas akun.</p>
-      <p style="margin-top:12px">
-        <a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/attempts">Buka Attempt Manager</a>
-      </p>
-    </div>
+    <section class="qz-section adam-col-6" aria-labelledby="qz-dashboard-attempt">
+      <div class="qz-section__head"><div><div class="qz-eyebrow qz-kicker">Step 3</div><h2 id="qz-dashboard-attempt">Monitor Attempts</h2></div></div>
+      <div class="qz-section__body"><p>Review Student status, timing, progress, and results. Available actions depend on account permissions.</p><div class="qz-page-actions qz-toolbar"><a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/attempts">Open Attempts</a></div></div>
+    </section>
     <?php endif; ?>
-    <?php if ($canAccessWorkspace): ?>
-    <div class="adam-card-mini adam-col-12">
-      <h3>Link Public</h3>
-      <p>Start quiz untuk siswa: <code>/quiz/start/</code></p>
-      <p style="margin-top:12px">
-        <a class="adam-button ghost" href="/quiz/register/" target="_blank" rel="noopener">Buka Register</a>
-      </p>
-    </div>
+    <?php if ($canAccessWorkspace || $canManageSettings): ?>
+    <section class="qz-section adam-col-12" aria-labelledby="qz-dashboard-public">
+      <div class="qz-section__head"><div><div class="qz-eyebrow qz-kicker">Distribution</div><h2 id="qz-dashboard-public">Settings and Public Access</h2></div></div>
+      <div class="qz-section__body">
+        <p>Check the displayed Quiz, verification method, and Student links before the schedule opens.</p>
+        <div class="qz-page-actions qz-toolbar">
+          <?php if ($canManageSettings): ?><a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/settings">Open Settings</a><?php endif; ?>
+          <?php if ($canAccessWorkspace): ?>
+            <a class="adam-button ghost" href="/quiz/start/" target="_blank" rel="noopener">Preview Start Page</a>
+            <a class="adam-button ghost" href="/quiz/register/" target="_blank" rel="noopener">Open Registration</a>
+          <?php endif; ?>
+        </div>
+      </div>
+    </section>
     <?php endif; ?>
   </div>
 </section>

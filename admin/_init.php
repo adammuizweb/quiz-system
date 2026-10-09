@@ -132,7 +132,7 @@ if (!function_exists('qz_admin_breadcrumb')) {
     function qz_admin_breadcrumb(array $items): void {
         $base = defined('ADMIN_BASE_PATH') ? ADMIN_BASE_PATH : '';
         $escape = static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
-        array_unshift($items, ['label' => 'Sistem Quiz', 'url' => $base . '/?page=admin/quiz']);
+        array_unshift($items, ['label' => 'Quiz System', 'url' => $base . '/?page=admin/quiz']);
         echo '<nav class="qz-breadcrumb" aria-label="Breadcrumb"><ol>';
         $last = count($items) - 1;
         foreach ($items as $index => $item) {

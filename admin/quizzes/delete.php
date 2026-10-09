@@ -33,8 +33,8 @@ try {
 } catch (\Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log("[admin/quiz/quizzes/delete] ".$e->getMessage());
-  qz_redirect($base . "/?page=admin/quiz/quizzes&err=" . urlencode("Gagal hapus quiz. Cek error_log."));
+  qz_redirect($base . "/?page=admin/quiz/quizzes&err=" . urlencode("Could not delete the Quiz. Check error_log."));
 }
 
-$msg = $title !== '' ? ("Quiz dihapus: {$title}") : "Quiz berhasil dihapus.";
+$msg = $title !== '' ? ("Quiz deleted: {$title}") : "Quiz deleted.";
 qz_redirect($base . "/?page=admin/quiz/quizzes&msg=" . urlencode($msg));

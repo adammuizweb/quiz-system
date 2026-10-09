@@ -18,7 +18,7 @@ $format = strtolower(trim((string)($_POST['format'] ?? 'xlsx')));
 if (!in_array($format, ['xlsx', 'csv'], true)) {
     http_response_code(422);
     header('Content-Type: text/plain; charset=UTF-8');
-    exit('Format export tidak valid.');
+    exit('Invalid export format.');
 }
 
 if ($format === 'xlsx') {
@@ -26,13 +26,13 @@ if ($format === 'xlsx') {
     if (!$xlsxSupport['available']) {
         http_response_code(503);
         header('Content-Type: text/plain; charset=UTF-8');
-        exit('Export Excel tidak tersedia. ' . $xlsxSupport['message'] . ' Gunakan Export CSV.');
+        exit('Excel export is unavailable. ' . $xlsxSupport['message'] . ' Use CSV export instead.');
     }
     require_once $xlsxSupport['autoload'];
     if (!class_exists(\PhpOffice\PhpSpreadsheet\Spreadsheet::class)) {
         http_response_code(503);
         header('Content-Type: text/plain; charset=UTF-8');
-        exit('Export Excel tidak tersedia karena PhpSpreadsheet gagal dimuat. Gunakan Export CSV.');
+        exit('Excel export is unavailable because PhpSpreadsheet could not be loaded. Use CSV export instead.');
     }
 }
 
@@ -57,7 +57,7 @@ if ($format === 'csv') {
     $output = fopen('php://output', 'wb');
     if ($output === false) {
         http_response_code(500);
-        exit('Unable to create export');
+        exit('Could not create export.');
     }
     $safe = static function (mixed $value): string {
         $cell = $value === null ? '' : (string)$value;
@@ -84,10 +84,10 @@ if ($format === 'csv') {
 $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
 $spreadsheet->getProperties()
     ->setCreator('Jyavani Quiz')
-    ->setTitle('Hasil Quiz')
-    ->setSubject('Hasil attempt sesuai filter Attempt Manager');
+    ->setTitle('Quiz Results')
+    ->setSubject('Attempt results using the active Attempt Manager filters');
 $sheet = $spreadsheet->getActiveSheet();
-$sheet->setTitle('Hasil Quiz');
+$sheet->setTitle('Quiz Results');
 
 foreach ($headers as $index => $header) {
     $column = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($index + 1);

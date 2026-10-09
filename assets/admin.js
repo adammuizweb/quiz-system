@@ -35,6 +35,125 @@
     confirmAction(el);
   });
 
+  /* ===== Conditional settings fields ===== */
+  document.querySelectorAll('#qz-settings-form [data-qz-controls]').forEach(function(control){
+    var target = document.getElementById(control.getAttribute('data-qz-controls'));
+    if (!target) return;
+    function syncConditionalField(){
+      target.hidden = control.value !== control.getAttribute('data-qz-show-value');
+    }
+    control.addEventListener('change', syncConditionalField);
+    syncConditionalField();
+  });
+
+  document.querySelectorAll('#qz-settings-form .qz-check-item input[type="checkbox"]').forEach(function(input){
+    function syncCheckItem(){
+      var item = input.closest('.qz-check-item');
+      if (item) item.classList.toggle('active', input.checked);
+    }
+    input.addEventListener('change', syncCheckItem);
+    syncCheckItem();
+  });
+
+  (function wireSettingsSummary(){
+    var form = document.getElementById('qz-settings-form');
+    if (!form) return;
+    var verification = document.querySelector('[data-qz-settings-summary="verification"]');
+    var start = document.querySelector('[data-qz-settings-summary="start"]');
+    var number = document.querySelector('[data-qz-settings-summary="number"]');
+    var email = form.querySelector('[name="quiz_otp_email_enabled"]');
+    var whatsapp = form.querySelector('[name="quiz_otp_whatsapp_enabled"]');
+    var mode = form.querySelector('[name="quiz_start_mode"]');
+    var limit = form.querySelector('[name="quiz_start_limit"]');
+    var format = form.querySelector('[name="quiz_test_number_format"]');
+    var modeLabels = {
+      all: 'All active quizzes',
+      selected: 'Selected quizzes',
+      primary: 'Primary Quiz only'
+    };
+
+    function previewNumber(pattern){
+      return String(pattern || '')
+        .replace(/\{year\}/g, String(new Date().getFullYear()))
+        .replace(/\{quiz_id(?::([1-9]|1[0-2]))?\}/g, function(match, width){
+          return String(8).padStart(Number(width || 0), '0');
+        })
+        .replace(/\{attempt_id(?::([1-9]|1[0-2]))?\}/g, function(match, width){
+          return String(123).padStart(Number(width || 0), '0');
+        });
+    }
+
+    function syncSettingsSummary(){
+      if (verification) {
+        var methods = [];
+        if (email && email.checked) methods.push('Email');
+        if (whatsapp && whatsapp.checked) methods.push('WhatsApp');
+        verification.textContent = methods.length ? methods.join(' + ') : 'Code from administrator';
+      }
+      if (start && mode && limit) {
+        start.textContent = (modeLabels[mode.value] || 'Invalid configuration') + ', up to ' + (limit.value || '0') + ' quizzes';
+      }
+      if (number && format) number.textContent = previewNumber(format.value);
+    }
+
+    [email, whatsapp, mode, limit, format].forEach(function(control){
+      if (!control) return;
+      control.addEventListener('input', syncSettingsSummary);
+      control.addEventListener('change', syncSettingsSummary);
+    });
+    syncSettingsSummary();
+  }());
+
+  /* ===== Shared copy controls ===== */
+  document.querySelectorAll('[data-qz-copy-target]').forEach(function(button){
+    var target = document.getElementById(button.getAttribute('data-qz-copy-target'));
+    if (!target || button.disabled) return;
+    var originalLabel = button.textContent;
+    var status = document.createElement('span');
+    status.className = 'visually-hidden';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    button.insertAdjacentElement('afterend', status);
+    button.addEventListener('click', function(){
+      var value = 'value' in target ? target.value : target.textContent;
+      value = String(value || '').trim();
+      if (!value || value === '______') return;
+      var fallback = function(){
+        var field = document.createElement('textarea');
+        field.value = value;
+        field.setAttribute('readonly', '');
+        field.className = 'qz-copy-fallback';
+        (document.getElementById('adam-main') || document.body).appendChild(field);
+        field.select();
+        var copied = false;
+        try { copied = document.execCommand('copy'); } catch (error) {}
+        field.remove();
+        return copied ? Promise.resolve() : Promise.reject(new Error('Copy failed'));
+      };
+      var copy;
+      try {
+        copy = navigator.clipboard && navigator.clipboard.writeText
+          ? navigator.clipboard.writeText(value).catch(fallback)
+          : fallback();
+      } catch (error) {
+        copy = fallback();
+      }
+      copy.then(function(){
+        var message = button.getAttribute('data-qz-copy-label') || 'Copied';
+        window.clearTimeout(button._qzCopyTimer);
+        button.textContent = message;
+        status.textContent = message;
+        button._qzCopyTimer = window.setTimeout(function(){ button.textContent = originalLabel; }, 1200);
+      }).catch(function(){
+        var message = 'Copy failed';
+        window.clearTimeout(button._qzCopyTimer);
+        button.textContent = message;
+        status.textContent = message + '. Select the text and copy it manually.';
+        button._qzCopyTimer = window.setTimeout(function(){ button.textContent = originalLabel; }, 1800);
+      });
+    });
+  });
+
   /* ===== Quiz settings sections ===== */
   document.addEventListener('click', function(e){
     var toggle = e.target.closest('.qz-settings-form .settings-section-toggle');
@@ -116,6 +235,11 @@
       var opening = toggle.getAttribute('aria-expanded') !== 'true';
       closeActionMenus(toggle);
       setActionMenu(toggle, opening, false);
+      if (opening && e.detail === 0) {
+        var openedPanel = actionPanel(toggle);
+        var firstAction = openedPanel && openedPanel.querySelector('a[href], button:not([disabled])');
+        if (firstAction) firstAction.focus();
+      }
       return;
     }
     if (e.target.closest('.newnotif-confirm')) return;
@@ -158,6 +282,7 @@
 
   /* ===== Current-page bulk quiz selection ===== */
   document.querySelectorAll('[data-bulk-form]').forEach(function(form){
+    var englishUi = !!form.closest('.qz-shell');
     var all = form.querySelector('[data-bulk-all]');
     var items = Array.prototype.slice.call(form.querySelectorAll('[data-bulk-item]'));
     var count = form.querySelector('[data-bulk-count]');
@@ -170,7 +295,7 @@
         all.checked = items.length > 0 && selected.length === items.length;
         all.indeterminate = selected.length > 0 && selected.length < items.length;
       }
-      if (count) count.textContent = selected.length + ' dipilih';
+      if (count) count.textContent = selected.length + (englishUi ? ' selected' : ' dipilih');
       if (submit) submit.disabled = selected.length === 0 || !action || action.value === '';
       items.forEach(function(item){
         var row = item.closest('.qz-row, .qz-select-card');
@@ -189,9 +314,13 @@
       e.preventDefault();
       var selected = items.filter(function(item){ return item.checked; });
       if (selected.length === 0 || !action || !/^[01]$/.test(action.value)) return;
-      var label = action.value === '1' ? 'mengaktifkan' : 'menonaktifkan';
+      var label = action.value === '1'
+        ? (englishUi ? 'activate' : 'mengaktifkan')
+        : (englishUi ? 'deactivate' : 'menonaktifkan');
       NewNotifConfirm.warning({
-        message: 'Yakin ingin ' + label + ' ' + selected.length + ' quiz terpilih?',
+        message: englishUi
+          ? 'Are you sure you want to ' + label + ' ' + selected.length + ' selected quizzes?'
+          : 'Yakin ingin ' + label + ' ' + selected.length + ' quiz terpilih?',
         variant: 'warning'
       }).then(function(ok){ if (ok) form.submit(); });
     });
@@ -796,6 +925,8 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  var quizDetailTrigger = null;
+
   function openQuizDetail(btn){
     var d = JSON.parse(btn.getAttribute('data-quiz'));
     var modal = document.getElementById('quizDetailModal');
@@ -804,18 +935,18 @@
     document.getElementById('qdm-title').textContent = d.title;
 
     var statusBadge = d.is_active
-      ? '<span class="badge badge--ok">Aktif</span>'
-      : '<span class="badge badge--muted">Nonaktif</span>';
-    if (d.is_primary) statusBadge += ' <span class="badge badge--primary">PRIMARY</span>';
+      ? '<span class="badge badge--ok">Active</span>'
+      : '<span class="badge badge--muted">Inactive</span>';
+    if (d.is_primary) statusBadge += ' <span class="badge badge--primary">PRIMARY QUIZ</span>';
 
     var badHtml = '';
     if (d.badzero > 0) {
-      badHtml = '<div class="qdm-warn"><b>&#9888;</b> ' + d.badzero + ' soal tipe pilihan belum punya jawaban aktif.</div>';
+      badHtml = '<div class="qdm-warn"><b>&#9888;</b> ' + d.badzero + ' choice Questions have no Active Answers.</div>';
     }
 
     var schedHtml = '';
     if (d.start_at || d.end_at) {
-      schedHtml = '<div class="qdm-field"><span class="qdm-label">Jadwal</span><span>' +
+      schedHtml = '<div class="qdm-field"><span class="qdm-label">Schedule</span><span>' +
         (d.start_at ? escHtml(d.start_at) : '&mdash;') + ' &rarr; ' + (d.end_at ? escHtml(d.end_at) : '&mdash;') +
         '</span></div>';
     }
@@ -826,16 +957,16 @@
           '<div class="qdm-field"><span class="qdm-label">ID</span><span>#' + d.id + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Status</span><span>' + statusBadge + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Owner</span><span>' + escHtml(d.owner) + '</span></div>' +
-          (d.description ? '<div class="qdm-field qdm-desc"><span class="qdm-label">Deskripsi</span><span>' + escHtml(d.description) + '</span></div>' : '') +
+          (d.description ? '<div class="qdm-field qdm-desc"><span class="qdm-label">Description</span><span>' + escHtml(d.description) + '</span></div>' : '') +
           schedHtml +
-          '<div class="qdm-field"><span class="qdm-label">Dibuat</span><span>' + escHtml(d.created_at) + '</span></div>' +
+          '<div class="qdm-field"><span class="qdm-label">Created</span><span>' + escHtml(d.created_at) + '</span></div>' +
         '</div>' +
         '<div class="qdm-section">' +
-          '<div class="qdm-subh">Statistik</div>' +
-          '<div class="qdm-field"><span class="qdm-label">Soal</span><span><b>' + d.questions + '</b></span></div>' +
-          '<div class="qdm-field"><span class="qdm-label">Jawaban</span><span><b>' + d.answers + '</b></span></div>' +
-          '<div class="qdm-field"><span class="qdm-label">Per Attempt</span><span>' + (d.per_attempt > 0 ? d.per_attempt : 'Semua') + '</span></div>' +
-          '<div class="qdm-field"><span class="qdm-label">Durasi</span><span>' + (d.duration ? d.duration + ' menit' : '&mdash;') + '</span></div>' +
+          '<div class="qdm-subh">Statistics</div>' +
+          '<div class="qdm-field"><span class="qdm-label">Questions</span><span><b>' + d.questions + '</b></span></div>' +
+          '<div class="qdm-field"><span class="qdm-label">Answers</span><span><b>' + d.answers + '</b></span></div>' +
+          '<div class="qdm-field"><span class="qdm-label">Per Attempt</span><span>' + (d.per_attempt > 0 ? d.per_attempt : 'All') + '</span></div>' +
+          '<div class="qdm-field"><span class="qdm-label">Duration</span><span>' + (d.duration ? d.duration + ' minutes' : '&mdash;') + '</span></div>' +
         '</div>' +
       '</div>' +
       badHtml;
@@ -846,11 +977,11 @@
     var primaryLink = '';
     if (d.can_set_primary) {
       primaryLink = d.is_primary
-        ? '<span class="btn-soft disabled" style="opacity:.5;pointer-events:none">Primary</span>'
-        : '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/set_primary" style="display:inline">' +
+        ? '<span class="btn-soft disabled" aria-disabled="true">Primary Quiz</span>'
+        : '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/set_primary" class="qdm-inline-form">' +
             '<input type="hidden" name="id" value="' + d.id + '">' +
             '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
-            '<button type="submit" class="btn-soft" data-confirm="Jadikan quiz ini PRIMARY (global)? Primary lain akan dinonaktifkan.">Jadikan Primary</button>' +
+            '<button type="submit" class="btn-soft" data-confirm="Set this as the global Primary Quiz? It will replace the current Primary Quiz.">Set as Primary</button>' +
           '</form>';
     }
     var collaboratorsLink = d.can_manage_collaborators
@@ -858,15 +989,15 @@
       : '';
     var quizManageActions = d.can_manage_quizzes
       ? '<a class="adam-button" href="' + baseUrl + '/?page=admin/quiz/quizzes/edit&id=' + d.id + '">Edit</a>' +
-        '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/duplicate" style="display:inline">' +
+        '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/duplicate" class="qdm-inline-form">' +
           '<input type="hidden" name="id" value="' + d.id + '">' +
           '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
-          '<button type="submit" class="btn-soft" data-confirm="Duplikat quiz ini? Semua kategori, passage, soal, dan jawaban akan disalin menjadi quiz baru (attempt tidak ikut).">Duplikat</button>' +
+          '<button type="submit" class="btn-soft" data-confirm="Duplicate this Quiz? All Categories, Passages, Questions, and Answers will be copied. Attempts are not included.">Duplicate</button>' +
         '</form>' +
-        '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/delete" style="display:inline">' +
+        '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/delete" class="qdm-inline-form">' +
           '<input type="hidden" name="id" value="' + d.id + '">' +
           '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
-          '<button type="submit" class="btn-danger" data-confirm="Hapus quiz ini? Soal &amp; jawaban akan ikut terhapus." data-confirm-variant="danger">Hapus</button>' +
+          '<button type="submit" class="btn-danger" data-confirm="Delete this Quiz? Its Questions and Answers will also be deleted." data-confirm-variant="danger">Delete</button>' +
         '</form>'
       : '';
 
@@ -874,18 +1005,27 @@
       '<div class="qdm-actions">' +
         quizManageActions +
         '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/master&quiz_id=' + d.id + '">Master Builder</a>' +
-        '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/questions&quiz_id=' + d.id + '">Soal (Old)</a>' +
-        '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/dump&quiz_id=' + d.id + '">Dump QC</a>' +
+        '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/questions&quiz_id=' + d.id + '">Question List</a>' +
+        '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/dump&quiz_id=' + d.id + '">Quality Check</a>' +
         collaboratorsLink +
         primaryLink +
       '</div>';
 
+    quizDetailTrigger = btn;
     modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+    var closeButton = modal.querySelector('.modal-close');
+    if (closeButton) closeButton.focus();
   }
 
   function closeQuizDetail(){
     var modal = document.getElementById('quizDetailModal');
-    if (modal) modal.classList.remove('active');
+    if (modal) {
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    if (quizDetailTrigger && typeof quizDetailTrigger.focus === 'function') quizDetailTrigger.focus();
+    quizDetailTrigger = null;
   }
 
   document.addEventListener('click', function(e){
@@ -903,7 +1043,32 @@
   });
 
   document.addEventListener('keydown', function(e){
-    if (e.key === 'Escape') closeQuizDetail();
+    var modal = document.getElementById('quizDetailModal');
+    if (!modal || !modal.classList.contains('active')) return;
+    if (e.target.closest('.newnotif-confirm')) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeQuizDetail();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    var focusable = Array.prototype.slice.call(modal.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(function(element){ return element.offsetParent !== null; });
+    if (focusable.length === 0) {
+      e.preventDefault();
+      modal.focus();
+      return;
+    }
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
   });
 
   // Close modal on backdrop click

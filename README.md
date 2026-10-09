@@ -2,7 +2,15 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.5.0`.
+Current release: `1.6.0`.
+
+## Admin Experience
+
+Quiz `1.6.0` redesigns the dashboard, quiz management, students, attempts, and
+settings as a responsive administration console with consistent English copy,
+keyboard-friendly action menus, improved focus handling, dark mode, and
+content-hashed admin assets. Master Builder and its category, passage, question,
+and quality-control workflows retain their existing interface and behavior.
 
 ## Requirements
 
@@ -84,7 +92,7 @@ as normalized remaining seconds.
 
 Submissions and timer expiry share one idempotent finalizer. It records elapsed
 seconds and category/domain aggregates while preserving the legacy
-`quiz_attempts.total_score` and dashboard `Nilai 100` calculations. Answer
+`quiz_attempts.total_score` and dashboard score-out-of-100 calculations. Answer
 changes are append-only revisions; identical save retries do not create a
 revision. Questions and options referenced by attempts are protected by
 application-level deletion guards.

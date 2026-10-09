@@ -15,14 +15,14 @@ if (!function_exists('h')) {
   function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 }
 
-function go($loc, $title='Mengalihkan...'){
+function go($loc, $title='Redirecting...'){
   if (!headers_sent()) { header('Location: '.$loc, true, 303); exit; }
   ?>
   <div style="position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:4000;">
     <div style="background:var(--adam-card,#fff);padding:1.2rem 1.4rem;border-radius:12px;max-width:460px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,.18);text-align:center;color:var(--adam-text,#0f172a)">
       <h3 style="margin-top:0"><?= h($title) ?></h3>
-      <p>Memproses…</p>
-      <p><a href="<?= h($loc) ?>">Klik jika tidak otomatis</a></p>
+      <p>Processing…</p>
+      <p><a href="<?= h($loc) ?>">Click here if you are not redirected</a></p>
     </div>
   </div>
   <script>setTimeout(function(){ location.href = <?= json_encode($loc) ?>; }, 450);</script>
@@ -33,12 +33,12 @@ function go($loc, $title='Mengalihkan...'){
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); exit('Method not allowed'); }
 $csrf = (string)($_POST['csrf_token'] ?? '');
 if (!csrf_check($csrf)) {
-  go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('CSRF token tidak valid.'), 'Gagal');
+  go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Invalid CSRF token.'), 'Failed');
 }
 
 $id = (int)($_POST['id'] ?? 0);
 if ($id <= 0) {
-  go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('ID quiz tidak valid.'), 'Gagal');
+  go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Invalid Quiz ID.'), 'Failed');
 }
 try {
   $pdo->beginTransaction();
@@ -48,11 +48,11 @@ try {
   $q = $select->fetch(PDO::FETCH_ASSOC);
   if (!$q) {
     $pdo->rollBack();
-    go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Quiz tidak ditemukan.'), 'Gagal');
+    go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Quiz not found.'), 'Failed');
   }
   if ((int)$q['is_primary'] === 1) {
     $pdo->rollBack();
-    go($base . '/?page=admin/quiz/quizzes&msg=' . rawurlencode('Quiz sudah PRIMARY: ' . (string)$q['title']), 'OK');
+    go($base . '/?page=admin/quiz/quizzes&msg=' . rawurlencode('Already the Primary Quiz: ' . (string)$q['title']), 'OK');
   }
 
   $pdo->exec("UPDATE quizzes SET is_primary=0 WHERE is_primary=1");
@@ -62,14 +62,14 @@ try {
 
   if ($stmt->rowCount() < 1) {
     $pdo->rollBack();
-    go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Gagal set PRIMARY.'), 'Gagal');
+    go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Failed to set the Primary Quiz.'), 'Failed');
   }
 
   $pdo->commit();
-  go($base . '/?page=admin/quiz/quizzes&msg=' . rawurlencode('Berhasil set PRIMARY: ' . (string)$q['title']), 'Berhasil');
+  go($base . '/?page=admin/quiz/quizzes&msg=' . rawurlencode('Primary Quiz set: ' . (string)$q['title']), 'Success');
 
 } catch (\Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log("[admin/quiz/quizzes/set_primary] " . $e->getMessage());
-  go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Terjadi kendala saat set primary.'), 'Gagal');
+  go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Could not set the Primary Quiz.'), 'Failed');
 }

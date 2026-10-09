@@ -24,14 +24,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
   http_response_code(405);
   exit('Method not allowed');
 }
-if (!csrf_check((string)($_POST['csrf_token'] ?? ''))) $go($redirect, 'err', 'Request tidak valid.');
+if (!csrf_check((string)($_POST['csrf_token'] ?? ''))) $go($redirect, 'err', 'Invalid request.');
 
 $activeRaw = (string)($_POST['is_active'] ?? '');
-if (!in_array($activeRaw, ['0', '1'], true)) $go($redirect, 'err', 'Pilih aksi bulk yang valid.');
+if (!in_array($activeRaw, ['0', '1'], true)) $go($redirect, 'err', 'Select a valid bulk action.');
 $active = (int)$activeRaw;
 
 $rawIds = $_POST['ids'] ?? [];
-if (!is_array($rawIds)) $go($redirect, 'err', 'Pilihan quiz tidak valid.');
+if (!is_array($rawIds)) $go($redirect, 'err', 'Invalid Quiz selection.');
 $ids = [];
 foreach ($rawIds as $rawId) {
   if (!is_scalar($rawId)) continue;
@@ -39,7 +39,7 @@ foreach ($rawIds as $rawId) {
   if ($id > 0) $ids[$id] = $id;
 }
 $ids = array_values($ids);
-if ($ids === [] || count($ids) > 100) $go($redirect, 'err', 'Pilih 1 sampai 100 quiz.');
+if ($ids === [] || count($ids) > 100) $go($redirect, 'err', 'Select 1 to 100 Quizzes.');
 
 $user = qz_admin_user($pdo);
 if (!$user['can_manage_quizzes']) { http_response_code(403); exit('Quiz management permission required.'); }
@@ -62,7 +62,7 @@ try {
   if (count($rows) !== count($ids)) throw new RuntimeException('Quiz selection is missing or unauthorized.');
   if ($active === 0) {
     foreach ($rows as $row) {
-      if ((int)$row['is_primary'] === 1) throw new RuntimeException('Quiz primary tidak dapat dinonaktifkan melalui bulk action.');
+      if ((int)$row['is_primary'] === 1) throw new RuntimeException('The Primary Quiz cannot be deactivated with a bulk action.');
     }
   }
 
@@ -74,11 +74,11 @@ try {
   if ($changed > count($ids)) throw new RuntimeException('Bulk update affected an unexpected number of rows.');
   $pdo->commit();
 
-  $go($redirect, 'msg', count($ids) . ' quiz diproses; ' . $changed . ' baris berubah.');
+  $go($redirect, 'msg', count($ids) . ' Quiz records processed; ' . $changed . ' rows changed.');
 } catch (Throwable $error) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log('[quiz bulk status] ' . $error->getMessage());
-  $go($redirect, 'err', $error->getMessage() === 'Quiz primary tidak dapat dinonaktifkan melalui bulk action.'
+  $go($redirect, 'err', $error->getMessage() === 'The Primary Quiz cannot be deactivated with a bulk action.'
     ? $error->getMessage()
-    : 'Bulk update gagal. Pastikan semua quiz masih tersedia dan dapat diakses.');
+    : 'Bulk update failed. Confirm that all selected Quizzes are still available and accessible.');
 }

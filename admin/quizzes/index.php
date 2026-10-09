@@ -119,11 +119,11 @@ try {
 
 } catch (\Throwable $e) {
   error_log("[admin/quiz/quizzes/index] " . $e->getMessage());
-  $errors[] = "DB error saat load quiz. Cek error_log.";
+  $errors[] = "Database error while loading Quizzes. Check error_log.";
 }
 
 if ($primaryCount > 1) {
-  $errors[] = "Warning: terdeteksi {$primaryCount} quiz berstatus PRIMARY. PRIMARY seharusnya hanya 1 (global). Klik 'Jadikan Primary' pada salah satu quiz.";
+  $errors[] = "Warning: {$primaryCount} Primary Quizzes were found. Only one Primary Quiz is allowed globally. Set one Quiz as the Primary Quiz.";
 }
 
 $pageQuery = $_GET;
@@ -139,51 +139,56 @@ $currentQuery['p'] = $pageNum;
 $redirectBack = $base . '/?' . http_build_query($currentQuery);
 $rangeStart = $totalRows > 0 ? $offset + 1 : 0;
 $rangeEnd = min($offset + $perPage, $totalRows);
+$pageActiveCount = count(array_filter($quizzes, static fn(array $quiz): bool => (int)($quiz['is_active'] ?? 0) === 1));
+$pageIssueCount = count(array_filter($quizzes, static fn(array $quiz): bool => (int)($quiz['choice_no_answer_count'] ?? 0) > 0));
+$hasFilters = $q !== '' || $status !== '' || $primary !== '';
 ?>
-<section class="adam-card">
+<section class="adam-card qz-card qz-shell qz-question-page">
   <input type="hidden" name="_csrf" value="<?= h(csrf_token()) ?>">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-    <div>
-      <?php qz_admin_breadcrumb([['label'=>'Quiz']]); ?>
-      <h2 style="margin:0">Quiz Manager</h2>
-      <div class="muted" style="margin-top:6px">Kelola quiz, set primary global, dan akses soal.</div>
+  <?php qz_admin_breadcrumb([['label'=>'Quiz']]); ?>
+  <header class="qz-page-head qz-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-eyebrow qz-kicker">Quiz administration</div>
+      <h1 class="qz-page-title">Quiz List</h1>
+      <p class="qz-page-description qz-meta">Search, review readiness, update status, and open Quiz details.</p>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <?php if ($user['can_manage_quizzes']): ?><a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/quizzes/add">+ Buat Quiz</a><?php endif; ?>
+    <div class="qz-page-actions qz-toolbar">
+      <?php if ($user['can_manage_quizzes']): ?><a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/quizzes/add">Create Quiz</a><?php endif; ?>
     </div>
+  </header>
+
+  <div class="qz-metric-grid qz-stats" aria-label="Quiz list summary">
+    <div class="qz-metric qz-stat qz-stat--result"><span>Filtered Results</span><strong><?= $totalRows ?></strong></div>
+    <div class="qz-metric qz-stat"><span>Active on This Page</span><strong><?= $pageActiveCount ?></strong></div>
+    <div class="qz-metric qz-stat"><span>Need Active Answers</span><strong><?= $pageIssueCount ?></strong></div>
+    <div class="qz-metric qz-stat"><span>Primary Quiz</span><strong><?= $primaryCount ?></strong></div>
   </div>
 
-  <form method="get" class="filters">
+  <form method="get" class="qz-command-bar qz-filterbar">
     <input type="hidden" name="page" value="<?= h($pluginPage) ?>">
-    <div>
-      <label for="quizzes-q">Cari</label><br>
-      <input class="adam-input" id="quizzes-q" name="q" value="<?= h($q) ?>" placeholder="ID / judul / deskripsi">
-    </div>
-    <div>
-      <label for="quizzes-status">Status</label><br>
+    <label class="qz-field qz-filterbar__search" for="quizzes-q"><span>Search Quizzes</span><input class="adam-input" type="search" id="quizzes-q" name="q" value="<?= h($q) ?>" placeholder="ID, title, or description..."></label>
+    <label class="qz-field" for="quizzes-status"><span>Status</span>
       <select class="adam-input" id="quizzes-status" name="status">
-        <option value="">Semua status</option>
-        <option value="1" <?= $status === '1' ? 'selected' : '' ?>>Aktif</option>
-        <option value="0" <?= $status === '0' ? 'selected' : '' ?>>Nonaktif</option>
+        <option value="">All Statuses</option>
+        <option value="1" <?= $status === '1' ? 'selected' : '' ?>>Active</option>
+        <option value="0" <?= $status === '0' ? 'selected' : '' ?>>Inactive</option>
       </select>
-    </div>
-    <div>
-      <label for="quizzes-primary">Primary</label><br>
+    </label>
+    <label class="qz-field" for="quizzes-primary"><span>Primary Quiz</span>
       <select class="adam-input" id="quizzes-primary" name="primary">
-        <option value="">Semua</option>
-        <option value="1" <?= $primary === '1' ? 'selected' : '' ?>>Primary</option>
-        <option value="0" <?= $primary === '0' ? 'selected' : '' ?>>Bukan primary</option>
+        <option value="">All</option>
+        <option value="1" <?= $primary === '1' ? 'selected' : '' ?>>Primary Quiz</option>
+        <option value="0" <?= $primary === '0' ? 'selected' : '' ?>>Not Primary</option>
       </select>
-    </div>
-    <div>
-      <label for="quizzes-per">Per halaman</label><br>
+    </label>
+    <label class="qz-field" for="quizzes-per"><span>Per Page</span>
       <select class="adam-input" id="quizzes-per" name="per">
         <?php foreach ($perPageOptions as $option): ?><option value="<?= $option ?>" <?= $perPage === $option ? 'selected' : '' ?>><?= $option ?></option><?php endforeach; ?>
       </select>
-    </div>
-    <div class="form-row">
-      <button class="adam-button" type="submit">Filter</button>
-      <a class="adam-button ghost" href="<?= h($base) ?>/?page=<?= h($pluginPage) ?>">Reset</a>
+    </label>
+    <div class="qz-filterbar__actions">
+      <button class="adam-button" type="submit">Apply</button>
+      <?php if ($hasFilters || $perPage !== 10): ?><a class="adam-button ghost" href="<?= h($base) ?>/?page=<?= h($pluginPage) ?>">Reset</a><?php endif; ?>
     </div>
   </form>
 
@@ -196,41 +201,52 @@ $rangeEnd = min($offset + $perPage, $totalRows);
   <?php if ($errors): ?>
     <div class="adam-alert error">
       <?php foreach ($errors as $e): ?><div><?= h($e) ?></div><?php endforeach; ?>
-      <div style="margin-top:8px;font-size:12px;opacity:.85">
+      <div class="dbg">
         Debug: session user_id = <b><?= (int)$uid ?></b>
       </div>
     </div>
   <?php endif; ?>
 
-  <!-- ===== Quiz List ===== -->
-  <div class="meta">
-    <span>Menampilkan <?= $rangeStart ?>–<?= $rangeEnd ?> dari <?= $totalRows ?> quiz.</span>
-    <?php if ($totalPages > 1): ?>
-      <div class="pager" aria-label="Pagination quiz">
-        <?php if ($pageNum > 1): ?><a class="pg" href="<?= h($pageUrl($pageNum - 1)) ?>">Sebelumnya</a><?php else: ?><span class="pg dis" aria-disabled="true">Sebelumnya</span><?php endif; ?>
-        <span class="pg dis">Halaman <?= $pageNum ?> / <?= $totalPages ?></span>
-        <?php if ($pageNum < $totalPages): ?><a class="pg" href="<?= h($pageUrl($pageNum + 1)) ?>">Berikutnya</a><?php else: ?><span class="pg dis" aria-disabled="true">Berikutnya</span><?php endif; ?>
-      </div>
-    <?php endif; ?>
+  <div class="qz-resultbar">
+    <span>Showing <strong><?= $rangeStart ?></strong>-<strong><?= $rangeEnd ?></strong> of <strong><?= $totalRows ?></strong> Quizzes</span>
   </div>
 
   <?php if (!$quizzes): ?>
-    <div class="empty">Belum ada quiz yang cocok.</div>
+    <div class="qz-empty-state empty">
+      <h2><?= $hasFilters ? 'No matching Quizzes' : 'No Quizzes yet' ?></h2>
+      <p><?= $hasFilters ? 'Change the search term or filters to broaden the results.' : 'Create the first Quiz to prepare an assessment.' ?></p>
+      <div class="qz-page-actions qz-toolbar">
+        <?php if ($hasFilters): ?><a class="adam-button ghost" href="<?= h($base) ?>/?page=<?= h($pluginPage) ?>">Clear Filters</a><?php endif; ?>
+        <?php if ($user['can_manage_quizzes']): ?><a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/quizzes/add">Create Quiz</a><?php endif; ?>
+      </div>
+    </div>
   <?php else: ?>
   <?php if ($user['can_manage_quizzes']): ?><form method="post" action="<?= h($base) ?>/?page=admin/quiz/quizzes/bulk_status" data-bulk-form>
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
     <input type="hidden" name="redirect" value="<?= h($redirectBack) ?>">
     <div class="qz-bulkbar">
-      <label class="qz-bulkbar__all"><input type="checkbox" data-bulk-all> Pilih halaman ini</label>
-      <span data-bulk-count role="status" aria-live="polite">0 dipilih</span>
-      <select class="adam-input" name="is_active" data-bulk-action aria-label="Aksi bulk">
-        <option value="">Pilih aksi</option>
-        <option value="1">Aktifkan</option>
-        <option value="0">Nonaktifkan</option>
+      <label class="qz-bulkbar__all"><input type="checkbox" data-bulk-all> Select This Page</label>
+      <span data-bulk-count role="status" aria-live="polite">0 selected</span>
+      <select class="adam-input" name="is_active" data-bulk-action aria-label="Bulk action">
+        <option value="">Select Action</option>
+        <option value="1">Activate</option>
+        <option value="0">Deactivate</option>
       </select>
-      <button class="adam-button" type="submit" data-bulk-submit disabled>Terapkan</button>
+      <button class="adam-button" type="submit" data-bulk-submit disabled>Apply</button>
     </div><?php endif; ?>
-    <div class="qz-list">
+    <div class="table-scroll" role="region" aria-label="Quiz list" tabindex="0">
+    <table class="qz-data-table qz-table qz-management-table qz-management-table--actions">
+      <thead>
+        <tr>
+          <?php if ($user['can_manage_quizzes']): ?><th><span class="visually-hidden">Select</span></th><?php endif; ?>
+          <th>ID</th>
+          <th>Quiz</th>
+          <th>Questions</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
     <?php foreach ($quizzes as $qz):
       $qid = (int)$qz['id'];
       $isPrimary = ((int)($qz['is_primary'] ?? 0) === 1);
@@ -264,10 +280,10 @@ $rangeEnd = min($offset + $perPage, $totalRows);
         'created_at' => $qz['created_at'],
       ]));
     ?>
-    <div class="qz-row">
-      <?php if ($user['can_manage_quizzes']): ?><label class="qz-row-select" aria-label="Pilih quiz <?= h($qz['title']) ?>"><input type="checkbox" name="ids[]" value="<?= $qid ?>" data-bulk-item></label><?php endif; ?>
-      <div class="qz-row-id">#<?= $qid ?></div>
-      <div class="qz-row-body">
+    <tr class="qz-select-card">
+      <?php if ($user['can_manage_quizzes']): ?><td class="qz-question-select" data-label="Select"><input type="checkbox" name="ids[]" value="<?= $qid ?>" data-bulk-item aria-label="Select Quiz <?= h($qz['title']) ?>"></td><?php endif; ?>
+      <td class="qz-row-id" data-label="ID">#<?= $qid ?></td>
+      <td class="qz-row-body qz-question-cell" data-label="Quiz">
         <div class="qz-row-title"><?= h($qz['title']) ?></div>
         <div class="qz-row-sub">
           <span><?= h($ownerLine) ?></span>
@@ -276,38 +292,40 @@ $rangeEnd = min($offset + $perPage, $totalRows);
             <span class="desc-text"><?= h(cut($qz['description'], 100)) ?></span>
           <?php endif; ?>
         </div>
-      </div>
-      <div class="qz-row-stats">
-        <div class="qz-stat-item" title="Jumlah soal">
-          <span class="qz-stat-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-          </span>
-          <span><?= (int)$qz['question_count'] ?></span>
-          <?php if ($missingAns): ?>
-            <span class="badge mini badge--bad" title="<?= $badZero ?> soal belum punya jawaban aktif">!<?= $badZero ?></span>
-          <?php endif; ?>
-        </div>
-      </div>
-      <div class="qz-row-status">
-        <span class="badge <?= $isActive ? 'badge--ok' : 'badge--muted' ?>"><?= $isActive ? 'Aktif' : 'Nonaktif' ?></span>
-        <?php if ($isPrimary): ?><span class="badge badge--primary">PRIMARY</span><?php endif; ?>
-      </div>
-      <div class="qz-row-action">
-        <button type="button" class="qz-detail-btn" data-quiz='<?= $quizJson ?>'>Detail</button>
-      </div>
-    </div>
+      </td>
+      <td data-label="Questions">
+        <strong><?= (int)$qz['question_count'] ?></strong>
+        <?php if ($missingAns): ?><span class="badge mini badge--bad" title="<?= $badZero ?> Questions have no Active Answers"><?= $badZero ?> need Answers</span><?php endif; ?>
+      </td>
+      <td data-label="Status">
+        <span class="badge <?= $isActive ? 'badge--ok' : 'badge--muted' ?>"><?= $isActive ? 'Active' : 'Inactive' ?></span>
+        <?php if ($isPrimary): ?><span class="badge badge--primary">PRIMARY QUIZ</span><?php endif; ?>
+      </td>
+      <td class="qz-row-action qz-row-actions qz-question-actions" data-label="Actions">
+        <button type="button" class="qz-detail-btn" data-quiz='<?= $quizJson ?>' aria-label="View details for Quiz <?= h($qz['title']) ?>">Details</button>
+      </td>
+    </tr>
     <?php endforeach; ?>
+      </tbody>
+    </table>
     </div>
   <?php if ($user['can_manage_quizzes']): ?></form><?php endif; ?>
   <?php endif; ?>
+
+  <?php if ($totalPages > 1): ?>
+    <nav class="qz-pagination" aria-label="Quiz list pagination">
+      <?php if ($pageNum > 1): ?><a href="<?= h($pageUrl($pageNum - 1)) ?>">Previous</a><?php else: ?><span class="disabled" aria-disabled="true">Previous</span><?php endif; ?>
+      <span>Page <?= $pageNum ?> of <?= $totalPages ?></span>
+      <?php if ($pageNum < $totalPages): ?><a href="<?= h($pageUrl($pageNum + 1)) ?>">Next</a><?php else: ?><span class="disabled" aria-disabled="true">Next</span><?php endif; ?>
+    </nav>
+  <?php endif; ?>
 </section>
 
-<!-- ===== Quiz Detail Modal ===== -->
-<div id="quizDetailModal">
-  <div class="modal-dialog">
+<div id="quizDetailModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="qdm-title">
+  <div class="modal-dialog qz-detail-grid">
     <div class="modal-head">
       <h3 id="qdm-title">Quiz</h3>
-      <button type="button" class="modal-close">&times;</button>
+      <button type="button" class="modal-close" aria-label="Close Quiz details">&times;</button>
     </div>
     <div class="modal-body" id="qdm-body"></div>
     <div class="modal-foot" id="qdm-foot"></div>

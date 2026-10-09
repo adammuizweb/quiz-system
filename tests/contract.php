@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.5.0', 'plugin version must be 1.5.0');
+$check(($manifest['version'] ?? null) === '1.6.0', 'plugin version must be 1.6.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -806,7 +806,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.6.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -826,8 +826,11 @@ if ($render('admin_head') !== '' || $render('admin_footer') !== '' || $render('j
 $_GET = ['page' => 'admin/quiz/attempts'];
 $head = $render('admin_head');
 $footer = $render('admin_footer');
-if (!str_contains($head, '/static/plugins/quiz/admin.css?v=1.5.0') || str_contains($head, 'quiz.css')) exit(31);
-if (!str_contains($head, '/static/plugins/quiz/admin.js?v=1.5.0') || !str_contains($head, ' defer')) exit(32);
+$root = dirname($argv[1]);
+$cssVersion = substr((string)hash_file('sha256', $root . '/assets/admin.css'), 0, 12);
+$jsVersion = substr((string)hash_file('sha256', $root . '/assets/admin.js'), 0, 12);
+if (!str_contains($head, '/static/plugins/quiz/admin.css?v=' . $cssVersion) || str_contains($head, 'quiz.css')) exit(31);
+if (!str_contains($head, '/static/plugins/quiz/admin.js?v=' . $jsVersion) || !str_contains($head, ' defer')) exit(32);
 if ($footer !== '') exit(34);
 $_SERVER['REQUEST_URI'] = '/quiz/register/';
 if (!str_contains($render('jy_head'), 'Quiz - Public Frontend Styles')) exit(33);
@@ -850,7 +853,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.6.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -870,7 +873,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.5.0'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.6.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261008-submitted-delivery-snapshot-backfill'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -894,7 +897,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.6.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -986,7 +989,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler): void {}
-function plugin_manifest(string $name): ?array { return ['version' => '1.5.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.6.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1014,7 +1017,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.5.0'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.6.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261008-submitted-delivery-snapshot-backfill'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -1066,7 +1069,7 @@ $check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_otp_email_enable
 $check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_test_number_format'")
     && str_contains($settingsSource, 'name="quiz_test_number_format"')
     && str_contains($settingsSource, '{quiz_id:3}')
-    && str_contains($settingsSource, 'Nomor pengerjaan, wajib')
+    && str_contains($settingsSource, 'Attempt ID, required')
     && str_contains($settingsSource, 'quiz_normalize_test_number_format($test_number_format)'), 'Quiz settings must explain, validate, and persist the test-number format');
 $check(str_contains($settingsSource, "\$otp_email_enabled && \$from_name === ''") && str_contains($settingsSource, "\$otp_wa_enabled && \$admin_wa === ''"), 'OTP configuration fields must be required only for enabled methods');
 $check(str_contains($settingsSource, 'qz-method-grid') && !str_contains($settingsSource, '<span class="qz-check-meta">Peserta dapat meminta OTP'), 'OTP method descriptions must use their wrapping card layout');
@@ -1373,12 +1376,12 @@ $check(str_contains($attemptIndex, 'data-attempt-column-picker')
     && str_contains($attemptIndex, 'data-column="legacy_score" hidden')
     && str_contains($adminJs, "document.querySelectorAll('[data-attempt-column-picker]')")
     && str_contains($adminJs, "wireColumnPicker(picker, '[data-attempt-column-table]'"), 'Attempt Manager must expose persistent optional columns with legacy score hidden by default');
-$check(str_contains($attemptIndex, 'class="qz-resultbar"')
-    && str_contains($attemptIndex, 'class="table qz-attempt-table"')
+$check(str_contains($attemptIndex, 'qz-resultbar')
+    && str_contains($attemptIndex, 'qz-attempt-table')
     && str_contains($attemptIndex, 'class="qz-pagination"')
     && str_contains($adminCss, '.qz-attempt-table [data-column][hidden]'), 'Attempt column controls must use the shared result, table, and pagination presentation');
-$check(str_contains($attemptIndex, 'title="Mode pelaksanaan dipilih sendiri oleh peserta."')
-    && str_contains($attemptIndex, 'title="Metode yang tercatat setelah attempt diverifikasi. Bukan bukti bahwa OTP telah dikirim atau diterima."'), 'Attempt Mode and Verification headers must explain the limits of participant-provided metadata');
+$check(str_contains($attemptIndex, 'title="The participant selects the delivery mode."')
+    && str_contains($attemptIndex, 'title="The method recorded after the Attempt is Verified. This does not prove that an OTP was sent or received."'), 'Attempt Mode and Verification headers must explain the limits of participant-provided metadata');
 $check(str_contains($attemptIndex, 'class="qz-attempt-student-cell"')
     && str_contains($attemptIndex, 'class="qz-attempt-student__contact"')
     && str_contains($attemptIndex, 'class="qz-attempt-student__ids"')
@@ -1412,7 +1415,7 @@ $check(str_contains($attemptExport, "header('Content-Type: text/csv; charset=UTF
 $check(str_contains($attemptExportHelper, 'function qz_attempt_export_groups')
     && str_contains($attemptExportHelper, "\$selected['student'] = true")
     && str_contains($attemptExportHelper, "\$selected['status'] = true")
-    && str_contains($attemptExportHelper, "'test_number', 'label'=>'Nomor Test'")
+    && str_contains($attemptExportHelper, "'test_number', 'label'=>'Test number'")
     && !str_contains($attemptExportHelper, "'label'=>'Alias'"), 'attempt export must allowlist visible report groups while retaining required identity and status columns');
 $check(str_contains($attemptIndex, 'data-attempt-export-form')
     && str_contains($attemptIndex, 'data-attempt-export-column')
@@ -1421,10 +1424,10 @@ $check(str_contains($attemptIndex, 'data-attempt-export-form')
 $attemptExportScript = <<<'PHP'
 define('DASHBOARD_CONTEXT', true);
 require $argv[1];
-$defaults = ['Nama Siswa','No HP','Email','Nomor Test','Quiz','Status','Mode','Verifikasi','Dijawab','Benar','Nilai 100','Aktivitas'];
+$defaults = ['Student Name','Phone Number','Email','Test number','Quiz','Status','Mode','Verification','Answered','Correct','Score out of 100','Activity'];
 if (qz_attempt_export_headers() !== $defaults) exit(31);
 $custom = qz_attempt_export_headers(['bogus', 'reset', 'rank', 'legacy_score']);
-if ($custom !== ['No.','Nama Siswa','No HP','Email','Nomor Test','Status','Nilai Legacy','Reset']) exit(32);
+if ($custom !== ['No.','Student Name','Phone Number','Email','Test number','Status','Legacy Score','Reset Count']) exit(32);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $attemptExportScript, $pluginRoot . '/admin/student/attempts/_export.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 $attemptExportStatus = -1;
@@ -1442,10 +1445,10 @@ $check(str_contains($attemptExportHelper, "date('d/m/Y H:i', \$activityTimestamp
 $check(str_contains($attemptExportHelper, "'/vendor/autoload.php'")
     && str_contains($attemptExportHelper, "extension_loaded(\$extension)")
     && str_contains($attemptExportHelper, 'PHP_INT_SIZE !== 8')
-    && str_contains($attemptIndex, "Excel tidak tersedia di hosting ini; gunakan CSV."), 'Excel availability must fail gracefully with a visible CSV fallback');
+    && str_contains($attemptIndex, 'Excel is not available on this server. Use CSV instead.'), 'Excel availability must fail gracefully with a visible CSV fallback');
 $check(str_contains($attemptExport, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     && str_contains($attemptExport, 'setCellValueExplicit')
-    && str_contains($attemptExport, "setTitle('Hasil Quiz')")
+    && str_contains($attemptExport, "setTitle('Quiz Results')")
     && str_contains($attemptExport, "freezePane('A2')")
     && str_contains($attemptExport, "setAutoFilter('A1:' . \$lastColumn")
     && str_contains($attemptExport, "setFormatCode('dd/mm/yyyy hh:mm')"), 'XLSX export must use explicit text cells and staff-friendly worksheet formatting');
@@ -1466,7 +1469,7 @@ $dashboardIndex = (string)file_get_contents($pluginRoot . '/admin/index.php');
 $check(str_contains($dashboardIndex, "\$canViewAttempts = \$user['can_view_attempts']"), 'dashboard must evaluate attempts.view independently');
 $check(preg_match('/if \(\$canViewAttempts\) \{.*COUNT\(DISTINCT student_id\).*COUNT\(\*\).*SUM\(status=\'submitted\'\)/s', $dashboardIndex) === 1, 'participant and attempt count queries must be inside the attempts.view gate');
 $check(substr_count($dashboardIndex, 'if ($canViewAttempts):') === 2, 'participant metadata and Attempt Manager card must both be hidden without attempts.view');
-$check(str_contains($dashboardIndex, 'if ($canManageStudents):') && str_contains($dashboardIndex, 'Buka Siswa'), 'Student Manager card must remain behind students.manage');
+$check(str_contains($dashboardIndex, 'if ($canManageStudents):') && str_contains($dashboardIndex, 'Open Students'), 'Student Manager card must remain behind students.manage');
 
 $masterIndex = (string)file_get_contents($pluginRoot . '/admin/master/index.php');
 $quizIndex = (string)file_get_contents($pluginRoot . '/admin/quizzes/index.php');
@@ -1481,11 +1484,11 @@ $studentIndex = (string)file_get_contents($pluginRoot . '/admin/student/index.ph
 $check(str_contains($studentIndex, 'SELECT COUNT(*)') && str_contains($studentIndex, 'LIMIT {$perPage} OFFSET {$offset}'), 'student list must use filtered server pagination');
 $check(!str_contains($studentIndex, 'LIMIT 500') && str_contains($studentIndex, "\$_GET['p']"), 'student list must not silently truncate and must use the p query key');
 $check(str_contains($studentIndex, 'COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN s.id END)')
-    && str_contains($studentIndex, 'class="qz-stats"')
-    && str_contains($studentIndex, 'class="qz-filterbar qz-student-filterbar"'), 'Student Manager must expose useful summary statistics and a focused filter bar');
-$check(str_contains($studentIndex, 'class="qz-table qz-student-table"')
+    && str_contains($studentIndex, 'qz-metric-grid')
+    && str_contains($studentIndex, 'qz-student-filterbar qz-command-bar'), 'Student Manager must expose useful summary statistics and a focused filter bar');
+$check(str_contains($studentIndex, 'qz-data-table qz-student-table')
     && str_contains($studentIndex, 'data-label="Student"')
-    && str_contains($studentIndex, 'data-label="Kontak"')
+    && str_contains($studentIndex, 'data-label="Contact"')
     && !str_contains($studentIndex, '<th>Email</th>')
     && !str_contains($studentIndex, '<th>HP</th>'), 'Student Manager must use compact semantic columns with combined contact details');
 $check(str_contains($studentIndex, 'data-student-column-picker')
@@ -1493,8 +1496,8 @@ $check(str_contains($studentIndex, 'data-student-column-picker')
     && str_contains($adminJs, "document.querySelectorAll('[data-student-column-picker]')")
     && str_contains($adminJs, "wireColumnPicker(picker, '[data-student-column-table]'")
     && str_contains($adminCss, '.qz-student-table tbody tr'), 'Student columns must persist and collapse into responsive cards');
-$check(str_contains($studentIndex, 'class="adam-card qz-card qz-editor-page qz-student-editor"')
-    && str_contains($studentIndex, 'class="qz-student-form-grid"'), 'Student add and edit forms must use the shared Quiz editor presentation');
+$check(str_contains($studentIndex, 'qz-editor-page qz-student-editor')
+    && str_contains($studentIndex, 'qz-student-form-grid qz-form-grid'), 'Student add and edit forms must use the shared Quiz editor presentation');
 $check(str_contains($studentIndex, 'qz-action-menu__toggle') && str_contains($studentIndex, 'aria-expanded="false"'), 'student actions must use an accessible disclosure control');
 $check(!str_contains($studentIndex, 'class="actions qz-row-actions"'), 'student action cells must not inherit the Core flex actions utility');
 $check(str_contains($studentIndex, 'qz-action-menu__item--danger') && str_contains($studentIndex, 'data-confirm-variant="danger"'), 'student delete must retain the destructive confirmation inside the dropdown');
@@ -1543,7 +1546,7 @@ $bulkSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/bulk_statu
 $check(str_contains($bulkSource, 'count($ids) > 100'), 'bulk status mutation must cap selected IDs');
 $check(str_contains($bulkSource, 'FOR UPDATE') && str_contains($bulkSource, 'qz_lock_quiz_for_workspace_mutation'), 'bulk status mutation must lock and authorize every selected quiz');
 $check(strpos($bulkSource, 'beginTransaction()') < strpos($bulkSource, 'qz_lock_quiz_for_workspace_mutation('), 'bulk status must reauthorize workspace access after beginning its transaction');
-$check(!str_contains($bulkSource, '$changed < 1') && str_contains($bulkSource, "' quiz diproses; '") && str_contains($bulkSource, "' baris berubah.'"), 'bulk status must accept authorized no-ops with a truthful changed-row message');
+$check(!str_contains($bulkSource, '$changed < 1') && str_contains($bulkSource, "' Quiz records processed; '") && str_contains($bulkSource, "' rows changed.'"), 'bulk status must accept authorized no-ops with a truthful changed-row message');
 $check(str_contains($bulkSource, "is_primary'] === 1"), 'bulk status mutation must protect the primary quiz from deactivation');
 $check(!str_contains($bulkSource, 'user_role'), 'bulk status mutation must rely on dynamic permission and owner guards');
 
@@ -1694,12 +1697,12 @@ foreach ($attemptActionGuards as $file => $permission) {
 }
 $menuSource = $pluginSource;
 $check(str_contains($menuSource, 'plugin_route_is_allowed') && !str_contains($menuSource, "SESSION['user_role']"), 'custom Quiz navigation uses target route authorization');
-$menuLabels = ["'label' => 'Dashboard'", "'label' => 'Quiz'", "'label' => 'Master Builder'", "'label' => 'Student'", "'label' => 'Attempt'", "'label' => 'Config'"];
+$menuLabels = ["'label' => 'Dashboard'", "'label' => 'Quiz'", "'label' => 'Master Builder'", "'label' => 'Students'", "'label' => 'Attempts'", "'label' => 'Settings'"];
 $menuPositions = array_map(static fn(string $label): int|false => strpos($menuSource, $label), $menuLabels);
 $check(!in_array(false, $menuPositions, true) && $menuPositions === array_values($menuPositions)
     && $menuPositions === array_values(array_unique($menuPositions))
     && $menuPositions === (function (array $positions): array { $sorted = $positions; sort($sorted); return $sorted; })($menuPositions)
-    && !str_contains($menuSource, 'Tambah Quiz (Old)'), 'Quiz sidebar must follow Dashboard, Quiz, Master Builder, Student, Attempt, and Config without legacy labels');
+    && !str_contains($menuSource, 'Tambah Quiz (Old)'), 'Quiz sidebar must follow Dashboard, Quiz, Master Builder, Students, Attempts, and Settings without legacy labels');
 $check(str_contains($menuSource, "'prefixes' => ['admin/quiz/master', 'admin/quiz/categories', 'admin/quiz/passages', 'admin/quiz/questions', 'admin/quiz/dump']")
     && str_contains($menuSource, "str_starts_with(\$requested, \$pagePrefix . '/')"), 'Quiz sidebar must keep the correct workflow section active on child routes');
 $check(str_contains($initSource, 'function qz_admin_breadcrumb(array $items)')
@@ -1707,12 +1710,12 @@ $check(str_contains($initSource, 'function qz_admin_breadcrumb(array $items)')
     && str_contains((string)file_get_contents($pluginRoot . '/admin/index.php'), "['label'=>'Dashboard']")
     && str_contains((string)file_get_contents($pluginRoot . '/admin/quizzes/index.php'), "['label'=>'Quiz']")
     && str_contains((string)file_get_contents($pluginRoot . '/admin/master/index.php'), "['label'=>'Master Builder']")
-    && str_contains((string)file_get_contents($pluginRoot . '/admin/student/index.php'), "['label'=>'Student']")
-    && str_contains((string)file_get_contents($pluginRoot . '/admin/student/attempts/index.php'), "['label'=>'Attempt']")
-    && str_contains($settingsSource, "['label'=>'Config']"), 'primary Quiz workflow pages must expose consistent shared breadcrumbs');
+    && str_contains((string)file_get_contents($pluginRoot . '/admin/student/index.php'), "['label'=>'Students']")
+    && str_contains((string)file_get_contents($pluginRoot . '/admin/student/attempts/index.php'), "['label'=>'Attempts']")
+    && str_contains($settingsSource, "['label'=>'Quiz Settings']"), 'primary Quiz workflow pages must expose consistent shared breadcrumbs');
 $check(!str_contains($settingsSource, 'qz-menu-card')
     && !str_contains($settingsSource, '$stats[')
-    && str_contains($settingsSource, 'Atur nomor test, metode OTP, kontak admin'), 'Config must contain settings only instead of duplicating the Quiz dashboard');
+    && str_contains($settingsSource, 'Manage the Test Number format, Participant Verification channels'), 'Config must contain settings only instead of duplicating the Quiz dashboard');
 
 $dumpSource = (string)file_get_contents($pluginRoot . '/admin/dump/index.php');
 $check(str_contains($dumpSource, 'cms_sanitize_restricted_html') && !str_contains($dumpSource, 'javascript:'), 'Dump QC uses the Core HTML sanitizer');
@@ -1725,8 +1728,8 @@ $quizDeleteSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/dele
 $quizAddSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/add.php');
 $check(str_contains($quizAddSource, 'name="result_visibility"')
     && str_contains($quizEditSource, 'name="result_visibility"')
-    && str_contains($quizAddSource, 'Disembunyikan menutup halaman hasil peserta.')
-    && str_contains($quizEditSource, 'Disembunyikan menutup halaman hasil peserta.'),
+    && str_contains($quizAddSource, 'Hidden disables the Student results page.')
+    && str_contains($quizEditSource, 'Hidden disables the Student results page.'),
     'quiz add/edit must expose and explain participant result visibility controls');
 $check(str_contains($quizAddSource, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.quiz.quizzes.manage')")
     && str_contains($quizAddSource, "\$user['can_manage_quizzes']"), 'quiz creation must repeat and evaluate exactly quizzes.manage');
@@ -1760,7 +1763,8 @@ $check(str_contains($collaboratorSource, 'FROM quizzes WHERE id=:id LIMIT 1 FOR 
     && str_contains($collaboratorSource, 'FOR UPDATE'), 'collaborator save must lock the quiz, assignments, and target users');
 $check(str_contains($collaboratorSource, "is_deleted'] !== 0") && str_contains($collaboratorSource, "is_locked'] !== 0")
     && str_contains($collaboratorSource, "user_can(\$pdo, \$id, 'plugin.quiz.workspace.access')"), 'collaborator save must reject unavailable users and require effective workspace access');
-$check(str_contains($collaboratorSource, 'owner must not be assigned as a collaborator'), 'collaborator save must reject redundant owner assignment');
+$check(str_contains($collaboratorSource, "in_array((int)\$lockedQuiz['created_by'], \$selectedIds, true)")
+    && str_contains($collaboratorSource, 'The Quiz owner cannot be assigned as a collaborator.'), 'collaborator save must reject redundant owner assignment');
 $check(str_contains($collaboratorSource, "\$_POST['collaborator_ids']")
     && str_contains($collaboratorSource, 'name="collaborator_ids[]"')
     && str_contains($collaboratorSource, 'foreach ($selectedIds as $id) $insert->execute'), 'collaborator management must persist multiple users per quiz');

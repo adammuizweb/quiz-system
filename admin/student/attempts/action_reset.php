@@ -11,8 +11,8 @@ quiz_csrf_check();
 
 $attempt_id = (int)($_POST['attempt_id'] ?? 0);
 $reason = trim((string)($_POST['reset_reason'] ?? ''));
-if ($attempt_id <= 0) { http_response_code(400); exit('Missing attempt_id'); }
-if ($reason === '') { http_response_code(400); exit('Reset reason required'); }
+if ($attempt_id <= 0) { http_response_code(400); exit('Attempt ID is required.'); }
+if ($reason === '') { http_response_code(400); exit('Reset reason is required.'); }
 if (mb_strlen($reason) > 255) $reason = mb_substr($reason, 0, 255, 'UTF-8');
 qz_require_attempt_access($pdo, $attempt_id);
 
@@ -62,11 +62,11 @@ try {
 } catch (Throwable $e) {
   $pdo->rollBack();
   $loc = $base . '/?page=admin/quiz/attempts/view&attempt_id=' . $attempt_id
-       . '&err=' . rawurlencode('Reset gagal: ' . $e->getMessage());
+       . '&err=' . rawurlencode('Reset failed: ' . $e->getMessage());
   qz_redirect($loc);
 }
 
 $loc = $base . '/?page=admin/quiz/attempts/view&attempt_id=' . $attempt_id;
-qz_flash_set('msg', 'Attempt di-reset dan OTP baru dibuat.');
+qz_flash_set('msg', 'Attempt reset and new OTP generated.');
 
 qz_redirect($loc);

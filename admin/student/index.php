@@ -26,10 +26,10 @@ if ($do === 'delete') {
   if ($id > 0 && csrf_check($csrf)) {
     try {
       $pdo->prepare("DELETE FROM students WHERE id=:id LIMIT 1")->execute([':id'=>$id]);
-      quiz_redirect("$base/?page=$pluginPage&msg=" . urlencode("Siswa dihapus."));
+      quiz_redirect("$base/?page=$pluginPage&msg=" . urlencode("Student deleted."));
     } catch (\Throwable $e) {}
   }
-  quiz_redirect("$base/?page=$pluginPage&err=" . urlencode("Request tidak valid."));
+  quiz_redirect("$base/?page=$pluginPage&err=" . urlencode("Invalid request."));
   return;
 }
 
@@ -41,11 +41,11 @@ if ($do === 'add' || $do === 'edit') {
     $st = $pdo->prepare("SELECT * FROM students WHERE id=:id LIMIT 1");
     $st->execute([':id'=>$id]);
     $student = $st->fetch(\PDO::FETCH_ASSOC);
-    if (!$student) { echo '<p>Student not found.</p>'; return; }
+    if (!$student) { echo '<div class="adam-alert error">Student not found.</div>'; return; }
   }
   $errors = [];
   if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!hash_equals(csrf_token(), (string)($_POST['csrf_token'] ?? ''))) $errors[] = 'CSRF invalid.';
+    if (!hash_equals(csrf_token(), (string)($_POST['csrf_token'] ?? ''))) $errors[] = 'Invalid security token.';
     $name = trim((string)($_POST['name'] ?? ''));
     $email = trim((string)($_POST['email'] ?? ''));
     $phone = trim((string)($_POST['phone'] ?? ''));
@@ -57,24 +57,34 @@ if ($do === 'add' || $do === 'edit') {
         $cookieId = qz_unique_student_cookie_id($pdo);
         $pdo->prepare("INSERT INTO students (cookie_id,name,email,phone) VALUES (:cookie_id,:name,:email,:phone)")->execute([':cookie_id'=>$cookieId,':name'=>$name,':email'=>$email?:null,':phone'=>$phone?:null]);
       }
-      quiz_redirect("$base/?page=$pluginPage&msg=" . urlencode($editing?"Siswa diupdate.":"Siswa ditambahkan."));
+      quiz_redirect("$base/?page=$pluginPage&msg=" . urlencode($editing?"Student updated.":"Student added."));
     }
     $student = ['name'=>$name,'email'=>$email,'phone'=>$phone];
   } ?>
-  <section class="adam-card qz-card qz-editor-page qz-student-editor">
-    <?php qz_admin_breadcrumb([['label'=>'Student','url'=>$base.'/?page='.$pluginPage],['label'=>$editing?'Edit Student':'Tambah Student']]); ?>
-    <div class="qz-head"><div><div class="qz-kicker">Peserta quiz</div><h2 style="margin:0"><?=$editing?'Edit':'Tambah'?> Student</h2><p class="qz-context"><?=$editing?'Perbarui identitas dan kontak peserta.':'Tambahkan peserta yang akan mengikuti quiz.'?></p></div><div class="qz-toolbar"><a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>">Daftar Student</a></div></div>
-    <?php if ($errors): ?><div class="adam-alert error"><?php foreach($errors as $e):?><div><?=h($e)?></div><?php endforeach;?></div><?php endif; ?>
-    <form method="post" class="qz-editor-section" novalidate>
-      <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-      <div class="qz-student-form-grid">
-        <label class="qz-student-form-name"><span>Nama lengkap</span><input class="adam-input" name="name" value="<?=h($student['name'])?>" required></label>
-        <label><span>Email</span><input class="adam-input" name="email" value="<?=h($student['email']??'')?>" type="email" placeholder="nama@example.com"></label>
-        <label><span>Nomor HP</span><input class="adam-input" name="phone" value="<?=h($student['phone']??'')?>" placeholder="628xxxxxxxxxx"></label>
+  <section class="adam-card qz-card qz-shell qz-editor-page qz-student-editor">
+    <?php qz_admin_breadcrumb([['label'=>'Students','url'=>$base.'/?page='.$pluginPage],['label'=>$editing?'Edit Student':'Add Student']]); ?>
+    <header class="qz-head qz-page-head">
+      <div class="qz-page-head__copy">
+        <div class="qz-kicker qz-eyebrow">Student details</div>
+        <h1 class="qz-page-title"><?=$editing?'Edit Student':'Add Student'?></h1>
+        <p class="qz-context qz-page-description"><?=$editing?'Update the Student identity and contact details without changing Attempt history.':'Register a Student to manage their identity and Attempt history in one place.'?></p>
       </div>
-      <div class="qz-editor-actions">
-        <button class="adam-button" type="submit">Simpan Student</button>
-        <a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>">Batal</a>
+      <div class="qz-toolbar qz-page-actions"><a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>">Back to list</a></div>
+    </header>
+    <?php if ($errors): ?><div class="adam-alert error"><?php foreach($errors as $e):?><div><?=h($e)?></div><?php endforeach;?></div><?php endif; ?>
+    <form method="post" class="qz-editor-section qz-section" novalidate>
+      <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+      <div class="qz-editor-section__head qz-section__head">
+        <div><h2>Student identity</h2><p>Name is required. Email and phone number help with search and verification.</p></div>
+      </div>
+      <div class="qz-student-form-grid qz-form-grid qz-section__body">
+        <label class="qz-student-form-name qz-field" for="student-name"><span>Full name</span><input class="adam-input" id="student-name" name="name" value="<?=h($student['name'])?>" autocomplete="name" required></label>
+        <label class="qz-field" for="student-email"><span>Email</span><input class="adam-input" id="student-email" name="email" value="<?=h($student['email']??'')?>" type="email" autocomplete="email" placeholder="name@example.com"></label>
+        <label class="qz-field" for="student-phone"><span>Phone number</span><input class="adam-input" id="student-phone" name="phone" value="<?=h($student['phone']??'')?>" type="tel" autocomplete="tel" inputmode="tel" placeholder="15551234567"></label>
+      </div>
+      <div class="qz-editor-actions qz-form-actions">
+        <button class="adam-button" type="submit">Save Student</button>
+        <a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>">Cancel</a>
       </div>
     </form>
   </section>
@@ -130,38 +140,43 @@ $formatDate = static function (mixed $value): string {
   return $timestamp !== false ? date('d/m/Y H:i', $timestamp) : '-';
 };
 ?>
-<section class="adam-card qz-card qz-student-page" data-column-scope>
-  <?php qz_admin_breadcrumb([['label'=>'Student']]); ?>
-  <div class="qz-head">
-    <div><div class="qz-kicker">Peserta quiz</div><h2 style="margin:0">Student Manager</h2><div class="qz-meta">Kelola identitas peserta dan akses riwayat attempt mereka.</div></div>
-    <div class="qz-toolbar"><a class="adam-button" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=add">+ Tambah Siswa</a></div>
+<section class="adam-card qz-card qz-shell qz-student-page" data-column-scope>
+  <?php qz_admin_breadcrumb([['label'=>'Students']]); ?>
+  <header class="qz-head qz-page-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-kicker qz-eyebrow">Quiz participants</div>
+      <h1 class="qz-page-title">Manage Students</h1>
+      <p class="qz-meta qz-page-description">Manage participant identities, monitor engagement, and review Attempt history from one list.</p>
+    </div>
+    <div class="qz-toolbar qz-page-actions"><a class="adam-button" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=add">Add Student</a></div>
+  </header>
+
+  <div class="qz-stats qz-metric-grid" aria-label="Student summary">
+    <div class="qz-stat qz-metric"><span>Total Students</span><strong><?=(int)$summary['total']?></strong></div>
+    <div class="qz-stat qz-metric"><span>With Attempts</span><strong><?=(int)$summary['with_attempts']?></strong></div>
+    <div class="qz-stat qz-metric"><span>With Submitted Attempts</span><strong><?=(int)$summary['with_submitted']?></strong></div>
+    <div class="qz-stat qz-stat--result qz-metric"><span>Current results</span><strong><?=$totalRows?></strong></div>
   </div>
 
-  <div class="qz-stats" aria-label="Ringkasan student">
-    <div class="qz-stat"><span>Total Student</span><strong><?=(int)$summary['total']?></strong></div>
-    <div class="qz-stat"><span>Punya Attempt</span><strong><?=(int)$summary['with_attempts']?></strong></div>
-    <div class="qz-stat"><span>Pernah Submitted</span><strong><?=(int)$summary['with_submitted']?></strong></div>
-    <div class="qz-stat qz-stat--result"><span>Hasil Filter</span><strong><?=$totalRows?></strong></div>
-  </div>
-
-  <form method="get" class="qz-filterbar qz-student-filterbar">
+  <form method="get" class="qz-filterbar qz-student-filterbar qz-command-bar" role="search" aria-label="Search and configure the Student list">
     <input type="hidden" name="page" value="<?=$pluginPage?>">
-    <label><span>Cari student</span><input class="adam-input" id="students-q" name="q" value="<?=h($q)?>" placeholder="Nama, email, atau nomor HP..."></label>
-    <label><span>Per halaman</span><select class="adam-input" id="students-per" name="per"><?php foreach ($perPageOptions as $option): ?><option value="<?=$option?>" <?=$perPage === $option ? 'selected':''?>><?=$option?></option><?php endforeach; ?></select></label>
-    <div class="qz-filterbar__actions"><button class="adam-button" type="submit">Terapkan</button><?php if($q!==''||$perPage!==25):?><a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>">Reset</a><?php endif;?></div>
+    <label class="qz-field" for="students-q"><span>Search Students</span><input class="adam-input" id="students-q" name="q" value="<?=h($q)?>" placeholder="Name, email, or phone number"></label>
+    <label class="qz-field" for="students-per"><span>Rows per page</span><select class="adam-input" id="students-per" name="per"><?php foreach ($perPageOptions as $option): ?><option value="<?=$option?>" <?=$perPage === $option ? 'selected':''?>><?=$option?></option><?php endforeach; ?></select></label>
+    <div class="qz-filterbar__actions qz-form-actions"><button class="adam-button" type="submit">Apply</button><?php if($q!==''||$perPage!==25):?><a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>">Clear filters</a><?php endif;?></div>
   </form>
   <?php if ($messages): ?><div class="adam-alert success"><?php foreach($messages as $m):?><div><?=h($m)?></div><?php endforeach;?></div><?php endif; ?>
   <?php if ($errors): ?><div class="adam-alert error"><?php foreach($errors as $e):?><div><?=h($e)?></div><?php endforeach;?></div><?php endif; ?>
 
-  <div class="qz-resultbar">
-    <span>Menampilkan <b><?=$rangeStart?></b>-<b><?=$rangeEnd?></b> dari <b><?=$totalRows?></b> student</span>
-    <div class="qz-view-controls"><details class="qz-column-picker" data-student-column-picker data-storage-key="quiz-student-columns-v1"><summary>Kolom</summary><div class="qz-column-picker__panel"><div class="qz-column-picker__title">Kolom yang ditampilkan</div><label><input type="checkbox" checked disabled> Student <small>Wajib</small></label><label><input type="checkbox" data-student-column="contact" checked> Kontak</label><label><input type="checkbox" data-student-column="attempts" checked> Attempt</label><label><input type="checkbox" data-student-column="submitted" checked> Submitted</label><label><input type="checkbox" data-student-column="activity" checked> Aktivitas Terakhir</label><label><input type="checkbox" checked disabled> Aksi <small>Wajib</small></label></div></details></div>
+  <div class="qz-resultbar qz-section__head">
+    <span>Showing <b><?=$rangeStart?></b>-<b><?=$rangeEnd?></b> of <b><?=$totalRows?></b> Students</span>
+    <div class="qz-view-controls"><details class="qz-column-picker" data-student-column-picker data-storage-key="quiz-student-columns-v1"><summary>Configure columns</summary><div class="qz-column-picker__panel"><div class="qz-column-picker__title">Visible columns</div><label><input type="checkbox" checked disabled> Student <small>Required</small></label><label><input type="checkbox" data-student-column="contact" checked> Contact</label><label><input type="checkbox" data-student-column="attempts" checked> Attempts</label><label><input type="checkbox" data-student-column="submitted" checked> Submitted</label><label><input type="checkbox" data-student-column="activity" checked> Last activity</label><label><input type="checkbox" checked disabled> Actions <small>Required</small></label></div></details></div>
   </div>
 
-  <table class="qz-table qz-student-table" data-student-column-table>
-    <thead><tr><th>Student</th><th width="260" data-column="contact">Kontak</th><th width="100" data-column="attempts">Attempt</th><th width="110" data-column="submitted">Submitted</th><th width="160" data-column="activity">Aktivitas Terakhir</th><th width="80">Aksi</th></tr></thead>
+  <div class="table-scroll" role="region" aria-label="Student list" tabindex="0">
+  <table class="qz-table qz-data-table qz-student-table" data-student-column-table>
+    <thead><tr><th>Student</th><th data-column="contact">Contact</th><th data-column="attempts">Attempts</th><th data-column="submitted">Submitted</th><th data-column="activity">Last activity</th><th>Actions</th></tr></thead>
     <tbody>
-    <?php if (!$rows): ?><tr><td colspan="6" class="qz-empty-cell"><?=$q!==''?'Tidak ada student yang cocok dengan pencarian.':'Belum ada student.'?></td></tr>
+    <?php if (!$rows): ?><tr><td colspan="6" class="qz-empty-cell"><div class="qz-empty-state"><strong><?=$q!==''?'No Students found':'No Students yet'?></strong><div><?=$q!==''?'Try another name, email, or phone number, then search again.':'Add the first Student to start managing participants and Attempt history.'?></div><?php if($q!==''):?><a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>">Clear search</a><?php else:?><a class="adam-button" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=add">Add Student</a><?php endif;?></div></td></tr>
     <?php else: foreach ($rows as $r): $sid = (int)$r['id'];
       $lastAlias = trim((string)($r['last_attempt_alias']??''));
       $lastAttemptId = (int)($r['last_attempt_id']??0);
@@ -170,17 +185,18 @@ $formatDate = static function (mixed $value): string {
       $phone = trim((string)($r['phone']??''));
     ?>
       <tr>
-        <td class="qz-student-cell" data-label="Student"><div class="qz-student-name"><?=h($r['name'])?></div><div class="qz-student-meta">Terdaftar <?=$formatDate($r['created_at']??null)?></div></td>
-        <td data-label="Kontak" data-column="contact"><div class="qz-student-contact"><?php if($email!==''):?><span><?=h($email)?></span><?php endif;?><?php if($phone!==''):?><span><?=h($phone)?></span><?php endif;?><?php if($email===''&&$phone===''):?><span class="muted">Belum ada kontak</span><?php endif;?></div></td>
-        <td data-label="Attempt" data-column="attempts"><span class="badge count"><?=(int)$r['attempt_count']?></span></td>
+        <td class="qz-student-cell" data-label="Student"><div class="qz-student-name"><?=h($r['name'])?></div><div class="qz-student-meta">Registered <?=$formatDate($r['created_at']??null)?></div></td>
+        <td data-label="Contact" data-column="contact"><div class="qz-student-contact"><?php if($email!==''):?><span><?=h($email)?></span><?php endif;?><?php if($phone!==''):?><span><?=h($phone)?></span><?php endif;?><?php if($email===''&&$phone===''):?><span class="muted">No contact details</span><?php endif;?></div></td>
+        <td data-label="Attempts" data-column="attempts"><span class="badge count"><?=(int)$r['attempt_count']?></span></td>
         <td data-label="Submitted" data-column="submitted"><span class="badge <?=((int)$r['submitted_count']>0)?'ok':'muted'?>"><?=(int)$r['submitted_count']?></span></td>
-        <td data-label="Aktivitas Terakhir" data-column="activity"><span class="qz-student-activity"><?=$formatDate($r['last_activity_at']??null)?></span></td>
-        <td class="qz-row-actions qz-student-actions" data-label="Aksi"><div class="qz-action-menu qz-action-menu--compact"><button type="button" class="qz-action-menu__toggle" id="student-actions-toggle-<?=$sid?>" aria-expanded="false" aria-controls="student-actions-<?=$sid?>" aria-label="Aksi untuk <?=h((string)$r['name'])?>"><span class="qz-action-menu__dots" aria-hidden="true">&#8942;</span></button><div class="qz-action-menu__panel" id="student-actions-<?=$sid?>" role="group" aria-labelledby="student-actions-toggle-<?=$sid?>" hidden><a class="qz-action-menu__item" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=edit&id=<?=$sid?>">Edit</a><a class="qz-action-menu__item" href="<?=h($base)?>/?page=admin/quiz/attempts&student_id=<?=$sid?>">Lihat Attempt</a><?php if ($lastAttemptUrl): ?><a class="qz-action-menu__item" href="<?=h($lastAttemptUrl)?>">Attempt Terakhir</a><?php endif; ?><form method="post" action="<?=h($base)?>/?page=<?=$pluginPage?>" class="qz-action-menu__form"><input type="hidden" name="do" value="delete"><input type="hidden" name="id" value="<?=$sid?>"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><button type="submit" class="qz-action-menu__item qz-action-menu__item--danger" data-confirm="Hapus siswa ini?\n\nNama: <?=h($r['name'])?>\nAttempt: <?=(int)$r['attempt_count']?> (submitted: <?=(int)$r['submitted_count']?>)\n\nAksi ini akan menghapus SEMUA attempt siswa (jawaban, paket soal, proctor logs ikut terhapus via CASCADE).\nTindakan tidak bisa dibatalkan." data-confirm-variant="danger">Hapus</button></form></div></div></td>
+        <td data-label="Last activity" data-column="activity"><span class="qz-student-activity"><?=$formatDate($r['last_activity_at']??null)?></span></td>
+        <td class="qz-row-actions qz-student-actions" data-label="Actions"><div class="qz-action-menu qz-action-menu--compact"><button type="button" class="qz-action-menu__toggle" id="student-actions-toggle-<?=$sid?>" aria-expanded="false" aria-controls="student-actions-<?=$sid?>" aria-label="Actions for <?=h((string)$r['name'])?>"><span class="qz-action-menu__dots" aria-hidden="true">&#8942;</span></button><div class="qz-action-menu__panel" id="student-actions-<?=$sid?>" role="group" aria-labelledby="student-actions-toggle-<?=$sid?>" hidden><a class="qz-action-menu__item" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=edit&id=<?=$sid?>">Edit Student</a><a class="qz-action-menu__item" href="<?=h($base)?>/?page=admin/quiz/attempts&student_id=<?=$sid?>">View Attempts</a><?php if ($lastAttemptUrl): ?><a class="qz-action-menu__item" href="<?=h($lastAttemptUrl)?>">Latest Attempt</a><?php endif; ?><form method="post" action="<?=h($base)?>/?page=<?=$pluginPage?>" class="qz-action-menu__form"><input type="hidden" name="do" value="delete"><input type="hidden" name="id" value="<?=$sid?>"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><button type="submit" class="qz-action-menu__item qz-action-menu__item--danger" data-confirm="Delete this Student?\n\nName: <?=h($r['name'])?>\nAttempts: <?=(int)$r['attempt_count']?> (Submitted: <?=(int)$r['submitted_count']?>)\n\nAll of this Student's Attempts, Answers, Question sets, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger">Delete Student</button></form></div></div></td>
       </tr>
     <?php endforeach; endif; ?>
     </tbody>
   </table>
+  </div>
 
-  <?php if($totalPages>1):?><nav class="qz-pagination" aria-label="Navigasi halaman student"><?php if($pageNum>1):?><a href="<?=h($pageUrl($pageNum-1))?>">Sebelumnya</a><?php else:?><span class="disabled">Sebelumnya</span><?php endif;?><div class="qz-pagination__pages"><?php for($number=max(1,$pageNum-2);$number<=min($totalPages,$pageNum+2);$number++):?><a href="<?=h($pageUrl($number))?>" <?=$number===$pageNum?'aria-current="page"':''?>><?=$number?></a><?php endfor;?></div><span>Halaman <?=$pageNum?> / <?=$totalPages?></span><?php if($pageNum<$totalPages):?><a href="<?=h($pageUrl($pageNum+1))?>">Berikutnya</a><?php else:?><span class="disabled">Berikutnya</span><?php endif;?></nav><?php endif;?>
+  <?php if($totalPages>1):?><nav class="qz-pagination" aria-label="Student list pagination"><?php if($pageNum>1):?><a href="<?=h($pageUrl($pageNum-1))?>">Previous</a><?php else:?><span class="disabled">Previous</span><?php endif;?><div class="qz-pagination__pages"><?php for($number=max(1,$pageNum-2);$number<=min($totalPages,$pageNum+2);$number++):?><a href="<?=h($pageUrl($number))?>" <?=$number===$pageNum?'aria-current="page"':''?>><?=$number?></a><?php endfor;?></div><span>Page <?=$pageNum?> of <?=$totalPages?></span><?php if($pageNum<$totalPages):?><a href="<?=h($pageUrl($pageNum+1))?>">Next</a><?php else:?><span class="disabled">Next</span><?php endif;?></nav><?php endif;?>
 </section>
 <?php

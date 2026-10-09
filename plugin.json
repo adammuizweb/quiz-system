@@ -1,8 +1,8 @@
 {
   "name": "quiz",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "title": "Quiz",
-  "description": "Quiz, proctoring, dan manajemen tes online.",
+  "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
   "author_uri": "https://adammuiz.com",
   "plugin_uri": "https://github.com/adammuizweb/quiz-system",
@@ -77,7 +77,7 @@
       {
         "route": "admin/quiz/students",
         "file": "admin/student/index.php",
-        "title": "Peserta Quiz",
+        "title": "Quiz Students",
         "roles": [
           "admin"
         ],
@@ -264,7 +264,7 @@
       {
         "route": "admin/quiz/quizzes/add",
         "file": "admin/quizzes/add.php",
-        "title": "Tambah Quiz",
+        "title": "Add Quiz",
         "roles": [
           "admin"
         ],
@@ -282,7 +282,7 @@
       {
         "route": "admin/quiz/quizzes/delete",
         "file": "admin/quizzes/delete.php",
-        "title": "Hapus Quiz",
+        "title": "Delete Quiz",
         "roles": [
           "admin"
         ],
@@ -291,7 +291,7 @@
       {
         "route": "admin/quiz/quizzes/duplicate",
         "file": "admin/quizzes/duplicate.php",
-        "title": "Duplikat Quiz",
+        "title": "Duplicate Quiz",
         "roles": [
           "admin"
         ],
@@ -300,7 +300,7 @@
       {
         "route": "admin/quiz/quizzes/bulk_status",
         "file": "admin/quizzes/bulk_status.php",
-        "title": "Bulk Status Quiz",
+        "title": "Bulk Update Quiz Status",
         "roles": [
           "admin"
         ],

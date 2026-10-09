@@ -19,23 +19,23 @@ function qz_attempt_export_columns(mixed $groups = null): array {
     $definitions = [
         'rank' => [['key'=>'rank', 'label'=>'No.', 'type'=>'number', 'width'=>8]],
         'student' => [
-            ['key'=>'name', 'label'=>'Nama Siswa', 'type'=>'text', 'width'=>28],
-            ['key'=>'phone', 'label'=>'No HP', 'type'=>'text', 'width'=>18],
+            ['key'=>'name', 'label'=>'Student Name', 'type'=>'text', 'width'=>28],
+            ['key'=>'phone', 'label'=>'Phone Number', 'type'=>'text', 'width'=>18],
             ['key'=>'email', 'label'=>'Email', 'type'=>'text', 'width'=>32],
-            ['key'=>'test_number', 'label'=>'Nomor Test', 'type'=>'text', 'width'=>24],
+            ['key'=>'test_number', 'label'=>'Test number', 'type'=>'text', 'width'=>24],
         ],
         'quiz' => [['key'=>'quiz', 'label'=>'Quiz', 'type'=>'text', 'width'=>36]],
         'status' => [['key'=>'status', 'label'=>'Status', 'type'=>'text', 'width'=>15]],
         'mode' => [['key'=>'mode', 'label'=>'Mode', 'type'=>'text', 'width'=>12]],
-        'verification' => [['key'=>'verification', 'label'=>'Verifikasi', 'type'=>'text', 'width'=>14]],
+        'verification' => [['key'=>'verification', 'label'=>'Verification', 'type'=>'text', 'width'=>14]],
         'progress' => [
-            ['key'=>'answered', 'label'=>'Dijawab', 'type'=>'text', 'width'=>14],
-            ['key'=>'correct', 'label'=>'Benar', 'type'=>'text', 'width'=>14],
+            ['key'=>'answered', 'label'=>'Answered', 'type'=>'text', 'width'=>14],
+            ['key'=>'correct', 'label'=>'Correct', 'type'=>'text', 'width'=>14],
         ],
-        'legacy_score' => [['key'=>'legacy_score', 'label'=>'Nilai Legacy', 'type'=>'number', 'width'=>14]],
-        'score100' => [['key'=>'score100', 'label'=>'Nilai 100', 'type'=>'number', 'width'=>12]],
-        'reset' => [['key'=>'reset', 'label'=>'Reset', 'type'=>'number', 'width'=>10]],
-        'activity' => [['key'=>'activity', 'label'=>'Aktivitas', 'type'=>'datetime', 'width'=>19]],
+        'legacy_score' => [['key'=>'legacy_score', 'label'=>'Legacy Score', 'type'=>'number', 'width'=>14]],
+        'score100' => [['key'=>'score100', 'label'=>'Score out of 100', 'type'=>'number', 'width'=>12]],
+        'reset' => [['key'=>'reset', 'label'=>'Reset Count', 'type'=>'number', 'width'=>10]],
+        'activity' => [['key'=>'activity', 'label'=>'Activity', 'type'=>'datetime', 'width'=>19]],
     ];
     $columns = [];
     foreach (qz_attempt_export_groups($groups) as $group) {
@@ -64,7 +64,7 @@ function qz_attempt_export_record(array $row): array {
     $status = match (strtolower(trim((string)($row['status'] ?? '')))) {
         'registered' => 'Registered',
         'verified' => 'Verified',
-        'in_progress' => 'In Progress',
+        'in_progress' => 'In progress',
         'submitted' => 'Submitted',
         'expired' => 'Expired',
         default => (string)($row['status'] ?? ''),
@@ -105,21 +105,21 @@ function qz_attempt_xlsx_support(): array {
         return [
             'available' => false,
             'autoload' => $autoload,
-            'message' => 'Dependency PhpSpreadsheet belum tersedia dalam paket plugin.',
+            'message' => 'The PhpSpreadsheet dependency is not included in the plugin package.',
         ];
     }
     if (PHP_INT_SIZE !== 8) {
         return [
             'available' => false,
             'autoload' => $autoload,
-            'message' => 'Export Excel membutuhkan PHP 64-bit.',
+            'message' => 'Excel export requires 64-bit PHP.',
         ];
     }
     if ($missingExtensions !== []) {
         return [
             'available' => false,
             'autoload' => $autoload,
-            'message' => 'Ekstensi PHP belum tersedia: ' . implode(', ', $missingExtensions) . '.',
+            'message' => 'Required PHP extensions are unavailable: ' . implode(', ', $missingExtensions) . '.',
         ];
     }
 

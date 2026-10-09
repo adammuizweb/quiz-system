@@ -19,7 +19,7 @@ $alias = trim((string)($_GET['a'] ?? $_GET['attempt_alias'] ?? $_GET['attempt'] 
 $attempt_id = (int)($_GET['attempt_id'] ?? 0);
 
 if ($alias === '' && $attempt_id <= 0) {
-  echo '<div class="adam-alert error">Missing attempt alias or attempt_id</div>';
+  echo '<div class="adam-alert error">Attempt alias or ID is required.</div>';
   return;
 }
 
@@ -191,12 +191,20 @@ $formatAttemptResponse = static function (int $questionId, string $type, mixed $
   return trim((string)$answerText) !== '' ? (string)$answerText : '—';
 };
 
+$formatQuestionType = static fn(string $type): string => match ($type) {
+  'single_choice' => 'Single choice',
+  'multiple_choice' => 'Multiple choice',
+  'yesno' => 'Yes/No',
+  'essay' => 'Essay',
+  default => ucfirst(str_replace('_', ' ', $type)),
+};
+
 function status_badge($st){
   $st = (string)$st;
   $map = [
     'registered'  => 'Registered',
     'verified'    => 'Verified',
-    'in_progress' => 'In Progress',
+    'in_progress' => 'In progress',
     'submitted'   => 'Submitted',
     'expired'     => 'Expired',
   ];
@@ -225,9 +233,9 @@ $hasMeaningfulOtp = $user['can_view_attempt_otp']
   && preg_match('/^\d{6}$/', $otp_now) === 1;
 
 $dispPhone62 = phone_to_62($dispPhone);
-$waName = $dispName !== '' ? $dispName : 'Peserta';
+$waName = $dispName !== '' ? $dispName : 'Student';
 
-$waMsg = "Hello {$waName}, This is your quiz verification OTP: {$otp_now}. \n"
+$waMsg = "Hello {$waName}, your quiz verification OTP is {$otp_now}. \n"
        . "Please enter this OTP on the verification page. (Ref: {$attemptLabel})";
 
 $waSendUrl = '';
@@ -242,12 +250,24 @@ $adminAttemptUrl = $base . '/?page=' . $pluginPage
 // Status flags
 $emailSentAt = $A['otp_email_sent_at'] ?? null;
 $waSentAt    = $A['otp_wa_sent_at'] ?? null;
+$showAttemptOperations = $user['can_operate_attempts'] || $user['can_delete_attempts'] || $hasMeaningfulOtp;
 ?>
 
 
-<section class="adam-card">
-  <h2>Attempt Detail</h2>
-  <?php qz_admin_breadcrumb([['label'=>'Attempt','url'=>$base.'/?page=admin/quiz/attempts'],['label'=>$attemptLabel]]); ?>
+<section class="adam-card qz-card qz-shell qz-attempt-detail-page">
+  <?php qz_admin_breadcrumb([['label'=>'Attempts','url'=>$base.'/?page=admin/quiz/attempts'],['label'=>$attemptLabel]]); ?>
+
+  <header class="qz-head qz-page-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-kicker qz-eyebrow">Attempt details</div>
+      <h1 class="qz-page-title"><?= h($dispName) ?></h1>
+      <p class="qz-meta qz-page-description"><?= h($A['quiz_title']) ?>. Review the identity, progress, timeline, Answers, and administrative actions for this Attempt.</p>
+    </div>
+    <div class="qz-toolbar qz-page-actions">
+      <?= status_badge((string)$A['status']) ?>
+      <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/attempts">Back to list</a>
+    </div>
+  </header>
 
   <?php if ($messages): ?>
     <div class="adam-alert success">
@@ -260,312 +280,214 @@ $waSentAt    = $A['otp_wa_sent_at'] ?? null;
     </div>
   <?php endif; ?>
 
-  <div class="grid">
-    <div class="panel <?= ($user['can_operate_attempts'] || $user['can_delete_attempts'] || $hasMeaningfulOtp) ? 'col-8' : 'col-12' ?>">
-      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
-        <div>
-          <div style="font-size:1.1rem;font-weight:800">
-            <?= h($dispName) ?>
-            <?php if ($identityLocked): ?>
-              <span class="badge badge--expired">Locked</span>
-            <?php endif; ?>
+  <div class="qz-stats qz-metric-grid" aria-label="Attempt summary">
+    <div class="qz-stat qz-metric"><span>Answers provided</span><strong><?= (int)$answered ?>/<?= (int)$totalQ ?></strong></div>
+    <div class="qz-stat qz-metric"><span>Total score</span><strong><?= (int)$totalScore ?></strong></div>
+    <div class="qz-stat qz-metric"><span>Reset count</span><strong><?= (int)$A['reset_count'] ?></strong></div>
+    <div class="qz-stat qz-metric"><span>Mode</span><strong><?= $deliveryMode !== '' ? h(ucfirst($deliveryMode)) : '-' ?></strong></div>
+  </div>
+
+  <div class="grid qz-detail-layout<?= $showAttemptOperations ? '' : ' qz-detail-layout--single' ?>">
+    <main class="panel qz-section">
+      <section class="qz-section" aria-labelledby="attempt-identity-title">
+        <div class="qz-editor-section__head qz-section__head">
+          <div><h2 id="attempt-identity-title">Attempt identity</h2><p>Contact details are a snapshot from when the Attempt was created.</p></div>
+          <?php if ($identityLocked): ?><span class="badge badge--expired">Identity locked</span><?php endif; ?>
+        </div>
+        <dl class="qz-detail-grid qz-section__body">
+          <div><dt>Student name</dt><dd><?= h($dispName !== '' ? $dispName : '-') ?></dd></div>
+          <div><dt>Email</dt><dd><?= h($dispEmail !== '' ? $dispEmail : '-') ?></dd></div>
+          <div><dt>Phone number</dt><dd><?= h($dispPhone !== '' ? $dispPhone : '-') ?></dd></div>
+          <div><dt>Test number</dt><dd><code><?= h($nomorTest !== '' ? $nomorTest : '-') ?></code></dd></div>
+          <div><dt>Alias</dt><dd><code><?= h($alias !== '' ? $alias : '-') ?></code></dd></div>
+          <div><dt>Attempt ID</dt><dd>#<?= (int)$attempt_id ?></dd></div>
+          <div><dt>Verification</dt><dd><?= $A['email_verified_at'] ? h((string)($A['verified_via'] ?: 'email')) : 'Not Verified' ?></dd></div>
+          <div><dt>Quiz</dt><dd><?= h($A['quiz_title']) ?></dd></div>
+        </dl>
+
+        <?php if ($studentName !== '' || $studentEmail !== '' || $studentPhone !== ''): ?>
+          <div class="helpbox qz-detail-note">
+            <div class="title">Current Student profile</div>
+            <div class="muted"><?= h($studentName ?: '-') ?> / <?= h($studentEmail ?: '-') ?><?= $studentPhone ? ' / '.h($studentPhone) : '' ?></div>
+            <div class="muted">The Student profile may change, but the Attempt identity snapshot is retained.</div>
           </div>
-
-          <div class="muted">
-            <?= h($dispEmail !== '' ? $dispEmail : '—') ?>
-            <?= $dispPhone !== '' ? ' • '.h($dispPhone) : '' ?>
-          </div>
-          
-          <div class="muted">
-            <strong>Nomor Test:</strong> <?= h($nomorTest !== '' ? $nomorTest : '—') ?>
-        </div>
-
-          <div style="margin-top:.35rem;font-weight:700"><?= h($A['quiz_title']) ?></div>
-          <div class="muted"><strong>Alias:</strong> <?= h($alias !== '' ? $alias : '—') ?></div>
-
-          <?php if ($studentName !== '' || $studentEmail !== '' || $studentPhone !== ''): ?>
-            <div class="helpbox" style="margin-top:10px">
-              <div class="title">Student Profile (Current)</div>
-              <div class="muted">
-                <?= h($studentName ?: '—') ?> • <?= h($studentEmail ?: '—') ?><?= $studentPhone ? ' • '.h($studentPhone) : '' ?>
-              </div>
-              <div class="muted">
-                Catatan: Attempt pakai snapshot (contact_*). Student bisa berubah, tapi attempt tetap.
-              </div>
-            </div>
-          <?php endif; ?>
-        </div>
-
-        <div style="text-align:right">
-          <?= status_badge((string)$A['status']) ?>
-          <div class="muted">Attempt ID #<?= (int)$attempt_id ?></div>
-        </div>
-      </div>
-
-      <div class="kpi">
-        <span class="pill"><strong><?= (int)$answered ?></strong>/<?= (int)$totalQ ?> dijawab</span>
-        <span class="pill pill-score"><strong>Nilai:</strong> <?= (int)$totalScore ?></span>
-        <span class="pill"><strong>Verified:</strong> <?= $A['email_verified_at'] ? h(($A['verified_via'] ?: 'email')) : '—' ?></span>
-        <span class="pill"><strong>Reset:</strong> <?= (int)$A['reset_count'] ?>x</span>
-        <span class="pill"><strong>Mode:</strong> <?= $deliveryMode !== '' ? h(ucfirst($deliveryMode)) : 'Belum diisi' ?></span>
-        <?php if ($hasMeaningfulOtp): ?>
-          <span class="pill"><strong>Email OTP:</strong> <?= $emailSentAt ? 'sent' : '—' ?></span>
-          <span class="pill"><strong>WA Request:</strong> <?= $waSentAt ? 'yes' : '—' ?></span>
         <?php endif; ?>
-      </div>
+      </section>
 
-      <div class="helpbox">
-        <div class="title">Waktu Attempt</div>
-        <div class="muted">Dibuat: <?= h((string)($A['created_at'] ?? '—')) ?></div>
-        <div class="muted">Mulai: <?= h((string)($A['started_at'] ?: '—')) ?></div>
-        <div class="muted">Submit: <?= h((string)($A['submitted_at'] ?: '—')) ?></div>
-        <div class="muted">Durasi terpakai: <?= $A['elapsed_seconds'] === null ? '—' : h(sprintf('%d:%02d:%02d', intdiv((int)$A['elapsed_seconds'], 3600), intdiv((int)$A['elapsed_seconds'] % 3600, 60), (int)$A['elapsed_seconds'] % 60)) ?></div>
-        <div class="muted">Aktivitas terakhir: <?= h((string)($A['last_activity_at'] ?: '—')) ?></div>
-      </div>
+      <section class="qz-section" aria-labelledby="attempt-timeline-title">
+        <div class="qz-editor-section__head qz-section__head">
+          <div><h2 id="attempt-timeline-title">Attempt timeline</h2><p>Key times for reviewing the Student's progress and activity.</p></div>
+        </div>
+        <ol class="qz-attempt-timeline qz-section__body">
+          <li><strong>Created</strong><span><?= h((string)($A['created_at'] ?? '-')) ?></span></li>
+          <li><strong>Started</strong><span><?= h((string)($A['started_at'] ?: '-')) ?></span></li>
+          <li><strong>Last activity</strong><span><?= h((string)($A['last_activity_at'] ?: '-')) ?></span></li>
+          <li><strong>Submitted</strong><span><?= h((string)($A['submitted_at'] ?: '-')) ?></span></li>
+          <li><strong>Elapsed time</strong><span><?= $A['elapsed_seconds'] === null ? '-' : h(sprintf('%d:%02d:%02d', intdiv((int)$A['elapsed_seconds'], 3600), intdiv((int)$A['elapsed_seconds'] % 3600, 60), (int)$A['elapsed_seconds'] % 60)) ?></span></li>
+        </ol>
+      </section>
 
-      <div class="helpbox">
-        <div class="title">Link yang dikirim siswa ke Admin (anti-ID, pakai alias)</div>
-        <div class="muted">Admin buka link ini (butuh login dashboard), lalu bantu kirim OTP via WhatsApp.</div>
-        <div style="margin-top:8px">
+      <section class="helpbox qz-section" aria-labelledby="attempt-link-title">
+        <div class="qz-section__head">
+          <div><div class="title" id="attempt-link-title">Admin support link</div><div class="muted">This alias-based link requires a dashboard login and can be used to assist with OTP verification.</div></div>
+        </div>
+        <div class="qz-field qz-section__body">
+          <label for="attemptLink">Attempt details link</label>
           <input id="attemptLink" type="text" value="<?= h($adminAttemptUrl) ?>" readonly>
         </div>
-        <div class="row">
-          <button class="smallbtn" type="button" id="btnCopyLink">Copy Link</button>
-        </div>
-      </div>
+        <div class="row qz-form-actions"><button class="smallbtn" type="button" id="btnCopyLink" data-qz-copy-target="attemptLink" data-qz-copy-label="Link copied">Copy link</button></div>
+      </section>
 
       <?php if ($user['can_view_attempt_responses']): ?>
-      <hr class="sep">
-      <div class="table-scroll">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>No</th>
-            <th>Soal & Jawaban (Read-only)</th>
-            <th>Skor</th>
-          </tr>
-        </thead>
-        <tbody>
-        <?php if (!$items): ?>
-          <tr><td colspan="3" style="padding:1rem">Belum ada paket soal untuk attempt ini.</td></tr>
-        <?php else: foreach ($items as $it): ?>
-          <?php
-            $ans = $formatAttemptResponse((int)$it['question_id'], (string)$it['question_type'],
-              $it['selected_answer_id'], $it['answer_text'], $it['selected_answer_text']);
-          ?>
-          <tr>
-            <td><?= (int)$it['seq'] ?></td>
-            <td>
-              <div style="font-weight:800;line-height:1.45"><?= nl2br(h($it['question_text'])) ?></div>
-              <div class="muted"><strong>Jawab:</strong> <?= nl2br(h($ans)) ?></div>
-              <div class="muted">Type: <?= h($it['question_type']) ?></div>
-              <?php if ((int)($it['revision_count'] ?? 0) > 0): ?>
-                <details class="muted" style="margin-top:6px">
-                  <summary><?= (int)$it['revision_count'] ?> revision(s)</summary>
-                  <?php foreach ($revisionsByAnswer[(int)($it['attempt_answer_id'] ?? 0)] ?? [] as $revision): ?>
-                    <?php $revisionAnswer = $formatAttemptResponse((int)$revision['question_id'], (string)$it['question_type'],
-                      $revision['selected_answer_id'], $revision['answer_text'], $revision['selected_answer_text']); ?>
-                    <div style="margin-top:4px">#<?= (int)$revision['revision_number'] ?> · <?= h((string)$revision['created_at']) ?> · <?= nl2br(h((string)$revisionAnswer)) ?> · skor <?= (int)$revision['computed_score'] ?></div>
-                  <?php endforeach; ?>
-                </details>
-              <?php endif; ?>
-            </td>
-            <td style="font-weight:900"><?= (int)$it['computed_score'] ?></td>
-          </tr>
-        <?php endforeach; endif; ?>
-        </tbody>
-      </table>
-      </div>
+      <section class="qz-section" aria-labelledby="attempt-responses-title">
+        <div class="qz-editor-section__head qz-section__head">
+          <div><h2 id="attempt-responses-title">Student Answers</h2><p>Answers are read-only. Revision history is available if the Student changed an Answer.</p></div>
+        </div>
+        <div class="table-scroll qz-section__body" role="region" aria-label="Student Answers" tabindex="0">
+          <table class="table qz-data-table qz-response-table">
+            <thead><tr><th>No.</th><th>Question and Answer</th><th>Score</th></tr></thead>
+            <tbody>
+            <?php if (!$items): ?>
+              <tr><td colspan="3" class="qz-empty-cell"><div class="qz-empty-state"><strong>No Question set</strong><div>A Question set has not been generated for this Attempt.</div></div></td></tr>
+            <?php else: foreach ($items as $it): ?>
+              <?php
+                $ans = $formatAttemptResponse((int)$it['question_id'], (string)$it['question_type'],
+                  $it['selected_answer_id'], $it['answer_text'], $it['selected_answer_text']);
+              ?>
+              <tr>
+                <td data-label="No."><?= (int)$it['seq'] ?></td>
+                <td data-label="Question and Answer">
+                  <div class="qz-response-question"><strong><?= nl2br(h($it['question_text'])) ?></strong></div>
+                  <div class="qz-response-answer"><strong>Answer:</strong> <?= nl2br(h($ans)) ?></div>
+                  <div class="muted">Type: <?= h($formatQuestionType((string)$it['question_type'])) ?></div>
+                  <?php if ((int)($it['revision_count'] ?? 0) > 0): ?>
+                    <details class="muted qz-response-revisions">
+                      <summary><?= (int)$it['revision_count'] ?> revisions</summary>
+                      <?php foreach ($revisionsByAnswer[(int)($it['attempt_answer_id'] ?? 0)] ?? [] as $revision): ?>
+                        <?php $revisionAnswer = $formatAttemptResponse((int)$revision['question_id'], (string)$it['question_type'],
+                          $revision['selected_answer_id'], $revision['answer_text'], $revision['selected_answer_text']); ?>
+                        <div class="qz-response-revision">#<?= (int)$revision['revision_number'] ?> / <?= h((string)$revision['created_at']) ?> / <?= nl2br(h((string)$revisionAnswer)) ?> / score <?= (int)$revision['computed_score'] ?></div>
+                      <?php endforeach; ?>
+                    </details>
+                  <?php endif; ?>
+                </td>
+                <td data-label="Score"><strong><?= (int)$it['computed_score'] ?></strong></td>
+              </tr>
+            <?php endforeach; endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </section>
       <?php endif; ?>
-    </div>
+    </main>
 
-    <?php if ($user['can_operate_attempts'] || $user['can_delete_attempts'] || $hasMeaningfulOtp): ?>
-    <div class="panel col-4">
-      <h3 style="margin-top:0">Aksi Admin</h3>
-      <p class="muted">Aksi yang tersedia mengikuti kapabilitas akun Anda.</p>
+    <?php if ($showAttemptOperations): ?>
+    <aside class="panel qz-section qz-attempt-operations" aria-labelledby="attempt-actions-title">
+      <div class="qz-editor-section__head qz-section__head">
+        <div><h2 id="attempt-actions-title">Admin actions</h2><p>Available actions depend on your account permissions.</p></div>
+      </div>
 
-      <div class="form-actions" style="flex-direction:column">
+      <div class="qz-form-actions qz-attempt-action-stack">
       <?php if ($user['can_operate_attempts']): ?>
-      <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_update_delivery_mode" class="helpbox">
-        <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
-        <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
-        <div class="title">Mode Pengerjaan</div>
-        <select name="delivery_mode" class="adam-input" style="width:100%;margin-top:8px">
-          <option value="" <?= $deliveryMode===''?'selected':'' ?>>Belum diisi</option>
-          <option value="online" <?= $deliveryMode==='online'?'selected':'' ?>>Online</option>
-          <option value="onsite" <?= $deliveryMode==='onsite'?'selected':'' ?>>Onsite</option>
-        </select>
-        <button class="adam-button" type="submit" style="margin-top:10px">Simpan Mode</button>
-      </form>
+        <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_update_delivery_mode" class="helpbox qz-section">
+          <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+          <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
+          <div class="title">Delivery mode</div>
+          <div class="qz-field">
+            <label for="attempt-delivery-mode">Select mode</label>
+            <select id="attempt-delivery-mode" name="delivery_mode" class="adam-input">
+              <option value="" <?= $deliveryMode===''?'selected':'' ?>>Not set</option>
+              <option value="online" <?= $deliveryMode==='online'?'selected':'' ?>>Online</option>
+              <option value="onsite" <?= $deliveryMode==='onsite'?'selected':'' ?>>Onsite</option>
+            </select>
+          </div>
+          <button class="adam-button" type="submit">Save mode</button>
+        </form>
       <?php endif; ?>
 
       <?php if ($hasMeaningfulOtp): ?>
-      <div class="helpbox">
-        <div class="title">Kirim OTP via WhatsApp ke Peserta (snapshot attempt)</div>
-        <div class="muted">Klik tombol di bawah untuk buka WA dengan pesan siap kirim.</div>
+        <section class="helpbox qz-section" aria-labelledby="attempt-otp-send-title">
+          <div class="title" id="attempt-otp-send-title">Send OTP via WhatsApp</div>
+          <p class="muted">The message uses the name and phone number from the Attempt snapshot.</p>
+          <div class="row qz-form-actions">
+            <?php if ($waSendUrl): ?>
+              <a class="smallbtn" href="<?= h($waSendUrl) ?>" target="_blank" rel="noopener">Open WhatsApp</a>
+              <span class="muted">Recipient: <strong><?= h($dispPhone) ?></strong></span>
+            <?php else: ?>
+              <button class="smallbtn" type="button" disabled>Phone number unavailable</button>
+              <span class="muted">Check the phone number in the snapshot or Student profile.</span>
+            <?php endif; ?>
+          </div>
+        </section>
 
-        <div class="row" style="margin-top:10px">
-          <?php if ($waSendUrl): ?>
-            <a class="smallbtn" href="<?= h($waSendUrl) ?>" target="_blank" rel="noopener">
-              Kirim OTP ke WA
-            </a>
-            <span class="muted">Tujuan: <strong><?= h($dispPhone) ?></strong></span>
-          <?php else: ?>
-            <button class="smallbtn" type="button" disabled>Nomor kosong / invalid</button>
-            <span class="muted">Cek contact_phone / student_phone.</span>
-          <?php endif; ?>
-        </div>
-
-        <div class="muted">
-          OTP ada di DB kolom <code>quiz_attempts.email_verification_code</code>.
-          OTP tidak berubah kecuali <strong>reset</strong> / <strong>generate OTP baru</strong>.
-        </div>
-      </div>
-
-      <div class="helpbox">
-        <div class="title">OTP Aktif Saat Ini</div>
-        <div class="muted">Ini OTP yang sedang tersimpan di DB untuk attempt ini.</div>
-
-        <div class="row" style="margin-top:10px;align-items:center">
-          <span class="otpbox" id="otpNow"><?= h($otp_now) ?></span>
-          <button class="smallbtn" type="button" id="btnCopyOtp">
-            Copy OTP
-          </button>
-        </div>
-
-        <div class="muted">
-          Email OTP: <strong><?= $emailSentAt ? 'sent' : '—' ?></strong>
-          • WA Request: <strong><?= $waSentAt ? 'yes' : '—' ?></strong>
-        </div>
-
-        <div class="muted">
-          OTP berubah hanya jika <strong>Reset</strong> atau <strong>Generate OTP Baru</strong>.
-        </div>
-      </div>
+        <section class="helpbox qz-section" aria-labelledby="attempt-otp-current-title">
+          <div class="title" id="attempt-otp-current-title">Active OTP</div>
+          <p class="muted">This code changes only after a reset or when a new OTP is generated.</p>
+          <div class="row qz-form-actions">
+            <span class="otpbox" id="otpNow"><?= h($otp_now) ?></span>
+            <button class="smallbtn" type="button" id="btnCopyOtp" data-qz-copy-target="otpNow" data-qz-copy-label="OTP copied">Copy OTP</button>
+          </div>
+          <div class="muted">OTP email: <strong><?= $emailSentAt ? 'sent' : '-' ?></strong> / WhatsApp request: <strong><?= $waSentAt ? 'recorded' : '-' ?></strong></div>
+        </section>
       <?php endif; ?>
 
       <?php if ($user['can_operate_attempts']): ?>
-      <hr class="sep">
+        <section class="qz-section" aria-labelledby="attempt-verification-actions-title">
+          <div class="qz-section__head"><div><h3 id="attempt-verification-actions-title">Verification and access</h3><p class="muted">Use only when a Student needs verification assistance.</p></div></div>
+          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_generate_otp" class="qz-form-actions">
+            <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+            <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
+            <button class="adam-button ghost" type="submit" data-confirm="Generate a new OTP? The Attempt status will return to Registered.">Generate new OTP</button>
+          </form>
 
-      <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_generate_otp" style="margin-bottom:12px">
-        <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
-        <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
-        <button class="adam-button" type="submit" data-confirm="Generate OTP baru? Status akan kembali ke registered.">
-          Generate OTP Baru
-        </button>
-      </form>
+          <?php if ($manualVerificationEligible): ?>
+          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_verify_manual" class="qz-form-grid">
+            <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+            <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
+            <div class="qz-field">
+              <label for="attempt-verified-via">Verification method</label>
+              <select id="attempt-verified-via" name="verified_via" class="adam-input">
+                <option value="manual">Manual</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="email">Email</option>
+              </select>
+            </div>
+            <div class="qz-field">
+              <label for="attempt-verified-note">Note</label>
+              <input class="adam-input" id="attempt-verified-note" type="text" name="verified_note" placeholder="Example: OTP sent via admin WhatsApp">
+            </div>
+            <button class="adam-button" type="submit" data-confirm="Verify manually? The Attempt status will change to Verified.">Verify manually</button>
+          </form>
+          <?php endif; ?>
+        </section>
 
-      <?php if ($manualVerificationEligible): ?>
-      <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_verify_manual" style="margin-bottom:12px">
-        <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
-        <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
-
-        <label style="font-size:.9rem;font-weight:700">Verify via</label><br>
-        <select name="verified_via" class="adam-input" style="width:100%;margin-top:6px">
-          <option value="manual">manual</option>
-          <option value="whatsapp">whatsapp</option>
-          <option value="email">email</option>
-        </select>
-
-        <label style="font-size:.9rem;font-weight:700;margin-top:10px;display:block">Catatan</label>
-        <input class="adam-input" type="text" name="verified_note" placeholder="Contoh: OTP dikirim via WA admin"
-               style="width:100%;margin-top:6px">
-
-        <button class="adam-button" type="submit" style="margin-top:10px"
-          data-confirm="Verifikasi manual? Attempt akan menjadi verified.">
-          Verify Manual
-        </button>
-      </form>
+        <section class="qz-danger-zone" aria-labelledby="attempt-reset-title">
+          <div class="qz-section__head"><div><h3 id="attempt-reset-title">Reset Attempt</h3><p class="muted">Answers and the Question set will be deleted. The Student must start again with a new OTP.</p></div></div>
+          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_reset" class="qz-form-grid">
+            <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+            <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
+            <div class="qz-field">
+              <label for="attempt-reset-reason">Reset reason</label>
+              <input class="adam-input" id="attempt-reset-reason" type="text" name="reset_reason" placeholder="Example: wrong device or email not received" required>
+            </div>
+            <button class="adam-button btn-danger" type="submit" data-confirm="Reset this Attempt? The Answers and Question set will be deleted, and a new OTP will be generated." data-confirm-variant="danger">Reset Attempt</button>
+          </form>
+        </section>
       <?php endif; ?>
 
-  <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_reset" style="flex:1">
-    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
-    <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
-
-    <label style="font-size:.9rem;font-weight:700">Alasan Reset</label>
-    <input class="adam-input" type="text" name="reset_reason" placeholder="Contoh: salah device / email tidak masuk"
-           style="width:100%;margin-top:6px" required>
-
-    <button class="adam-button btn-danger" type="submit" style="margin-top:10px"
-      data-confirm="Reset attempt? Jawaban &amp; paket soal akan dihapus." data-confirm-variant="danger">
-      Reset Attempt
-    </button>
-  </form>
-
-  <?php endif; ?>
-  <?php if ($user['can_delete_attempts']): ?>
-  <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_delete" style="flex:1;margin-bottom:12px">
-    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
-    <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
-    <input type="hidden" name="redirect" value="<?= h($base) ?>/?page=admin/quiz/attempts">
-
-    <button class="adam-button btn-danger" type="submit"
-      data-confirm="Hapus attempt <?= h($attemptLabel) ?> ?\n\nIni akan menghapus: paket soal, jawaban, dan proctor logs (CASCADE).\nTindakan tidak bisa dibatalkan." data-confirm-variant="danger">
-      Delete Attempt
-    </button>
-
-    <div class="muted">
-      Catatan: delete attempt akan menghapus anak tabel via FK CASCADE.
-    </div>
-  </form>
-  <?php endif; ?>
-</div>
-
-      <hr class="sep">
-      <a class="adam-button ghost"
-         href="<?= h($base) ?>/?page=admin/quiz/attempts">← Kembali ke List</a>
-    </div>
+      <?php if ($user['can_delete_attempts']): ?>
+        <section class="qz-danger-zone" aria-labelledby="attempt-delete-title">
+          <div class="qz-section__head"><div><h3 id="attempt-delete-title">Permanently delete</h3><p class="muted">The Question set, Answers, and related monitoring logs will also be deleted. This action cannot be undone.</p></div></div>
+          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_delete" class="qz-form-actions">
+            <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+            <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
+            <input type="hidden" name="redirect" value="<?= h($base) ?>/?page=admin/quiz/attempts">
+            <button class="adam-button btn-danger" type="submit" data-confirm="Delete Attempt <?= h($attemptLabel) ?>?\n\nThe Question set, Answers, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger">Delete Attempt</button>
+          </form>
+        </section>
+      <?php endif; ?>
+      </div>
+    </aside>
     <?php endif; ?>
   </div>
 </section>
-
-<script>
-(function(){
-  function copyFromInput(id, btnId){
-    const inp = document.getElementById(id);
-    const btn = document.getElementById(btnId);
-    if(!inp || !btn) return;
-
-    btn.addEventListener('click', async function(){
-      try{
-        inp.focus();
-        inp.select();
-        inp.setSelectionRange(0, 99999);
-        await navigator.clipboard.writeText(inp.value);
-        const old = btn.textContent;
-        btn.textContent = '✅ Tercopy';
-        setTimeout(()=>btn.textContent=old, 1100);
-      }catch(e){
-        try{ document.execCommand('copy'); }catch(_){}
-        const old = btn.textContent;
-        btn.textContent = '✅ Tercopy';
-        setTimeout(()=>btn.textContent=old, 1100);
-      }
-    });
-  }
-
-  copyFromInput('attemptLink', 'btnCopyLink');
-
-  const btnOtp = document.getElementById('btnCopyOtp');
-  const otpEl = document.getElementById('otpNow');
-  if(btnOtp && otpEl && !btnOtp.disabled){
-    btnOtp.addEventListener('click', async function(){
-      const txt = (otpEl.textContent || '').trim();
-      if(!txt || txt === '______') return;
-      try{
-        await navigator.clipboard.writeText(txt);
-      }catch(e){
-        const ta = document.createElement('textarea');
-        ta.value = txt;
-        document.body.appendChild(ta);
-        ta.select();
-        try{ document.execCommand('copy'); }catch(_){}
-        document.body.removeChild(ta);
-      }
-      const old = btnOtp.textContent;
-      btnOtp.textContent = '✅ Tercopy';
-      setTimeout(()=>btnOtp.textContent=old, 1100);
-    });
-  }
-})();
-</script>

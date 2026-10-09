@@ -22,14 +22,9 @@ if (!function_exists('h')) {
 if (!function_exists('fmt_dt')) {
   function fmt_dt(?string $dt, bool $withDay=false, bool $withTime=true): string {
     if (empty($dt)) return '-';
-    if (function_exists('format_datetime_indo')) {
-      return format_datetime_indo($dt, $withDay, $withTime);
-    }
-    if (function_exists('format_datetime_id')) {
-      $x = format_datetime_id($dt, $withDay, $withTime);
-      return $x !== '' ? $x : '-';
-    }
-    return (string)$dt;
+    $timestamp = strtotime($dt);
+    if ($timestamp === false) return (string)$dt;
+    return date($withTime ? 'M j, Y H:i' : 'M j, Y', $timestamp);
   }
 }
 
@@ -38,7 +33,7 @@ function badge_status($status){
   $map = [
     'registered'  => 'Registered',
     'verified'    => 'Verified',
-    'in_progress' => 'In Progress',
+    'in_progress' => 'In progress',
     'submitted'   => 'Submitted',
     'expired'     => 'Expired',
   ];
@@ -108,6 +103,12 @@ $pageUrl = static function (int $target) use ($base, $pageQuery): string {
 };
 $rangeStart = $totalRows > 0 ? $offset + 1 : 0;
 $rangeEnd = min($offset + $perPage, $totalRows);
+$pageSubmitted = 0;
+$pageInProgress = 0;
+foreach ($rows as $row) {
+  if ((string)($row['status'] ?? '') === 'submitted') $pageSubmitted++;
+  if ((string)($row['status'] ?? '') === 'in_progress') $pageInProgress++;
+}
 
 $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
 $redirectBack = $base . '/?' . ($qs !== '' ? $qs : 'page=admin/quiz/attempts');
@@ -127,11 +128,15 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
 ?>
 
 
-<section class="adam-card qz-attempt-page" data-column-scope>
-  <h2>Attempt Manager</h2>
-  <?php qz_admin_breadcrumb([['label'=>'Attempt']]); ?>
-
-  <p class="muted">Monitoring global attempt quiz. Gunakan filter tanggal, identitas, alias, atau nomor test.</p>
+<section class="adam-card qz-card qz-shell qz-attempt-page" data-column-scope>
+  <?php qz_admin_breadcrumb([['label'=>'Attempts']]); ?>
+  <header class="qz-head qz-page-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-kicker qz-eyebrow">Quiz monitoring</div>
+      <h1 class="qz-page-title">Student Attempts</h1>
+      <p class="qz-meta qz-page-description">Monitor the progress, verification status, score, and activity of each Attempt. Filter results by identity, quiz, status, or date range.</p>
+    </div>
+  </header>
 
   <?php if ($messages): ?>
     <div class="adam-alert success">
@@ -145,14 +150,25 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
     </div>
   <?php endif; ?>
 
-  <form method="get" class="filters">
+  <div class="qz-stats qz-metric-grid" aria-label="Attempt results summary">
+    <div class="qz-stat qz-stat--result qz-metric"><span>Total results</span><strong><?= $totalRows ?></strong></div>
+    <div class="qz-stat qz-metric"><span>On this page</span><strong><?= count($rows) ?></strong></div>
+    <div class="qz-stat qz-metric"><span>Submitted on this page</span><strong><?= $pageSubmitted ?></strong></div>
+    <div class="qz-stat qz-metric"><span>In progress</span><strong><?= $pageInProgress ?></strong></div>
+  </div>
+
+  <section class="qz-section" aria-labelledby="attempt-filter-title">
+  <div class="qz-section__head">
+    <div><h2 id="attempt-filter-title">Filter and sort</h2><p class="muted">Combine filters to find Attempts that need review.</p></div>
+  </div>
+  <form method="get" class="filters qz-command-bar qz-form-grid" role="search" aria-label="Filter Attempts">
     <input type="hidden" name="page" value="admin/quiz/attempts">
     <?php if ($student_id > 0): ?><input type="hidden" name="student_id" value="<?= $student_id ?>"><?php endif; ?>
 
-    <div>
-      <label>Quiz</label><br>
-      <select name="quiz_id" class="adam-input">
-        <option value="">— Semua Quiz —</option>
+    <div class="qz-field">
+      <label for="attempts-quiz">Quiz</label>
+      <select id="attempts-quiz" name="quiz_id" class="adam-input">
+        <option value="">All quizzes</option>
         <?php foreach ($quizzes as $qz): ?>
           <option value="<?= (int)$qz['id'] ?>" <?= $quiz_id===(int)$qz['id']?'selected':'' ?>>
             <?= h($qz['title']) ?>
@@ -161,86 +177,87 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
       </select>
     </div>
 
-    <div>
-      <label>Status</label><br>
-      <select name="status" class="adam-input" style="min-width:160px">
-        <option value="">— Semua —</option>
+    <div class="qz-field">
+      <label for="attempts-status">Status</label>
+      <select id="attempts-status" name="status" class="adam-input">
+        <option value="">All statuses</option>
         <?php foreach (['registered','verified','in_progress','submitted','expired'] as $st): ?>
-          <option value="<?= h($st) ?>" <?= $status===$st?'selected':'' ?>><?= h($st) ?></option>
+          <option value="<?= h($st) ?>" <?= $status===$st?'selected':'' ?>><?= h(['registered'=>'Registered','verified'=>'Verified','in_progress'=>'In progress','submitted'=>'Submitted','expired'=>'Expired'][$st]) ?></option>
         <?php endforeach; ?>
       </select>
     </div>
 
-    <div>
-      <label>Mode</label><br>
-      <select name="delivery_mode" class="adam-input" style="min-width:150px">
-        <option value="">— Semua —</option>
+    <div class="qz-field">
+      <label for="attempts-mode">Delivery mode</label>
+      <select id="attempts-mode" name="delivery_mode" class="adam-input">
+        <option value="">All modes</option>
         <option value="online" <?= $deliveryMode==='online'?'selected':'' ?>>Online</option>
         <option value="onsite" <?= $deliveryMode==='onsite'?'selected':'' ?>>Onsite</option>
-        <option value="unset" <?= $deliveryMode==='unset'?'selected':'' ?>>Belum diisi</option>
+        <option value="unset" <?= $deliveryMode==='unset'?'selected':'' ?>>Not set</option>
       </select>
     </div>
 
-    <div>
-      <label>Cari</label><br>
-      <input class="adam-input" type="text" name="q" value="<?= h($q) ?>" placeholder="Nama / Email / HP / Alias / Nomor Test">
+    <div class="qz-field">
+      <label for="attempts-q">Search identity</label>
+      <input class="adam-input" id="attempts-q" type="search" name="q" value="<?= h($q) ?>" placeholder="Name, email, phone, alias, or Test number">
     </div>
 
-    <div>
-      <label>Filter Tanggal (Field)</label><br>
-      <select name="date_field" class="adam-input" style="min-width:180px">
-        <option value="submitted_at" <?= $date_field==='submitted_at'?'selected':'' ?>>Submitted At</option>
-        <option value="started_at" <?= $date_field==='started_at'?'selected':'' ?>>Started At</option>
-        <option value="created_at" <?= $date_field==='created_at'?'selected':'' ?>>Created At</option>
-        <option value="last_activity_at" <?= $date_field==='last_activity_at'?'selected':'' ?>>Last Activity</option>
+    <div class="qz-field">
+      <label for="attempts-date-field">Date field</label>
+      <select id="attempts-date-field" name="date_field" class="adam-input">
+        <option value="submitted_at" <?= $date_field==='submitted_at'?'selected':'' ?>>Submitted time</option>
+        <option value="started_at" <?= $date_field==='started_at'?'selected':'' ?>>Start time</option>
+        <option value="created_at" <?= $date_field==='created_at'?'selected':'' ?>>Created time</option>
+        <option value="last_activity_at" <?= $date_field==='last_activity_at'?'selected':'' ?>>Last activity</option>
       </select>
     </div>
 
-    <div>
-      <label>Dari</label><br>
-      <input class="adam-input" type="date" name="date_from" value="<?= h($date_from) ?>" style="min-width:160px">
+    <div class="qz-field">
+      <label for="attempts-date-from">From date</label>
+      <input class="adam-input" id="attempts-date-from" type="date" name="date_from" value="<?= h($date_from) ?>">
     </div>
 
-    <div>
-      <label>Sampai</label><br>
-      <input class="adam-input" type="date" name="date_to" value="<?= h($date_to) ?>" style="min-width:160px">
+    <div class="qz-field">
+      <label for="attempts-date-to">To date</label>
+      <input class="adam-input" id="attempts-date-to" type="date" name="date_to" value="<?= h($date_to) ?>">
     </div>
 
-    <div>
-      <label>Urutkan</label><br>
-      <select name="sort" class="adam-input" style="min-width:190px">
-        <option value="newest" <?= $sort==='newest'?'selected':'' ?>>Terbaru</option>
-        <option value="oldest" <?= $sort==='oldest'?'selected':'' ?>>Terlama</option>
-        <option value="score100_desc" <?= $sort==='score100_desc'?'selected':'' ?>>Nilai 100 (Tertinggi)</option>
-        <option value="score100_asc" <?= $sort==='score100_asc'?'selected':'' ?>>Nilai 100 (Terendah)</option>
-        <option value="score_desc" <?= $sort==='score_desc'?'selected':'' ?>>Total Score (Legacy) Tertinggi</option>
-        <option value="score_asc" <?= $sort==='score_asc'?'selected':'' ?>>Total Score (Legacy) Terendah</option>
-        <option value="activity_desc" <?= $sort==='activity_desc'?'selected':'' ?>>Aktivitas Terakhir</option>
+    <div class="qz-field">
+      <label for="attempts-sort">Sort by</label>
+      <select id="attempts-sort" name="sort" class="adam-input">
+        <option value="newest" <?= $sort==='newest'?'selected':'' ?>>Newest</option>
+        <option value="oldest" <?= $sort==='oldest'?'selected':'' ?>>Oldest</option>
+        <option value="score100_desc" <?= $sort==='score100_desc'?'selected':'' ?>>Score out of 100 (highest)</option>
+        <option value="score100_asc" <?= $sort==='score100_asc'?'selected':'' ?>>Score out of 100 (lowest)</option>
+        <option value="score_desc" <?= $sort==='score_desc'?'selected':'' ?>>Legacy score (highest)</option>
+        <option value="score_asc" <?= $sort==='score_asc'?'selected':'' ?>>Legacy score (lowest)</option>
+        <option value="activity_desc" <?= $sort==='activity_desc'?'selected':'' ?>>Last activity</option>
       </select>
     </div>
 
-    <div>
-      <label for="attempts-per">Per halaman</label><br>
-      <select id="attempts-per" name="per" class="adam-input" style="min-width:120px">
+    <div class="qz-field">
+      <label for="attempts-per">Rows per page</label>
+      <select id="attempts-per" name="per" class="adam-input">
         <?php foreach ($perPageOptions as $option): ?>
           <option value="<?= $option ?>" <?= $perPage === $option ? 'selected' : '' ?>><?= $option ?></option>
         <?php endforeach; ?>
       </select>
     </div>
 
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="adam-button" type="submit">Filter</button>
+    <div class="qz-filterbar__actions qz-form-actions">
+      <button class="adam-button" type="submit">Apply filters</button>
 
       <a class="adam-button ghost"
-         href="<?= h($base) ?>/?page=admin/quiz/attempts">Reset</a>
+         href="<?= h($base) ?>/?page=admin/quiz/attempts">Clear filters</a>
 
-      <a class="btn-soft" href="<?= h($todayUrl('started_at')) ?>">Mulai hari ini</a>
-      <a class="btn-soft" href="<?= h($todayUrl('submitted_at', 'submitted')) ?>">Submit hari ini</a>
+      <a class="btn-soft" href="<?= h($todayUrl('started_at')) ?>">Started today</a>
+      <a class="btn-soft" href="<?= h($todayUrl('submitted_at', 'submitted')) ?>">Submitted today</a>
     </div>
   </form>
+  </section>
 
   <?php if ($user['can_export_attempts']): ?>
-    <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/export" data-attempt-export-form style="margin:0 0 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/export" class="qz-command-bar qz-form-actions" data-attempt-export-form aria-label="Export Attempt results">
       <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
       <input type="hidden" name="action" value="export">
       <?php foreach (['student','quiz','status','mode','verification','progress','score100','activity'] as $column): ?>
@@ -251,39 +268,40 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
       <?php endforeach; ?>
       <button class="adam-button" type="submit" name="format" value="xlsx" <?= $xlsxSupport['available'] ? '' : 'disabled' ?>>Export Excel</button>
       <button class="adam-button ghost" type="submit" name="format" value="csv">Export CSV</button>
-      <span class="muted">Semua hasil sesuai filter dan kolom aktif.</span>
+      <span class="muted">The export uses the active filters and table columns.</span>
       <?php if (!$xlsxSupport['available']): ?>
-        <span class="muted" title="<?= h($xlsxSupport['message']) ?>">Excel tidak tersedia di hosting ini; gunakan CSV.</span>
+        <span class="muted" title="<?= h($xlsxSupport['message']) ?>">Excel is not available on this server. Use CSV instead.</span>
       <?php endif; ?>
     </form>
   <?php endif; ?>
 
-  <div class="qz-resultbar">
-    <span>Menampilkan <b><?= $rangeStart ?></b>-<b><?= $rangeEnd ?></b> dari <b><?= $totalRows ?></b> attempt</span>
-    <div class="qz-view-controls"><details class="qz-column-picker" data-attempt-column-picker data-storage-key="quiz-attempt-columns-v1"><summary>Kolom</summary><div class="qz-column-picker__panel"><div class="qz-column-picker__title">Kolom tabel &amp; export</div><label><input type="checkbox" data-attempt-column="rank"> No.</label><label><input type="checkbox" checked disabled> Siswa <small>Wajib</small></label><label><input type="checkbox" data-attempt-column="quiz" checked> Quiz</label><label><input type="checkbox" checked disabled> Status <small>Wajib</small></label><label><input type="checkbox" data-attempt-column="mode" checked> Mode</label><label><input type="checkbox" data-attempt-column="verification" checked> Verifikasi</label><label><input type="checkbox" data-attempt-column="progress" checked> Progress</label><label><input type="checkbox" data-attempt-column="legacy_score"> Nilai Legacy</label><label><input type="checkbox" data-attempt-column="score100" checked> Nilai 100</label><label><input type="checkbox" data-attempt-column="reset"> Reset</label><label><input type="checkbox" data-attempt-column="activity" checked> Aktivitas</label><label><input type="checkbox" checked disabled> Aksi <small>Wajib</small></label></div></details></div>
+  <section class="qz-section" aria-labelledby="attempt-results-title">
+  <div class="qz-resultbar qz-section__head">
+    <span id="attempt-results-title">Showing <b><?= $rangeStart ?></b>-<b><?= $rangeEnd ?></b> of <b><?= $totalRows ?></b> Attempts</span>
+    <div class="qz-view-controls"><details class="qz-column-picker" data-attempt-column-picker data-storage-key="quiz-attempt-columns-v1"><summary>Configure columns</summary><div class="qz-column-picker__panel"><div class="qz-column-picker__title">Table and export columns</div><label><input type="checkbox" data-attempt-column="rank"> No.</label><label><input type="checkbox" checked disabled> Student <small>Required</small></label><label><input type="checkbox" data-attempt-column="quiz" checked> Quiz</label><label><input type="checkbox" checked disabled> Status <small>Required</small></label><label><input type="checkbox" data-attempt-column="mode" checked> Mode</label><label><input type="checkbox" data-attempt-column="verification" checked> Verification</label><label><input type="checkbox" data-attempt-column="progress" checked> Progress</label><label><input type="checkbox" data-attempt-column="legacy_score"> Legacy score</label><label><input type="checkbox" data-attempt-column="score100" checked> Score out of 100</label><label><input type="checkbox" data-attempt-column="reset"> Reset</label><label><input type="checkbox" data-attempt-column="activity" checked> Activity</label><label><input type="checkbox" checked disabled> Actions <small>Required</small></label></div></details></div>
   </div>
 
-  <div class="table-scroll" role="region" aria-label="Tabel attempt" tabindex="0">
-    <table class="table qz-attempt-table" data-attempt-column-table>
+  <div class="table-scroll qz-section__body" role="region" aria-label="Attempts table" tabindex="0">
+    <table class="table qz-data-table qz-attempt-table" data-attempt-column-table>
       <thead>
         <tr>
           <th data-column="rank" hidden>No.</th>
-          <th>Siswa</th>
+          <th>Student</th>
           <th data-column="quiz">Quiz</th>
           <th>Status</th>
-          <th data-column="mode" title="Mode pelaksanaan dipilih sendiri oleh peserta.">Mode</th>
-          <th data-column="verification" title="Metode yang tercatat setelah attempt diverifikasi. Bukan bukti bahwa OTP telah dikirim atau diterima.">Verifikasi</th>
+          <th data-column="mode" title="The participant selects the delivery mode.">Mode</th>
+          <th data-column="verification" title="The method recorded after the Attempt is Verified. This does not prove that an OTP was sent or received.">Verification</th>
           <th data-column="progress">Progress</th>
-          <th data-column="legacy_score" hidden>Nilai Legacy</th>
-          <th data-column="score100">Nilai 100</th>
+          <th data-column="legacy_score" hidden>Legacy score</th>
+          <th data-column="score100">Score out of 100</th>
           <th data-column="reset" hidden>Reset</th>
-          <th data-column="activity">Aktivitas</th>
-          <th width="160">Aksi</th>
+          <th data-column="activity">Activity</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
       <?php if (!$rows): ?>
-        <tr><td colspan="12" style="padding:1rem">Belum ada attempt.</td></tr>
+        <tr><td colspan="12" class="qz-empty-cell"><div class="qz-empty-state"><strong>No Attempts found</strong><div>No data matches the current filters.</div><a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/attempts">Clear filters</a></div></td></tr>
       <?php else: ?>
         <?php $rank = $offset; foreach ($rows as $r): ?>
           <?php
@@ -302,9 +320,9 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
             $alias    = (string)($r['attempt_alias'] ?? '');
           ?>
           <tr>
-            <td class="muted" style="font-weight:800" data-column="rank" hidden><?= (int)$rank ?></td>
+            <td class="muted" data-label="No." data-column="rank" hidden><strong><?= (int)$rank ?></strong></td>
 
-            <td class="qz-attempt-student-cell">
+            <td class="qz-attempt-student-cell" data-label="Student">
               <div class="qz-attempt-student__head">
                 <strong class="qz-attempt-student__name">
                 <?= h($r['display_name']) ?>
@@ -315,67 +333,67 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
               </div>
               <div class="qz-attempt-student__contact">
                 <?php if ((string)($r['display_email'] ?? '') !== ''): ?><span><small>Email</small><?= h((string)$r['display_email']) ?></span><?php endif; ?>
-                <?php if ((string)($r['display_phone'] ?? '') !== ''): ?><span><small>HP</small><?= h((string)$r['display_phone']) ?></span><?php endif; ?>
+                <?php if ((string)($r['display_phone'] ?? '') !== ''): ?><span><small>Phone</small><?= h((string)$r['display_phone']) ?></span><?php endif; ?>
               </div>
               <div class="qz-attempt-student__ids">
-                <span><small>Nomor Test</small><code><?= h((string)($r['nomor_test'] ?: '—')) ?></code></span>
-                <span><small>Alias</small><code><?= h((string)($r['attempt_alias'] ?: '—')) ?></code></span>
+                <span><small>Test number</small><code><?= h((string)($r['nomor_test'] ?: '-')) ?></code></span>
+                <span><small>Alias</small><code><?= h((string)($r['attempt_alias'] ?: '-')) ?></code></span>
               </div>
             </td>
 
-            <td data-column="quiz">
-              <div style="font-weight:700"><?= h($r['quiz_title']) ?></div>
-              <div class="muted"><?= $r['submitted_at'] ? 'Sudah test ✅' : 'Belum submit' ?></div>
+            <td data-label="Quiz" data-column="quiz">
+              <strong><?= h($r['quiz_title']) ?></strong>
+              <div class="muted"><?= $r['submitted_at'] ? 'Submitted' : 'Not submitted' ?></div>
             </td>
 
-            <td><?= badge_status($r['status']) ?></td>
+            <td data-label="Status"><?= badge_status($r['status']) ?></td>
 
-            <td data-column="mode">
+            <td data-label="Mode" data-column="mode">
               <?php if (in_array((string)($r['delivery_mode'] ?? ''), ['online', 'onsite'], true)): ?>
                 <span class="badge mini badge--verified"><?= h(ucfirst((string)$r['delivery_mode'])) ?></span>
               <?php else: ?>
-                <span class="muted">Belum diisi</span>
+                <span class="muted">Not set</span>
               <?php endif; ?>
             </td>
 
-            <td data-column="verification">
+            <td data-label="Verification" data-column="verification">
               <?php if ($verified !== '—'): ?>
                 <span class="badge mini badge--verified"><?= h($verified) ?></span>
               <?php else: ?>
-                <span class="muted">—</span>
+                <span class="muted">-</span>
               <?php endif; ?>
             </td>
 
-            <td data-column="progress">
+            <td data-label="Progress" data-column="progress">
               <div class="kpi">
-                <span class="pill"><?= (int)$ansC ?>/<?= (int)$totalQ ?> dijawab</span>
-                <span class="pill" title="Jumlah benar (computed_score > 0)"><?= (int)$correct ?>/<?= (int)$totalQ ?> benar</span>
+                <span class="pill"><?= (int)$ansC ?>/<?= (int)$totalQ ?> answered</span>
+                <span class="pill" title="Correct Answers (computed_score > 0)"><?= (int)$correct ?>/<?= (int)$totalQ ?> correct</span>
               </div>
             </td>
 
-            <td data-column="legacy_score" hidden>
+            <td data-label="Legacy score" data-column="legacy_score" hidden>
               <span class="pill-score" title="Total score (legacy)">
                 <?= (abs($score - round($score)) < 0.000001) ? (int)round($score) : rtrim(rtrim(number_format($score,2,'.',''),'0'),'.') ?>
               </span>
             </td>
 
-            <td data-column="score100">
-              <span class="pill-100" title="(Jumlah benar / total soal) x 100">
+            <td data-label="Score out of 100" data-column="score100">
+              <span class="pill-100" title="(Correct Answers / total Questions) x 100">
                 <?= h(fmt_score100($nilai100)) ?>
               </span>
             </td>
 
-            <td data-column="reset" hidden><?= (int)($r['reset_count'] ?? 0) ?></td>
+            <td data-label="Reset" data-column="reset" hidden><?= (int)($r['reset_count'] ?? 0) ?></td>
 
-            <td class="muted" data-column="activity"><?= h($lastFmt) ?></td>
+            <td class="muted" data-label="Activity" data-column="activity"><?= h($lastFmt) ?></td>
 
-            <td class="qz-row-actions qz-attempt-actions">
+            <td class="qz-row-actions qz-attempt-actions" data-label="Actions">
               <div class="qz-attempt-actions__inner">
-                <a class="adam-button ghost qz-attempt-detail" href="<?= h($base) ?>/?page=admin/quiz/attempts/view&amp;<?= $alias !== '' ? 'a=' . rawurlencode($alias) : 'attempt_id=' . (int)$r['attempt_id'] ?>">Detail</a>
+                <a class="adam-button ghost qz-attempt-detail" href="<?= h($base) ?>/?page=admin/quiz/attempts/view&amp;<?= $alias !== '' ? 'a=' . rawurlencode($alias) : 'attempt_id=' . (int)$r['attempt_id'] ?>">Details</a>
 
                 <?php if ($user['can_delete_attempts']): ?>
                 <div class="qz-action-menu qz-action-menu--compact">
-                  <button type="button" class="qz-action-menu__toggle" id="attempt-actions-toggle-<?= (int)$r['attempt_id'] ?>" aria-expanded="false" aria-controls="attempt-actions-<?= (int)$r['attempt_id'] ?>" aria-label="Aksi lainnya untuk <?= h((string)$r['display_name']) ?>">
+                  <button type="button" class="qz-action-menu__toggle" id="attempt-actions-toggle-<?= (int)$r['attempt_id'] ?>" aria-expanded="false" aria-controls="attempt-actions-<?= (int)$r['attempt_id'] ?>" aria-label="More actions for <?= h((string)$r['display_name']) ?>">
                     <span class="qz-action-menu__dots" aria-hidden="true">&#8942;</span>
                   </button>
                   <div class="qz-action-menu__panel" id="attempt-actions-<?= (int)$r['attempt_id'] ?>" role="group" aria-labelledby="attempt-actions-toggle-<?= (int)$r['attempt_id'] ?>" hidden>
@@ -384,7 +402,7 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
                       <input type="hidden" name="attempt_id" value="<?= (int)$r['attempt_id'] ?>">
                       <input type="hidden" name="redirect" value="<?= h($redirectBack) ?>">
                       <button type="submit" class="qz-action-menu__item qz-action-menu__item--danger"
-                        data-confirm="Hapus attempt <?= h($alias !== '' ? $alias : '#' . (int)$r['attempt_id']) ?> ?\n\nIni akan menghapus: paket soal, jawaban, dan proctor logs (CASCADE).\nTindakan tidak bisa dibatalkan." data-confirm-variant="danger">Hapus attempt</button>
+                         data-confirm="Delete Attempt <?= h($alias !== '' ? $alias : '#' . (int)$r['attempt_id']) ?>?\n\nThe Question set, Answers, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger">Delete Attempt</button>
                     </form>
                   </div>
                 </div>
@@ -398,10 +416,11 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
     </table>
   </div>
 
-  <?php if($totalPages>1):?><nav class="qz-pagination" aria-label="Navigasi halaman attempt"><?php if($pageNum>1):?><a href="<?=h($pageUrl($pageNum-1))?>">Sebelumnya</a><?php else:?><span class="disabled">Sebelumnya</span><?php endif;?><div class="qz-pagination__pages"><?php for($number=max(1,$pageNum-2);$number<=min($totalPages,$pageNum+2);$number++):?><a href="<?=h($pageUrl($number))?>" <?=$number===$pageNum?'aria-current="page"':''?>><?=$number?></a><?php endfor;?></div><span>Halaman <?=$pageNum?> / <?=$totalPages?></span><?php if($pageNum<$totalPages):?><a href="<?=h($pageUrl($pageNum+1))?>">Berikutnya</a><?php else:?><span class="disabled">Berikutnya</span><?php endif;?></nav><?php endif;?>
+  <?php if($totalPages>1):?><nav class="qz-pagination" aria-label="Attempt list pagination"><?php if($pageNum>1):?><a href="<?=h($pageUrl($pageNum-1))?>">Previous</a><?php else:?><span class="disabled">Previous</span><?php endif;?><div class="qz-pagination__pages"><?php for($number=max(1,$pageNum-2);$number<=min($totalPages,$pageNum+2);$number++):?><a href="<?=h($pageUrl($number))?>" <?=$number===$pageNum?'aria-current="page"':''?>><?=$number?></a><?php endfor;?></div><span>Page <?=$pageNum?> of <?=$totalPages?></span><?php if($pageNum<$totalPages):?><a href="<?=h($pageUrl($pageNum+1))?>">Next</a><?php else:?><span class="disabled">Next</span><?php endif;?></nav><?php endif;?>
 
-  <p class="muted" style="margin-top:12px">
-    Progress hanya menghitung jawaban bernilai; teks kosong dan pilihan ganda kosong (<code>[]</code>) tidak dihitung.
+  <p class="muted qz-footnote">
+    Progress includes only Answers with a value. Blank text and empty multiple-choice selections (<code>[]</code>) are not counted.
   </p>
+  </section>
 </section>
 <?php

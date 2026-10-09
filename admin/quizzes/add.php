@@ -33,7 +33,7 @@ function is_valid_dt(string $s): bool {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!hash_equals(csrf_token(), (string)($_POST['csrf_token'] ?? ''))) {
-    $errors[] = 'CSRF token tidak valid.';
+    $errors[] = 'Invalid CSRF token.';
   }
 
   $title = trim((string)($_POST['title'] ?? ''));
@@ -56,12 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $timerWarningSeconds = [];
   }
 
-  if ($title === '') $errors[] = 'Judul wajib diisi.';
-  if ($questions_per_attempt <= 0 || $questions_per_attempt > 200) $errors[] = 'Jumlah soal per attempt tidak valid (1..200).';
-  if ($duration_minutes !== '' && (!ctype_digit($duration_minutes) || (int)$duration_minutes <= 0)) $errors[] = 'Durasi harus angka menit.';
-  if ($timerWarningSeconds !== [] && ($duration_minutes === '' || max($timerWarningSeconds) > (int)$duration_minutes * 60)) $errors[] = 'Peringatan timer harus berada dalam durasi quiz.';
-  if (!is_valid_dt($start_at)) $errors[] = 'Format start_at: YYYY-MM-DD HH:MM:SS';
-  if (!is_valid_dt($end_at)) $errors[] = 'Format end_at: YYYY-MM-DD HH:MM:SS';
+  if ($title === '') $errors[] = 'Title is required.';
+  if ($questions_per_attempt <= 0 || $questions_per_attempt > 200) $errors[] = 'Questions per Attempt must be between 1 and 200.';
+  if ($duration_minutes !== '' && (!ctype_digit($duration_minutes) || (int)$duration_minutes <= 0)) $errors[] = 'Duration must be a positive number of minutes.';
+  if ($timerWarningSeconds !== [] && ($duration_minutes === '' || max($timerWarningSeconds) > (int)$duration_minutes * 60)) $errors[] = 'Timer warnings must fall within the Quiz duration.';
+  if (!is_valid_dt($start_at)) $errors[] = 'Start time format: YYYY-MM-DD HH:MM:SS';
+  if (!is_valid_dt($end_at)) $errors[] = 'End time format: YYYY-MM-DD HH:MM:SS';
 
   if (!$errors) {
     try {
@@ -87,20 +87,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':end_at' => ($end_at === '' ? null : $end_at),
       ]);
       $pdo->commit();
-      qz_redirect($base . "/?page=admin/quiz/quizzes&msg=" . urlencode("Quiz berhasil dibuat."));
+      qz_redirect($base . "/?page=admin/quiz/quizzes&msg=" . urlencode("Quiz created."));
     } catch (Throwable $error) {
       if ($pdo->inTransaction()) $pdo->rollBack();
-      $errors[] = 'Quiz gagal dibuat atau akses sudah tidak berlaku.';
+      $errors[] = 'Could not create the Quiz, or access has expired.';
     }
   }
 }
 ?>
-<section class="adam-card">
-  <?php qz_admin_breadcrumb([['label'=>'Quiz','url'=>$base.'/?page=admin/quiz/quizzes'],['label'=>'Buat Quiz']]); ?>
-  <h2 style="margin:0 0 12px">Buat Quiz</h2>
+<section class="adam-card qz-card qz-shell qz-editor-page">
+  <?php qz_admin_breadcrumb([['label'=>'Quiz','url'=>$base.'/?page=admin/quiz/quizzes'],['label'=>'Create Quiz']]); ?>
+  <header class="qz-page-head qz-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-eyebrow qz-kicker">New Quiz</div>
+      <h1 class="qz-page-title">Create Quiz</h1>
+      <p class="qz-page-description qz-context">Set the Quiz details, Attempt rules, and publication period.</p>
+    </div>
+    <div class="qz-page-actions qz-toolbar"><a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/quizzes">Back to List</a></div>
+  </header>
 
   <?php if ($errors): ?>
-    <div class="adam-alert error">
+    <div class="adam-alert error" role="alert">
       <?php foreach ($errors as $e): ?><div><?= h($e) ?></div><?php endforeach; ?>
     </div>
   <?php endif; ?>
@@ -108,80 +115,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <form method="post" novalidate>
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
 
-    <div style="display:grid;gap:.5rem;margin-bottom:1rem">
-      <label><strong>Judul</strong></label>
-      <input class="adam-input" name="title" value="<?= h($title) ?>" required>
-    </div>
+    <fieldset class="qz-section group-box">
+      <legend class="qz-section__head"><strong>Quiz Details</strong></legend>
+      <div class="qz-section__body">
+        <div class="qz-field">
+          <label for="quiz-title"><strong>Title</strong></label>
+          <input class="adam-input" id="quiz-title" name="title" value="<?= h($title) ?>" aria-describedby="quiz-title-help" required>
+          <div class="small-hint" id="quiz-title-help">Use a title that administrators and Students can easily recognize.</div>
+        </div>
+        <div class="qz-field">
+          <label for="quiz-description"><strong>Description</strong> <span class="muted">(optional)</span></label>
+          <textarea class="adam-input" id="quiz-description" name="description" rows="4" aria-describedby="quiz-description-help"><?= h($description) ?></textarea>
+          <div class="small-hint" id="quiz-description-help">Briefly explain the purpose or context of the Quiz.</div>
+        </div>
+      </div>
+    </fieldset>
 
-    <div style="display:grid;gap:.5rem;margin-bottom:1rem">
-      <label><strong>Deskripsi</strong> (opsional)</label>
-      <textarea class="adam-input" name="description" rows="4"><?= h($description) ?></textarea>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
-      <div style="display:grid;gap:.5rem">
-        <label><strong>Acak Jawaban</strong></label>
-        <select class="adam-input" name="shuffle_answers">
-          <option value="1" <?= $shuffle_answers===1?'selected':'' ?>>Aktif (default lama)</option>
-          <option value="0" <?= $shuffle_answers===0?'selected':'' ?>>Nonaktif</option>
+    <fieldset class="qz-section group-box">
+      <legend class="qz-section__head"><strong>Attempt Rules</strong></legend>
+      <div class="qz-section__body qz-form-grid qz-student-form-grid">
+      <div class="qz-field">
+        <label for="quiz-questions-per-attempt"><strong>Questions per Attempt</strong></label>
+        <input class="adam-input" id="quiz-questions-per-attempt" type="number" min="1" max="200" name="questions_per_attempt" value="<?= (int)$questions_per_attempt ?>" aria-describedby="quiz-questions-help">
+        <div class="small-hint" id="quiz-questions-help">Number of Questions given to each Student, from 1 to 200.</div>
+      </div>
+      <div class="qz-field">
+        <label for="quiz-duration"><strong>Duration</strong> <span class="muted">(minutes, optional)</span></label>
+        <input class="adam-input" id="quiz-duration" name="duration_minutes" value="<?= h($duration_minutes) ?>" placeholder="Example: 30" inputmode="numeric" aria-describedby="quiz-duration-help">
+        <div class="small-hint" id="quiz-duration-help">Leave blank for Attempts with no time limit.</div>
+      </div>
+      <div class="qz-field">
+        <label for="quiz-shuffle-answers"><strong>Shuffle Answers</strong></label>
+        <select class="adam-input" id="quiz-shuffle-answers" name="shuffle_answers" aria-describedby="quiz-shuffle-help">
+          <option value="1" <?= $shuffle_answers===1?'selected':'' ?>>Active (legacy default)</option>
+          <option value="0" <?= $shuffle_answers===0?'selected':'' ?>>Inactive</option>
         </select>
+        <div class="small-hint" id="quiz-shuffle-help">Randomizes the Answer choices for each Student.</div>
       </div>
-      <div style="display:grid;gap:.5rem">
-        <label><strong>Peringatan Timer (menit)</strong> (opsional)</label>
-        <input class="adam-input" name="timer_warning_minutes" value="<?= h($timer_warning_minutes) ?>" placeholder="mis. 10, 5, 1">
+      <div class="qz-field">
+        <label for="quiz-timer-warning"><strong>Timer Warnings</strong> <span class="muted">(minutes, optional)</span></label>
+        <input class="adam-input" id="quiz-timer-warning" name="timer_warning_minutes" value="<?= h($timer_warning_minutes) ?>" placeholder="Example: 10, 5, 1" aria-describedby="quiz-timer-warning-help">
+        <div class="small-hint" id="quiz-timer-warning-help">Separate thresholds with commas. Each value must fall within the Quiz duration.</div>
       </div>
-      <div style="display:grid;gap:.5rem">
-        <label><strong>Tandai untuk Ditinjau</strong></label>
-        <select class="adam-input" name="allow_mark_for_review">
-          <option value="0" <?= $allow_mark_for_review===0?'selected':'' ?>>Nonaktif (default)</option>
-          <option value="1" <?= $allow_mark_for_review===1?'selected':'' ?>>Aktif</option>
+      <div class="qz-field">
+        <label for="quiz-allow-review"><strong>Mark for Review</strong></label>
+        <select class="adam-input" id="quiz-allow-review" name="allow_mark_for_review" aria-describedby="quiz-allow-review-help">
+          <option value="0" <?= $allow_mark_for_review===0?'selected':'' ?>>Inactive (default)</option>
+          <option value="1" <?= $allow_mark_for_review===1?'selected':'' ?>>Active</option>
         </select>
+        <div class="small-hint" id="quiz-allow-review-help">Allows Students to mark Questions for review.</div>
       </div>
-      <div style="display:grid;gap:.5rem">
-        <label><strong>Hasil Peserta</strong></label>
-        <select class="adam-input" name="result_visibility">
-          <option value="hidden" <?= $result_visibility==='hidden'?'selected':'' ?>>Disembunyikan (default)</option>
-          <option value="summary" <?= $result_visibility==='summary'?'selected':'' ?>>Ringkasan</option>
-          <option value="categories" <?= $result_visibility==='categories'?'selected':'' ?>>Ringkasan + kategori</option>
+      <div class="qz-field">
+        <label for="quiz-result-visibility"><strong>Student Results</strong></label>
+        <select class="adam-input" id="quiz-result-visibility" name="result_visibility" aria-describedby="quiz-result-help">
+          <option value="hidden" <?= $result_visibility==='hidden'?'selected':'' ?>>Hidden (default)</option>
+          <option value="summary" <?= $result_visibility==='summary'?'selected':'' ?>>Summary</option>
+          <option value="categories" <?= $result_visibility==='categories'?'selected':'' ?>>Summary + Categories</option>
         </select>
-        <div class="muted" style="font-size:12px">Disembunyikan menutup halaman hasil peserta. Ringkasan menampilkan total saja; kategori menambahkan rinciannya.</div>
+        <div class="small-hint" id="quiz-result-help">Hidden disables the Student results page. Summary shows the total; Categories adds a breakdown.</div>
       </div>
-    </div>
+      </div>
+    </fieldset>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
-      <div style="display:grid;gap:.5rem">
-        <label><strong>Soal per Attempt</strong></label>
-        <input class="adam-input" type="number" min="1" max="200" name="questions_per_attempt" value="<?= (int)$questions_per_attempt ?>">
+    <fieldset class="qz-section group-box">
+      <legend class="qz-section__head"><strong>Publication and Schedule</strong></legend>
+      <div class="qz-section__body qz-form-grid qz-student-form-grid">
+      <div class="qz-field">
+        <label for="quiz-start-at"><strong>Starts At</strong> <span class="muted">(optional)</span></label>
+        <input class="adam-input" id="quiz-start-at" name="start_at" value="<?= h($start_at) ?>" placeholder="YYYY-MM-DD HH:MM:SS" aria-describedby="quiz-schedule-help">
       </div>
-      <div style="display:grid;gap:.5rem">
-        <label><strong>Durasi (menit)</strong> (opsional)</label>
-        <input class="adam-input" name="duration_minutes" value="<?= h($duration_minutes) ?>" placeholder="mis. 30">
+      <div class="qz-field">
+        <label for="quiz-end-at"><strong>Ends At</strong> <span class="muted">(optional)</span></label>
+        <input class="adam-input" id="quiz-end-at" name="end_at" value="<?= h($end_at) ?>" placeholder="YYYY-MM-DD HH:MM:SS" aria-describedby="quiz-schedule-help">
       </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
-      <div style="display:grid;gap:.5rem">
-        <label><strong>Start At</strong> (opsional)</label>
-        <input class="adam-input" name="start_at" value="<?= h($start_at) ?>" placeholder="YYYY-MM-DD HH:MM:SS">
-      </div>
-      <div style="display:grid;gap:.5rem">
-        <label><strong>End At</strong> (opsional)</label>
-        <input class="adam-input" name="end_at" value="<?= h($end_at) ?>" placeholder="YYYY-MM-DD HH:MM:SS">
-      </div>
-    </div>
-
-    <div style="margin-top:.2rem">
-      <label><strong>Status</strong></label><br>
-      <select class="adam-input" name="is_active" style="max-width:260px">
-        <option value="1" <?= ((int)$is_active===1?'selected':'') ?>>Aktif</option>
-        <option value="0" <?= ((int)$is_active===0?'selected':'') ?>>Nonaktif</option>
+      <div class="small-hint qz-student-form-name" id="quiz-schedule-help">Use server time in YYYY-MM-DD HH:MM:SS format. Leave blank for no schedule limit.</div>
+      <div class="qz-field qz-student-form-name">
+      <label for="quiz-status"><strong>Quiz Status</strong></label>
+      <select class="adam-input" id="quiz-status" name="is_active" aria-describedby="quiz-status-help">
+        <option value="1" <?= ((int)$is_active===1?'selected':'') ?>>Active</option>
+        <option value="0" <?= ((int)$is_active===0?'selected':'') ?>>Inactive</option>
       </select>
-    </div>
+      <div class="small-hint" id="quiz-status-help">Inactive Quizzes are unavailable for new Attempts.</div>
+      </div>
+      </div>
+    </fieldset>
 
-    <div style="margin-top:1.2rem;display:flex;gap:.5rem;flex-wrap:wrap">
-      <button class="adam-button" type="submit">Simpan</button>
-      <a class="adam-button ghost"
-         href="<?= h($base) ?>/?page=admin/quiz/quizzes">Batal</a>
+    <div class="qz-form-actions qz-editor-actions">
+      <button class="adam-button" type="submit">Save Quiz</button>
+      <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/quizzes">Cancel</a>
     </div>
   </form>
 </section>

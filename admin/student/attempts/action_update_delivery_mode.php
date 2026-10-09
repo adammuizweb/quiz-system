@@ -10,13 +10,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit('Meth
 quiz_csrf_check();
 
 $attemptId = (int)($_POST['attempt_id'] ?? 0);
-if ($attemptId <= 0) { http_response_code(400); exit('Missing attempt_id'); }
+if ($attemptId <= 0) { http_response_code(400); exit('Attempt ID is required.'); }
 qz_require_attempt_access($pdo, $attemptId);
 
 $deliveryMode = trim((string)($_POST['delivery_mode'] ?? ''));
 if (!in_array($deliveryMode, ['', 'online', 'onsite'], true)) {
     http_response_code(400);
-    exit('Invalid delivery mode');
+    exit('Invalid delivery mode.');
 }
 
 try {
@@ -30,10 +30,10 @@ try {
     $pdo->commit();
 } catch (Throwable $error) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    http_response_code(403); exit('Attempt is no longer authorized.');
+    http_response_code(403); exit('You are no longer authorized to modify this Attempt.');
 }
 
-$label = $deliveryMode === '' ? 'Belum diisi' : ucfirst($deliveryMode);
+$label = $deliveryMode === '' ? 'Not set' : ucfirst($deliveryMode);
 $loc = $base . '/?page=admin/quiz/attempts/view&attempt_id=' . $attemptId
-     . '&msg=' . rawurlencode('Mode pengerjaan diubah menjadi ' . $label . '.');
+     . '&msg=' . rawurlencode('Delivery mode changed to ' . $label . '.');
 qz_redirect($loc);

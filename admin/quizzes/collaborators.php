@@ -6,14 +6,14 @@ require __DIR__ . '/../_init.php';
 
 $base = ADMIN_BASE_PATH;
 $quizId = (int)($_REQUEST['quiz_id'] ?? 0);
-if ($quizId <= 0) { http_response_code(400); exit('Missing or invalid quiz_id'); }
+if ($quizId <= 0) { http_response_code(400); exit('quiz_id is missing or invalid'); }
 $actorId = (int)qz_admin_user($pdo)['id'];
 $errors = [];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    if (!csrf_check((string)($_POST['csrf_token'] ?? ''))) { http_response_code(403); exit('Invalid CSRF'); }
+    if (!csrf_check((string)($_POST['csrf_token'] ?? ''))) { http_response_code(403); exit('Invalid CSRF token'); }
     $selected = $_POST['collaborator_ids'] ?? [];
-    if (!is_array($selected)) { http_response_code(400); exit('Invalid collaborators'); }
+    if (!is_array($selected)) { http_response_code(400); exit('Invalid collaborator data'); }
     $selectedIds = [];
     foreach ($selected as $value) {
         if (!is_scalar($value)) continue;
@@ -26,7 +26,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     try {
         $pdo->beginTransaction();
         if (!function_exists('user_can') || !user_can($pdo, $actorId, 'plugin.quiz.content.manage-any')) {
-            throw new RuntimeException('Collaborator management authorization is no longer valid.');
+            throw new RuntimeException('Collaborator management authorization has expired.');
         }
         if ($selectedIds !== []) {
             sort($selectedIds, SORT_NUMERIC);
@@ -38,10 +38,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             foreach ($selectedIds as $id) {
                 $target = $lockedUsers[$id] ?? null;
                 if (!$target || (int)$target['is_deleted'] !== 0 || (int)$target['is_locked'] !== 0) {
-                    throw new RuntimeException('Every collaborator must be an active, unlocked user.');
+                    throw new RuntimeException('Each collaborator must be an active, unlocked user.');
                 }
                 if (!user_can($pdo, $id, 'plugin.quiz.workspace.access')) {
-                    throw new RuntimeException('Every collaborator must effectively have Quiz workspace access.');
+                    throw new RuntimeException('Each collaborator must have Quiz workspace access.');
                 }
             }
         }
@@ -50,7 +50,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $quizLock->execute([':id' => $quizId]);
         $lockedQuiz = $quizLock->fetch(PDO::FETCH_ASSOC);
         if (!$lockedQuiz) throw new RuntimeException('Quiz not found.');
-        if (in_array((int)$lockedQuiz['created_by'], $selectedIds, true)) throw new RuntimeException('The quiz owner must not be assigned as a collaborator.');
+        if (in_array((int)$lockedQuiz['created_by'], $selectedIds, true)) throw new RuntimeException('The Quiz owner cannot be assigned as a collaborator.');
 
         $existingLock = $pdo->prepare('SELECT user_id FROM quiz_collaborators WHERE quiz_id=:quiz_id FOR UPDATE');
         $existingLock->execute([':quiz_id' => $quizId]);
@@ -91,30 +91,83 @@ foreach ($usersStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $candidate) {
 }
 $h = static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 ?>
-<section class="adam-card">
+<section class="adam-card qz-card qz-shell qz-question-page">
   <?php qz_admin_breadcrumb([['label'=>'Quiz','url'=>$base.'/?page=admin/quiz/quizzes'],['label'=>(string)$quiz['title'],'url'=>$base.'/?page=admin/quiz/quizzes/edit&id='.$quizId],['label'=>'Collaborators']]); ?>
-  <h2>Quiz Collaborators</h2>
-  <p><strong><?= $h($quiz['title']) ?></strong> (ID <?= (int)$quiz['id'] ?>)</p>
-  <p class="muted">Owner: <?= $h($quiz['owner_name'] ?: ('User#' . $quiz['created_by'])) ?><?= $quiz['owner_email'] ? ' (' . $h($quiz['owner_email']) . ')' : '' ?>. Owner access is always preserved.</p>
+  <header class="qz-page-head qz-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-eyebrow qz-kicker">Per-Quiz access</div>
+      <h1 class="qz-page-title">Quiz Collaborators</h1>
+      <p class="qz-page-description qz-context">Assign workspace users who can work on the Quiz <strong><?= $h($quiz['title']) ?></strong>.</p>
+      <div class="qz-meta">Quiz ID: <strong><?= (int)$quiz['id'] ?></strong><span class="dot">&bull;</span>Owner: <strong><?= $h($quiz['owner_name'] ?: ('User#' . $quiz['created_by'])) ?></strong><?= $quiz['owner_email'] ? ' (' . $h($quiz['owner_email']) . ')' : '' ?></div>
+    </div>
+    <div class="qz-page-actions qz-toolbar"><a class="adam-button ghost" href="<?= $h($base) ?>/?page=admin/quiz/quizzes">Back to List</a></div>
+  </header>
+
   <?php if (isset($_GET['msg'])): ?><div class="adam-alert success"><?= $h($_GET['msg']) ?></div><?php endif; ?>
-  <?php foreach ($errors as $error): ?><div class="adam-alert error"><?= $h($error) ?></div><?php endforeach; ?>
+  <?php foreach ($errors as $error): ?><div class="adam-alert error" role="alert"><?= $h($error) ?></div><?php endforeach; ?>
+
+  <section class="qz-section" aria-labelledby="collaborator-scope-title">
+    <div class="qz-section__head"><div><div class="qz-eyebrow qz-kicker">Scope</div><h2 id="collaborator-scope-title">What does this access allow?</h2></div></div>
+    <div class="qz-section__body qz-list-context">
+      <p>This assignment applies only to this Quiz. Collaborators can open shared resources but can only edit resources they created.</p>
+      <p>The Quiz owner and users with permission to manage all content can still manage every resource. This assignment does not transfer ownership, grant Attempt access, or change the user's global permissions.</p>
+      <p>The owner's access is always retained, so the owner does not need to be selected as a collaborator.</p>
+    </div>
+  </section>
+
   <form method="post">
     <input type="hidden" name="csrf_token" value="<?= $h(csrf_token()) ?>">
     <input type="hidden" name="quiz_id" value="<?= $quizId ?>">
-    <h3>Eligible workspace users</h3>
-    <?php if ($eligible === []): ?><p class="muted">No active, unlocked users currently have Quiz workspace access.</p><?php endif; ?>
-    <div style="display:grid;gap:8px;margin:12px 0">
+
+    <section class="qz-section" aria-labelledby="eligible-collaborators-title">
+      <div class="qz-section__head"><div><h2 id="eligible-collaborators-title">Eligible Users</h2><p class="qz-page-description">Only active, unlocked users with Quiz workspace access are shown.</p></div></div>
+      <div class="qz-section__body">
+      <?php if ($eligible === []): ?>
+        <div class="qz-empty-state empty"><h3>No eligible users</h3><p>Grant Quiz workspace access to an active user before assigning them as a collaborator.</p></div>
+      <?php else: ?>
+      <div class="table-scroll" role="region" aria-label="Eligible users" tabindex="0">
+      <table class="qz-data-table qz-table qz-management-table">
+        <thead><tr><th>Select</th><th>User</th><th>Email</th><th>Role</th></tr></thead>
+        <tbody>
       <?php foreach ($eligible as $candidate): $candidateId = (int)$candidate['id']; ?>
-        <label class="qz-card" style="display:flex;gap:10px;align-items:center;padding:10px">
-          <input type="checkbox" name="collaborator_ids[]" value="<?= $candidateId ?>" <?= isset($currentIds[$candidateId]) ? 'checked' : '' ?>>
-          <span><strong><?= $h($candidate['name'] ?: ('User#' . $candidateId)) ?></strong> <?= $h($candidate['email']) ?> <span class="muted"><?= $h($candidate['role']) ?></span></span>
-        </label>
+        <tr class="qz-select-card">
+          <td class="qz-question-select" data-label="Select"><input id="collaborator-<?= $candidateId ?>" type="checkbox" name="collaborator_ids[]" value="<?= $candidateId ?>" <?= isset($currentIds[$candidateId]) ? 'checked' : '' ?> aria-label="Select <?= $h($candidate['name'] ?: ('User#' . $candidateId)) ?> as a collaborator"></td>
+          <td class="qz-question-cell" data-label="User"><label for="collaborator-<?= $candidateId ?>"><strong><?= $h($candidate['name'] ?: ('User#' . $candidateId)) ?></strong></label></td>
+          <td data-label="Email"><?= $h($candidate['email']) ?></td>
+          <td data-label="Role"><span class="badge muted"><?= $h($candidate['role']) ?></span></td>
+        </tr>
       <?php endforeach; ?>
-    </div>
-    <h3>Current assignments</h3>
-    <?php if ($current === []): ?><p class="muted">No collaborators assigned.</p><?php else: ?>
-      <ul><?php foreach ($current as $assigned): ?><li><?= $h($assigned['name'] ?: ('User#' . $assigned['user_id'])) ?> (<?= $h($assigned['email']) ?>)<?= ((int)$assigned['is_deleted'] || (int)$assigned['is_locked']) ? ' - unavailable; saving removes it unless eligible again' : '' ?></li><?php endforeach; ?></ul>
-    <?php endif; ?>
-    <div style="display:flex;gap:8px;margin-top:16px"><button class="adam-button" type="submit">Save collaborators</button><a class="adam-button ghost" href="<?= $h($base) ?>/?page=admin/quiz/quizzes">Back</a></div>
+        </tbody>
+      </table>
+      </div>
+      <?php endif; ?>
+      </div>
+    </section>
+
+    <section class="qz-section" aria-labelledby="current-collaborators-title">
+      <div class="qz-section__head"><div><h2 id="current-collaborators-title">Current Assignments</h2><p class="qz-page-description">Collaborator access currently saved for this Quiz.</p></div></div>
+      <div class="qz-section__body">
+      <?php if ($current === []): ?>
+        <div class="qz-empty-state empty"><h3>No collaborators yet</h3><p>Select one or more users above if this Quiz is managed collaboratively.</p></div>
+      <?php else: ?>
+        <div class="table-scroll" role="region" aria-label="Current collaborators" tabindex="0">
+        <table class="qz-data-table qz-table qz-management-table">
+          <thead><tr><th>Collaborator</th><th>Email</th><th>Account Status</th></tr></thead>
+          <tbody>
+          <?php foreach ($current as $assigned): ?>
+            <tr>
+              <td class="qz-question-cell" data-label="Collaborator"><strong><?= $h($assigned['name'] ?: ('User#' . $assigned['user_id'])) ?></strong></td>
+              <td data-label="Email"><?= $h($assigned['email']) ?></td>
+              <td data-label="Account Status"><?php if ((int)$assigned['is_deleted'] || (int)$assigned['is_locked']): ?><span class="badge warn">Unavailable; will be removed when saved</span><?php else: ?><span class="badge ok">Active</span><?php endif; ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        </div>
+      <?php endif; ?>
+      </div>
+    </section>
+
+    <div class="qz-form-actions qz-editor-actions"><button class="adam-button" type="submit">Save Collaborators</button><a class="adam-button ghost" href="<?= $h($base) ?>/?page=admin/quiz/quizzes">Cancel</a></div>
   </form>
 </section>
