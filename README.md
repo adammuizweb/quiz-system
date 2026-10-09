@@ -2,7 +2,12 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.7.0`.
+Current release: `1.8.0`.
+
+Quiz `1.8.0` adds nullable per-Quiz overrides for OTP verification and the
+fullscreen, focus, context-menu, shortcut, and DevTools proctor controls. A
+Quiz can inherit the secure defaults or explicitly force each control on or
+off, including direct TPA startup without OTP.
 
 ## Admin Experience
 

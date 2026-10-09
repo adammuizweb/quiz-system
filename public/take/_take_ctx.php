@@ -857,6 +857,7 @@ if ($alias !== '') set_cookie('quiz_attempt', $alias);
    ========================= */
 $st = $pdo->prepare("
   SELECT id, title, description, is_active, start_at, end_at, questions_per_attempt, duration_minutes,
+         require_fullscreen_override, pause_when_blur_override, block_context_menu_override, block_shortcuts_override, devtools_detect_override,
          shuffle_answers, timer_warning_seconds, allow_mark_for_review, result_visibility
   FROM quizzes
   WHERE id = :id
@@ -963,6 +964,13 @@ if ($needsPreparation && !$isBeginRequest) {
   $ctx = null;
   return;
 }
+$quiz['proctor'] = [
+  'requireFullscreen' => $quiz['require_fullscreen_override'] === null ? true : (int)$quiz['require_fullscreen_override'] === 1,
+  'pauseWhenBlur' => $quiz['pause_when_blur_override'] === null ? true : (int)$quiz['pause_when_blur_override'] === 1,
+  'blockContextMenu' => $quiz['block_context_menu_override'] === null ? true : (int)$quiz['block_context_menu_override'] === 1,
+  'blockShortcuts' => $quiz['block_shortcuts_override'] === null ? true : (int)$quiz['block_shortcuts_override'] === 1,
+  'devtoolsDetect' => $quiz['devtools_detect_override'] === null ? true : (int)$quiz['devtools_detect_override'] === 1,
+];
 if ($isBeginRequest && !qz_public_csrf_check(qz_public_csrf_from_request())) {
   http_response_code(403);
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">Invalid CSRF token.</div>';

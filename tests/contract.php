@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.7.0', 'plugin version must be 1.7.0');
+$check(($manifest['version'] ?? null) === '1.8.0', 'plugin version must be 1.8.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -241,6 +241,9 @@ $check(str_contains($schemaSource, '`shuffle_answers` TINYINT(1) NOT NULL DEFAUL
     && str_contains($schemaSource, "`result_visibility` ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden'"), 'new quiz settings must preserve 1.4.13 and PMB defaults with a strict result allowlist');
 $check(str_contains($schemaSource, '`public_prefix` VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL')
     && str_contains($schemaSource, 'UNIQUE KEY `uq_quizzes_public_prefix` (`public_prefix`)'), 'new installs must support one unique public URL prefix per Quiz');
+$overrideColumns = ['verification_required_override', 'require_fullscreen_override', 'pause_when_blur_override', 'block_context_menu_override', 'block_shortcuts_override', 'devtools_detect_override'];
+$check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid && str_contains($schemaSource, "`{$column}` TINYINT(1) NULL"), true),
+    'new installs must support nullable per-Quiz verification and proctor overrides');
 $check(str_contains($schemaSource, '`elapsed_seconds` INT UNSIGNED NULL')
     && str_contains($schemaSource, '`marked_for_review` TINYINT(1) NOT NULL DEFAULT 0')
     && str_contains($schemaSource, '`revision_count` INT UNSIGNED NOT NULL DEFAULT 0'), 'attempt readiness columns must use backward-compatible defaults');
@@ -776,9 +779,11 @@ $check(str_contains($extensionSource, 'function quiz_extension_subscribe')
 $check(str_contains($pluginSource, "require_once \$extensionFile")
     && !str_contains($pluginSource, "do_action('quiz_loaded'")
     && !str_contains($pluginSource, "do_action_isolated('quiz_loaded'"), 'Quiz publishes a load-order-safe callable extension API');
-$check(str_contains($pluginSource, "\$schemaRevision = '20261009-per-quiz-public-prefix'"), 'the public-prefix schema revision must retain the submitted snapshot verification gate');
+$check(str_contains($pluginSource, "\$schemaRevision = '20261010-per-quiz-overrides'"), 'the per-Quiz override schema revision must retain the migration gate');
 $check(str_contains($pluginSource, "'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title'")
     && str_contains($pluginSource, 'ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)'), 'existing installs must add and uniquely index the optional public prefix');
+$check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid && str_contains($pluginSource, "'{$column}', 'TINYINT(1) NULL"), true),
+    'existing installs must add every nullable per-Quiz override');
 $check(str_contains($pluginSource, "'shuffle_answers', 'TINYINT(1) NOT NULL DEFAULT 1")
     && str_contains($pluginSource, "'result_visibility', \"ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden'")
     && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_answer_revisions') === 1
@@ -956,7 +961,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.7.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1006,7 +1011,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.7.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1026,14 +1031,14 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.7.0'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261009-per-quiz-public-prefix'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261010-per-quiz-overrides'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
 if ($pdo->executions !== 2) exit(23);
 unset($GLOBALS['contract_settings']['quiz_schema_revision']);
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261009-per-quiz-public-prefix'
+if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261010-per-quiz-overrides'
     || $pdo->executions !== 2) exit(24);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1050,7 +1055,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.7.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1142,7 +1147,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.7.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1170,8 +1175,8 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.7.0'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261009-per-quiz-public-prefix'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261010-per-quiz-overrides'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationGateScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1242,6 +1247,12 @@ $check(str_contains($helperSource, 'function quiz_database_setting(')
     'prefix revalidation must read the global namespace uncached and validate the compatibility slug');
 $quizAddSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/add.php');
 $quizEditSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/edit.php');
+$quizDuplicateSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/duplicate.php');
+$check(str_contains($quizEditSource, 'name="<?= h($field) ?>"')
+    && array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid
+        && str_contains($quizEditSource, $column . ' = :' . $column)
+        && str_contains($quizDuplicateSource, ':' . $column), true),
+    'Quiz edit and duplication must preserve every verification and proctor override');
 $check(str_contains($quizAddSource, 'quiz_public_prefix_lock($pdo)')
     && str_contains($quizEditSource, 'quiz_public_prefix_lock($pdo)')
     && substr_count($quizAddSource, 'quiz_validate_public_prefix($pdo, $public_prefix)') >= 2
@@ -2239,6 +2250,15 @@ $check(!str_contains($otpGenerate, "'OTP baru: ' . \$otp")
     && !str_contains($otpReset, "'Attempt di-reset. OTP baru: ' . \$otp"), 'plaintext OTP must not be copied into generic session flash messages');
 
 $confirmSource = (string)file_get_contents($pluginRoot . '/public/start/confirm/index.php');
+$check(str_contains($confirmSource, 'verification_required_override')
+    && str_contains($confirmSource, "verified_via='quiz_override'")
+    && str_contains($confirmSource, "go(quiz_public_url('take', ['a' => \$attempt_alias]))"),
+    'OTP override must atomically verify new attempts and continue with their exact alias');
+$check(str_contains($takeContext, "'requireFullscreen' => \$quiz['require_fullscreen_override'] === null ? true")
+    && str_contains($takeContext, "'devtoolsDetect' => \$quiz['devtools_detect_override'] === null ? true")
+    && str_contains($takeJs, 'requireFullscreen: {$requireFullscreenJson}')
+    && str_contains($takeJs, 'devtoolsDetect: {$devtoolsDetectJson}'),
+    'proctor overrides must retain secure defaults and reach the browser configuration');
 $check(str_contains($confirmSource, "settings_get(\$pdo, 'quiz_test_number_format'")
     && str_contains($confirmSource, 'SELECT quiz_id FROM quiz_attempts WHERE id=:id LIMIT 1')
     && str_contains($confirmSource, 'quiz_format_test_number($format, $attemptId, $year, $quizId)')

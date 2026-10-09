@@ -138,6 +138,12 @@ function quiz_upgrade_schema(\PDO $pdo): void {
     // 1.5.0 is additive only. Existing quiz rows receive the exact 1.4.13 behavior.
     $addColumn('quizzes', 'shuffle_answers', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER duration_minutes');
     $addColumn('quizzes', 'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title');
+    $addColumn('quizzes', 'verification_required_override', 'TINYINT(1) NULL AFTER public_prefix');
+    $addColumn('quizzes', 'require_fullscreen_override', 'TINYINT(1) NULL AFTER verification_required_override');
+    $addColumn('quizzes', 'pause_when_blur_override', 'TINYINT(1) NULL AFTER require_fullscreen_override');
+    $addColumn('quizzes', 'block_context_menu_override', 'TINYINT(1) NULL AFTER pause_when_blur_override');
+    $addColumn('quizzes', 'block_shortcuts_override', 'TINYINT(1) NULL AFTER block_context_menu_override');
+    $addColumn('quizzes', 'devtools_detect_override', 'TINYINT(1) NULL AFTER block_shortcuts_override');
     if (!$indexExists('quizzes', 'uq_quizzes_public_prefix')) {
         $pdo->exec('ALTER TABLE quizzes ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)');
     }
@@ -285,7 +291,7 @@ function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshot
 // --- Idempotent schema installation on Quiz requests ---
 function quiz_install_schema(\PDO $pdo): bool {
     try {
-        $schemaRevision = '20261009-per-quiz-public-prefix';
+        $schemaRevision = '20261010-per-quiz-overrides';
         $manifest = plugin_manifest('quiz');
         $version = is_array($manifest) && is_string($manifest['version'] ?? null)
             ? $manifest['version']
@@ -331,7 +337,7 @@ function quiz_schema_is_ready(\PDO $pdo): bool {
     $version = is_array($manifest) ? (string)($manifest['version'] ?? '') : '';
     return $version !== ''
         && settings_get($pdo, 'quiz_test_version', '') === $version
-        && settings_get($pdo, 'quiz_schema_revision', '') === '20261009-per-quiz-public-prefix';
+        && settings_get($pdo, 'quiz_schema_revision', '') === '20261010-per-quiz-overrides';
 }
 
 // Shared helpers are required before public routes are registered.
@@ -486,8 +492,8 @@ add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
     $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
     $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
-    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.7.0';
-    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.7.0';
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.8.0';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.8.0';
     echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
     echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });

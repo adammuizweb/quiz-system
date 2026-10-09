@@ -22,6 +22,11 @@ $csrfTokenJson   = json_encode($csrfToken, $scriptJsonFlags);
 // OPTIONAL (kalau sudah kamu isi di _take_ctx.php)
 $navSectionsJson = json_encode(($ctx['nav_sections'] ?? []), $scriptJsonFlags);
 $navCatMapJson   = json_encode(($ctx['nav_cat_map'] ?? []), $scriptJsonFlags);
+$requireFullscreenJson = !empty($quiz['proctor']['requireFullscreen']) ? 'true' : 'false';
+$pauseWhenBlurJson = !empty($quiz['proctor']['pauseWhenBlur']) ? 'true' : 'false';
+$blockContextMenuJson = !empty($quiz['proctor']['blockContextMenu']) ? 'true' : 'false';
+$blockShortcutsJson = !empty($quiz['proctor']['blockShortcuts']) ? 'true' : 'false';
+$devtoolsDetectJson = !empty($quiz['proctor']['devtoolsDetect']) ? 'true' : 'false';
 
 if ($attemptJson === false) $attemptJson = '""';
 if ($answeredMapJson === false) $answeredMapJson = '{}';
@@ -431,12 +436,12 @@ function makeOptBadge(i){
      PROCTOR / EXAM MODE (tetap)
      ========================================================== */
   const PROCTOR = {
-    requireFullscreen: true,
-    pauseWhenBlur: true,
-    blockContextMenu: true,
-    blockShortcuts: true,
+    requireFullscreen: {$requireFullscreenJson},
+    pauseWhenBlur: {$pauseWhenBlurJson},
+    blockContextMenu: {$blockContextMenuJson},
+    blockShortcuts: {$blockShortcutsJson},
     warnLimit: 8,
-    devtoolsDetect: true,
+    devtoolsDetect: {$devtoolsDetectJson},
     devtoolsThreshold: 160,
     showBadge: true,
   };

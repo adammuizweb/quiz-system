@@ -52,6 +52,9 @@ $result_visibility = quiz_safe_result_visibility($quiz['result_visibility'] ?? '
 $is_active = (int)($quiz['is_active'] ?? 1);
 $start_at = (string)($quiz['start_at'] ?? '');
 $end_at   = (string)($quiz['end_at'] ?? '');
+$overrideFields = ['verification_required_override','require_fullscreen_override','pause_when_blur_override','block_context_menu_override','block_shortcuts_override','devtools_detect_override'];
+$overrides = [];
+foreach ($overrideFields as $field) $overrides[$field] = $quiz[$field] === null ? '' : (string)(int)$quiz[$field];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!hash_equals(csrf_token(), (string)($_POST['csrf_token'] ?? ''))) {
@@ -67,6 +70,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $is_active = (int)($_POST['is_active'] ?? 1);
   $start_at = trim((string)($_POST['start_at'] ?? ''));
   $end_at = trim((string)($_POST['end_at'] ?? ''));
+  foreach ($overrideFields as $field) {
+    $value = (string)($_POST[$field] ?? '');
+    if (!in_array($value, ['', '0', '1'], true)) $errors[] = 'Invalid per-Quiz override.';
+    $overrides[$field] = $value;
+  }
 
   try {
     $is_active = quiz_normalize_bool($_POST['is_active'] ?? null, 1);
@@ -120,7 +128,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             result_visibility = :result_visibility,
             is_active = :act,
             start_at = :start_at,
-            end_at = :end_at
+            end_at = :end_at,
+            verification_required_override = :verification_required_override,
+            require_fullscreen_override = :require_fullscreen_override,
+            pause_when_blur_override = :pause_when_blur_override,
+            block_context_menu_override = :block_context_menu_override,
+            block_shortcuts_override = :block_shortcuts_override,
+            devtools_detect_override = :devtools_detect_override
         WHERE id = :id
         LIMIT 1
       ");
@@ -137,6 +151,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':act' => ($is_active ? 1 : 0),
         ':start_at' => ($start_at === '' ? null : $start_at),
         ':end_at' => ($end_at === '' ? null : $end_at),
+        ':verification_required_override' => $overrides['verification_required_override'] === '' ? null : (int)$overrides['verification_required_override'],
+        ':require_fullscreen_override' => $overrides['require_fullscreen_override'] === '' ? null : (int)$overrides['require_fullscreen_override'],
+        ':pause_when_blur_override' => $overrides['pause_when_blur_override'] === '' ? null : (int)$overrides['pause_when_blur_override'],
+        ':block_context_menu_override' => $overrides['block_context_menu_override'] === '' ? null : (int)$overrides['block_context_menu_override'],
+        ':block_shortcuts_override' => $overrides['block_shortcuts_override'] === '' ? null : (int)$overrides['block_shortcuts_override'],
+        ':devtools_detect_override' => $overrides['devtools_detect_override'] === '' ? null : (int)$overrides['devtools_detect_override'],
         ':id' => $id,
       ];
       $stmt->execute($params);
@@ -204,6 +224,23 @@ $ownerLine = ($owner !== '' || $oemail !== '')
           <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/tpa/register/</code>. Changing it changes every public URL for this Quiz.</div>
         </div>
       </div>
+    </fieldset>
+
+    <fieldset class="qz-section group-box">
+      <legend class="qz-section__head"><strong>Per-Quiz Overrides</strong></legend>
+      <div class="qz-section__body qz-form-grid qz-student-form-grid">
+      <?php $labels = ['verification_required_override'=>'OTP verification','require_fullscreen_override'=>'Require fullscreen','pause_when_blur_override'=>'Pause when tab/window loses focus','block_context_menu_override'=>'Block right-click','block_shortcuts_override'=>'Block copy, paste, shortcuts','devtools_detect_override'=>'Detect DevTools']; foreach ($labels as $field=>$label): ?>
+        <div class="qz-field">
+          <label for="<?= h($field) ?>"><strong><?= h($label) ?></strong></label>
+          <select class="adam-input" id="<?= h($field) ?>" name="<?= h($field) ?>">
+            <option value="" <?= $overrides[$field]===''?'selected':'' ?>>Use default</option>
+            <option value="1" <?= $overrides[$field]==='1'?'selected':'' ?>>Force on</option>
+            <option value="0" <?= $overrides[$field]==='0'?'selected':'' ?>>Force off</option>
+          </select>
+        </div>
+      <?php endforeach; ?>
+      </div>
+      <div class="small-hint">Use the default behavior unless this Quiz needs a specific security policy. For TPA, set OTP verification to Force off.</div>
     </fieldset>
 
     <fieldset class="qz-section group-box">

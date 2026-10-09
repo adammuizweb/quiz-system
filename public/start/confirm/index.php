@@ -202,7 +202,7 @@ if ($quiz_id <= 0) go($startUrl);
 quiz_public_require_quiz($quiz_id);
 
 $stmt = $pdo->prepare("
-  SELECT id, title, description, is_active, is_primary, start_at, end_at, questions_per_attempt, duration_minutes
+  SELECT id, title, description, is_active, is_primary, start_at, end_at, questions_per_attempt, duration_minutes, verification_required_override
   FROM quizzes
   WHERE id = :id
   LIMIT 1
@@ -227,6 +227,9 @@ if (!$quiz || !quiz_is_open($quiz, $now)) {
   require __DIR__ . '/../../layout.php';
   exit;
 }
+$verificationRequired = $quiz['verification_required_override'] === null
+  ? true
+  : (int)$quiz['verification_required_override'] === 1;
 
 /* ===============================
    2) Ambil student dari cookie
@@ -529,13 +532,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $pdo->prepare("UPDATE quiz_attempts SET delivery_mode=:mode WHERE id=:id LIMIT 1")
           ->execute([':mode'=>$deliveryMode, ':id'=>$attempt_id]);
 
+      if (!$verificationRequired) {
+        $pdo->prepare("UPDATE quiz_attempts SET email_verified_at=NOW(), status='verified', verified_via='quiz_override' WHERE id=:id LIMIT 1")
+            ->execute([':id'=>$attempt_id]);
+      }
       $pdo->commit();
 
       // cookies
       set_cookie($tokenCookieName, $token_plain, 86400);
       set_cookie('quiz_attempt', $alias, 86400*365);
 
-      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
+      if ($verificationRequired) go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
+      go(quiz_public_url('take', ['a' => $alias]));
     }
 
     // ===== ENFORCE: hanya 1 attempt AKTIF (verified/in_progress) lintas quiz =====
@@ -649,6 +657,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($newAttemptId > 0) {
         ensure_nomor_test($pdo, $newAttemptId, '');
       }
+      $attempt_id = $newAttemptId;
 
     } catch (Throwable $e) {
       if (!($e instanceof PDOException) || (string)$e->getCode() !== '23000') throw $e;
@@ -711,12 +720,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (empty($postErrors)) {
+    if (!$verificationRequired) {
+      $pdo->prepare("UPDATE quiz_attempts SET email_verified_at=NOW(), status='verified', verified_via='quiz_override' WHERE id=:id LIMIT 1")
+          ->execute([':id'=>$attempt_id]);
+    }
     $pdo->commit();
 
     set_cookie('quiz_token_' . (int)$quiz_id, $token_plain, 86400);
     set_cookie('quiz_attempt', $attempt_alias, 86400*365);
 
-    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
+    if ($verificationRequired) go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
+    go(quiz_public_url('take', ['a' => $attempt_alias]));
     }
     }
 
