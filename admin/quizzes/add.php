@@ -15,6 +15,7 @@ if (!function_exists('h')) {
 
 $errors = [];
 $title = '';
+$public_prefix = '';
 $description = '';
 $questions_per_attempt = 25;
 $duration_minutes = '';
@@ -37,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 
   $title = trim((string)($_POST['title'] ?? ''));
+  $public_prefix = trim((string)($_POST['public_prefix'] ?? ''));
   $description = trim((string)($_POST['description'] ?? ''));
   $questions_per_attempt = (int)($_POST['questions_per_attempt'] ?? 25);
   $duration_minutes = trim((string)($_POST['duration_minutes'] ?? ''));
@@ -51,9 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $allow_mark_for_review = quiz_normalize_bool($_POST['allow_mark_for_review'] ?? null, 0);
     $result_visibility = quiz_normalize_result_visibility($_POST['result_visibility'] ?? '');
     $timerWarningSeconds = quiz_timer_warning_minutes_to_seconds($timer_warning_minutes);
+    $normalizedPublicPrefix = quiz_validate_public_prefix($pdo, $public_prefix);
   } catch (InvalidArgumentException $error) {
     $errors[] = $error->getMessage();
     $timerWarningSeconds = [];
+    $normalizedPublicPrefix = null;
   }
 
   if ($title === '') $errors[] = 'Title is required.';
@@ -64,17 +68,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!is_valid_dt($end_at)) $errors[] = 'End time format: YYYY-MM-DD HH:MM:SS';
 
   if (!$errors) {
+    $prefixLocked = false;
     try {
+      if (!quiz_public_prefix_lock($pdo)) throw new RuntimeException('Public URL namespace is busy.');
+      $prefixLocked = true;
       $pdo->beginTransaction();
       qz_require_workspace_mutation_access($pdo, $uid);
+      $normalizedPublicPrefix = quiz_validate_public_prefix($pdo, $public_prefix);
       $stmt = $pdo->prepare("
-        INSERT INTO quizzes (created_by, title, description, questions_per_attempt, duration_minutes, shuffle_answers,
+        INSERT INTO quizzes (created_by, title, public_prefix, description, questions_per_attempt, duration_minutes, shuffle_answers,
           timer_warning_seconds, allow_mark_for_review, result_visibility, is_active, is_primary, start_at, end_at)
-        VALUES (:uid, :title, :desc, :qpa, :dur, :shuffle_answers, :timer_warnings, :allow_review, :result_visibility, :act, 0, :start_at, :end_at)
+        VALUES (:uid, :title, :public_prefix, :desc, :qpa, :dur, :shuffle_answers, :timer_warnings, :allow_review, :result_visibility, :act, 0, :start_at, :end_at)
       ");
       $stmt->execute([
         ':uid' => $uid,
         ':title' => $title,
+        ':public_prefix' => $normalizedPublicPrefix,
         ':desc' => ($description === '' ? null : $description),
         ':qpa' => $questions_per_attempt,
         ':dur' => ($duration_minutes === '' ? null : (int)$duration_minutes),
@@ -87,9 +96,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':end_at' => ($end_at === '' ? null : $end_at),
       ]);
       $pdo->commit();
+      quiz_public_prefix_unlock($pdo);
+      $prefixLocked = false;
       qz_redirect($base . "/?page=admin/quiz/quizzes&msg=" . urlencode("Quiz created."));
     } catch (Throwable $error) {
       if ($pdo->inTransaction()) $pdo->rollBack();
+      if ($prefixLocked) quiz_public_prefix_unlock($pdo);
       $errors[] = 'Could not create the Quiz, or access has expired.';
     }
   }
@@ -127,6 +139,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <label for="quiz-description"><strong>Description</strong> <span class="muted">(optional)</span></label>
           <textarea class="adam-input" id="quiz-description" name="description" rows="4" aria-describedby="quiz-description-help"><?= h($description) ?></textarea>
           <div class="small-hint" id="quiz-description-help">Briefly explain the purpose or context of the Quiz.</div>
+        </div>
+        <div class="qz-field">
+          <label for="quiz-public-prefix"><strong>Public URL Prefix</strong> <span class="muted">(optional)</span></label>
+          <input class="adam-input" id="quiz-public-prefix" name="public_prefix" value="<?= h($public_prefix) ?>" placeholder="Example: pmb" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
+          <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/pmb/register/</code>. Use lowercase letters, numbers, and hyphens only.</div>
         </div>
       </div>
     </fieldset>

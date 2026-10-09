@@ -298,11 +298,11 @@ function makeOptBadge(i){
   }
 
   // ===== API PATH =====
-  const API_GET    = "/quiz/api/get_question.php";
-  const API_SAVE   = "/quiz/api/save_answer.php";
-  const API_SUBMIT = "/quiz/api/submit.php";
-  const API_REVIEW = "/quiz/api/set_review.php";
-  const PROCTOR_API = "/quiz/api/proctor_event.php";
+  const API_GET    = <?= json_encode(quiz_public_url('api/get_question.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const API_SAVE   = <?= json_encode(quiz_public_url('api/save_answer.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const API_SUBMIT = <?= json_encode(quiz_public_url('api/submit.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const API_REVIEW = <?= json_encode(quiz_public_url('api/set_review.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const PROCTOR_API = <?= json_encode(quiz_public_url('api/proctor_event.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
   // ===== TIMER STATE =====
   let serverOffsetSec = 0;

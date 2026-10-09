@@ -41,6 +41,7 @@ if (!$quiz) {
 $errors = [];
 
 $title = (string)($quiz['title'] ?? '');
+$public_prefix = (string)($quiz['public_prefix'] ?? '');
 $description = (string)($quiz['description'] ?? '');
 $questions_per_attempt = (int)($quiz['questions_per_attempt'] ?? 25);
 $duration_minutes = ($quiz['duration_minutes'] !== null) ? (string)$quiz['duration_minutes'] : '';
@@ -58,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 
   $title = trim((string)($_POST['title'] ?? ''));
+  $public_prefix = trim((string)($_POST['public_prefix'] ?? ''));
   $description = trim((string)($_POST['description'] ?? ''));
   $questions_per_attempt = (int)($_POST['questions_per_attempt'] ?? 25);
   $duration_minutes = trim((string)($_POST['duration_minutes'] ?? ''));
@@ -72,9 +74,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $allow_mark_for_review = quiz_normalize_bool($_POST['allow_mark_for_review'] ?? null, 0);
     $result_visibility = quiz_normalize_result_visibility($_POST['result_visibility'] ?? '');
     $timerWarningSeconds = quiz_timer_warning_minutes_to_seconds($timer_warning_minutes);
+    $normalizedPublicPrefix = quiz_validate_public_prefix(
+      $pdo,
+      $public_prefix,
+      $id,
+      quiz_normalize_public_prefix($quiz['public_prefix'] ?? null)
+    );
   } catch (InvalidArgumentException $error) {
     $errors[] = $error->getMessage();
     $timerWarningSeconds = [];
+    $normalizedPublicPrefix = null;
   }
 
   if ($title === '') $errors[] = 'Title is required.';
@@ -85,13 +94,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!is_valid_dt($end_at)) $errors[] = 'End time format: YYYY-MM-DD HH:MM:SS';
 
   if (!$errors) {
+    $prefixLocked = false;
     try {
+      if (!quiz_public_prefix_lock($pdo)) throw new RuntimeException('Public URL namespace is busy.');
+      $prefixLocked = true;
       $pdo->beginTransaction();
       qz_lock_quiz_for_workspace_mutation($pdo, $id, (int)$routeUser['id']);
+      $normalizedPublicPrefix = quiz_validate_public_prefix(
+        $pdo,
+        $public_prefix,
+        $id,
+        quiz_normalize_public_prefix($quiz['public_prefix'] ?? null)
+      );
 
       $stmt = $pdo->prepare("
         UPDATE quizzes
         SET title = :title,
+            public_prefix = :public_prefix,
             description = :desc,
             questions_per_attempt = :qpa,
             duration_minutes = :dur,
@@ -107,6 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ");
       $params = [
         ':title' => $title,
+        ':public_prefix' => $normalizedPublicPrefix,
         ':desc' => ($description === '' ? null : $description),
         ':qpa' => $questions_per_attempt,
         ':dur' => ($duration_minutes === '' ? null : (int)$duration_minutes),
@@ -122,10 +142,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $stmt->execute($params);
       if ($stmt->rowCount() > 1) throw new RuntimeException('Quiz update affected an unexpected number of rows.');
       $pdo->commit();
+      quiz_public_prefix_unlock($pdo);
+      $prefixLocked = false;
 
       qz_redirect($base . "/?page=admin/quiz/quizzes&msg=" . urlencode("Quiz updated."));
     } catch (\Throwable $e) {
       if ($pdo->inTransaction()) $pdo->rollBack();
+      if ($prefixLocked) quiz_public_prefix_unlock($pdo);
       error_log('[admin/quiz/quizzes/edit] ' . $e->getMessage());
       $errors[] = 'The Quiz was not updated, or access has expired.';
     }
@@ -174,6 +197,11 @@ $ownerLine = ($owner !== '' || $oemail !== '')
           <label for="quiz-description"><strong>Description</strong> <span class="muted">(optional)</span></label>
           <textarea class="adam-input" id="quiz-description" name="description" rows="4" aria-describedby="quiz-description-help"><?= h($description) ?></textarea>
           <div class="small-hint" id="quiz-description-help">Briefly explain the purpose or context of the Quiz.</div>
+        </div>
+        <div class="qz-field">
+          <label for="quiz-public-prefix"><strong>Public URL Prefix</strong> <span class="muted">(optional)</span></label>
+          <input class="adam-input" id="quiz-public-prefix" name="public_prefix" value="<?= h($public_prefix) ?>" placeholder="Example: tpa" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
+          <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/tpa/register/</code>. Changing it changes every public URL for this Quiz.</div>
         </div>
       </div>
     </fieldset>

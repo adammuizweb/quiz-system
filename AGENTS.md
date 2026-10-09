@@ -13,7 +13,7 @@ Plugin quiz, proctoring, dan manajemen tes online untuk Jyavani CMS.
 | `add_action('admin_menu', ...)` | `plugin.php` | Sidebar menu |
 | `quiz_install_schema()` | `plugin.php` | Idempotent schema install on validated Quiz requests |
 | `add_action('wp_head', ...)` | `plugin.php` | Frontend CSS |
-| `register_frontend_route(...)` | `plugin.php` | Route `/quiz/*` |
+| `register_frontend_route(...)` | `plugin.php` | Exact `/quiz/` and per-Quiz public routes |
 | `plugin_manifest()` | `plugin.php` | Version check |
 | `settings_get()` / `settings_set()` | `plugin.php` | Version tracking |
 | `plugin_static_path()` | CMS | Enforces `static/plugins/quiz/` destinations |
@@ -48,13 +48,13 @@ Gunakan `$base/?page=...`, **bukan** `$base/index.php?page=...`. Contoh:
 
 ## Frontend
 
-Frontend quiz di `public/`, diakses via `register_frontend_route('quiz', ...)`. Dispatcher hanya boleh memuat entrypoint PHP yang tercantum eksplisit di `quiz_frontend_entrypoint()`; jangan membentuk path file dari URL request. API endpoints di `public/api/`.
+Frontend quiz di `public/`, diakses melalui route exact yang didaftarkan oleh `quiz_register_public_routes()` pada akhir fase frontend `init`; request dashboard mendaftarkan route pada akhir `plugins_loaded` agar pemeriksaan konflik Core melihat namespace yang sama. Prefix global dikonfigurasi lewat Quiz Settings, `/quiz/` tetap menjadi alias kompatibilitas, dan setiap Quiz dapat memiliki prefix publik unik. Dispatcher hanya boleh memuat entrypoint PHP yang tercantum eksplisit di `quiz_frontend_entrypoint()`; jangan membentuk path file dari URL request. API endpoints di `public/api/`.
 
 Asset yang dikelola Core harus dideklarasikan melalui `static.copy` ke `static/plugins/quiz/` dan direferensikan dengan URL `/static/plugins/quiz/...`.
 
 ## Dependencies
 
 - PHP >= 8.3
-- Jyavani Core >= 2.3.66
+- Jyavani Core >= 2.3.91
 - PDO, json, mbstring
 - Tabel: `quizzes`, `questions`, `answers`, `passages`, `categories`, `students`, `quiz_attempts`, dll. (schema di `schema.sql`)

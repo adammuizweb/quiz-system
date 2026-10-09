@@ -110,6 +110,7 @@ try {
   $attemptAlias = trim((string)($in['attempt'] ?? ''));
 
   if ($quiz_id <= 0) json_fail(400, 'quiz_id invalid');
+  if (!quiz_public_route_accepts_quiz($quiz_id)) json_fail(404, 'Not found');
   if ($attemptAlias !== '' && !preg_match('/^[a-zA-Z0-9_\-]{6,80}$/', $attemptAlias)) json_fail(400, 'attempt invalid');
 
   $student_cookie_id = isset($_COOKIE['quiz_cid']) ? trim((string)$_COOKIE['quiz_cid']) : '';

@@ -957,6 +957,7 @@
           '<div class="qdm-field"><span class="qdm-label">ID</span><span>#' + d.id + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Status</span><span>' + statusBadge + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Owner</span><span>' + escHtml(d.owner) + '</span></div>' +
+          (d.public_url ? '<div class="qdm-field"><span class="qdm-label">Public URL</span><span><a href="' + escHtml(d.public_url) + '" target="_blank" rel="noopener">' + escHtml(d.public_url) + '</a></span></div>' : '') +
           (d.description ? '<div class="qdm-field qdm-desc"><span class="qdm-label">Description</span><span>' + escHtml(d.description) + '</span></div>' : '') +
           schedHtml +
           '<div class="qdm-field"><span class="qdm-label">Created</span><span>' + escHtml(d.created_at) + '</span></div>' +
@@ -987,6 +988,9 @@
     var collaboratorsLink = d.can_manage_collaborators
       ? '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/quizzes/collaborators&quiz_id=' + d.id + '">Collaborators</a>'
       : '';
+    var publicLink = d.public_url
+      ? '<a class="btn-soft" href="' + escHtml(d.public_url) + '" target="_blank" rel="noopener">Open Registration</a>'
+      : '';
     var quizManageActions = d.can_manage_quizzes
       ? '<a class="adam-button" href="' + baseUrl + '/?page=admin/quiz/quizzes/edit&id=' + d.id + '">Edit</a>' +
         '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/duplicate" class="qdm-inline-form">' +
@@ -1004,6 +1008,7 @@
     document.getElementById('qdm-foot').innerHTML =
       '<div class="qdm-actions">' +
         quizManageActions +
+        publicLink +
         '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/master&quiz_id=' + d.id + '">Master Builder</a>' +
         '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/questions&quiz_id=' + d.id + '">Question List</a>' +
         '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/dump&quiz_id=' + d.id + '">Quality Check</a>' +

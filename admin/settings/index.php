@@ -28,6 +28,10 @@ $otp_email_enabled  = (settings_get($pdo, 'quiz_otp_email_enabled', '1') ?? '1')
 $otp_wa_enabled     = (settings_get($pdo, 'quiz_otp_whatsapp_enabled', '0') ?? '0') !== '0';
 $test_number_format = settings_get($pdo, 'quiz_test_number_format', 'QUIZ/{year}/{attempt_id:6}') ?? 'QUIZ/{year}/{attempt_id:6}';
 $test_number_format = preg_replace('/\{id(?=[:}])/', '{attempt_id', $test_number_format) ?? $test_number_format;
+$stored_global_public_prefix = function_exists('quiz_stored_global_public_prefix')
+  ? quiz_stored_global_public_prefix($pdo)
+  : 'quiz';
+$global_public_prefix = $stored_global_public_prefix;
 
 $quiz_start_mode  = settings_get($pdo, 'quiz_start_mode', 'all') ?? 'all';
 $quiz_start_ids   = settings_get($pdo, 'quiz_start_ids', '') ?? '';
@@ -60,6 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $otp_email_enabled = isset($_POST['quiz_otp_email_enabled']);
   $otp_wa_enabled = isset($_POST['quiz_otp_whatsapp_enabled']);
   $test_number_format = trim((string)($_POST['quiz_test_number_format'] ?? ''));
+  $global_public_prefix = trim((string)($_POST['quiz_global_public_prefix'] ?? 'quiz'));
 
   $current_from_name  = $from_name;
   $current_from_email = $from_email;
@@ -70,6 +75,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($otp_wa_enabled && $admin_wa === '') $add_error('The administrator WhatsApp number is required when WhatsApp verification is active.', 'quiz_admin_wa');
   if (!function_exists('quiz_normalize_test_number_format') || quiz_normalize_test_number_format($test_number_format) === null) {
     $add_error('Invalid Test Number format. {attempt_id} or {attempt_id:6} is required for uniqueness; {quiz_id} is optional.', 'quiz_test_number_format');
+  }
+  try {
+    $global_public_prefix = quiz_validate_global_public_prefix($pdo, $global_public_prefix, $stored_global_public_prefix);
+  } catch (\InvalidArgumentException $error) {
+    $add_error($error->getMessage(), 'quiz_global_public_prefix');
   }
 
   $quiz_start_mode  = trim((string)($_POST['quiz_start_mode'] ?? 'all'));
@@ -90,30 +100,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($limit_int < 1 || $limit_int > 999) $add_error('The maximum number must be between 1 and 999.', 'quiz_start_limit');
 
   if (!$errors) {
-    $ok1 = settings_set($pdo, 'quiz_email_from_name', $from_name, 1);
-    $ok2 = settings_set($pdo, 'quiz_email_from_address', $from_email, 1);
-    $ok3 = settings_set($pdo, 'quiz_admin_wa', $admin_wa, 1);
-    $okEmailEnabled = settings_set($pdo, 'quiz_otp_email_enabled', $otp_email_enabled ? '1' : '0', 1);
-    $okWaEnabled = settings_set($pdo, 'quiz_otp_whatsapp_enabled', $otp_wa_enabled ? '1' : '0', 1);
-    $okTestNumber = settings_set($pdo, 'quiz_test_number_format', $test_number_format, 1);
+    $settingsSaved = false;
+    if (!quiz_public_prefix_lock($pdo)) {
+      $add_error('The public URL namespace is busy. Try again.');
+    } else {
+      try {
+        $global_public_prefix = quiz_validate_global_public_prefix($pdo, $global_public_prefix, $stored_global_public_prefix);
+        if (!$pdo->beginTransaction()) throw new RuntimeException('Quiz Settings transaction could not start.');
+        $ok1 = settings_set($pdo, 'quiz_email_from_name', $from_name, 1);
+        $ok2 = settings_set($pdo, 'quiz_email_from_address', $from_email, 1);
+        $ok3 = settings_set($pdo, 'quiz_admin_wa', $admin_wa, 1);
+        $okEmailEnabled = settings_set($pdo, 'quiz_otp_email_enabled', $otp_email_enabled ? '1' : '0', 1);
+        $okWaEnabled = settings_set($pdo, 'quiz_otp_whatsapp_enabled', $otp_wa_enabled ? '1' : '0', 1);
+        $okTestNumber = settings_set($pdo, 'quiz_test_number_format', $test_number_format, 1);
+        $okGlobalPrefix = settings_set($pdo, 'quiz_global_public_prefix', $global_public_prefix, 1);
 
-    $ok4 = settings_set($pdo, 'quiz_start_mode', $quiz_start_mode, 1);
-    $ok5 = settings_set($pdo, 'quiz_start_ids', $quiz_start_ids, 1);
-    $ok6 = settings_set($pdo, 'quiz_start_order', $quiz_start_order, 1);
-    $ok7 = settings_set($pdo, 'quiz_start_manual', $quiz_start_manual, 1);
-    $ok8 = settings_set($pdo, 'quiz_start_limit', (string)$limit_int, 1);
+        $ok4 = settings_set($pdo, 'quiz_start_mode', $quiz_start_mode, 1);
+        $ok5 = settings_set($pdo, 'quiz_start_ids', $quiz_start_ids, 1);
+        $ok6 = settings_set($pdo, 'quiz_start_order', $quiz_start_order, 1);
+        $ok7 = settings_set($pdo, 'quiz_start_manual', $quiz_start_manual, 1);
+        $ok8 = settings_set($pdo, 'quiz_start_limit', (string)$limit_int, 1);
+        $settingsSaved = $ok1 && $ok2 && $ok3 && $okEmailEnabled && $okWaEnabled && $okTestNumber
+          && $okGlobalPrefix && $ok4 && $ok5 && $ok6 && $ok7 && $ok8;
+        if (!$settingsSaved) throw new RuntimeException('A Quiz setting could not be saved.');
+        if (!$pdo->commit()) throw new RuntimeException('Quiz Settings transaction could not commit.');
+      } catch (\InvalidArgumentException $error) {
+        $settingsSaved = false;
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        unset($GLOBALS['__jy_settings_autoload_cache']);
+        $add_error($error->getMessage(), 'quiz_global_public_prefix');
+      } catch (\Throwable $error) {
+        $settingsSaved = false;
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        unset($GLOBALS['__jy_settings_autoload_cache']);
+        error_log('[admin/quiz/settings] ' . get_class($error) . ' code=' . (string)$error->getCode());
+        $add_error('Quiz Settings could not be saved. Try again.');
+      } finally {
+        quiz_public_prefix_unlock($pdo);
+      }
+    }
 
-    if ($ok1 && $ok2 && $ok3 && $okEmailEnabled && $okWaEnabled && $okTestNumber && $ok4 && $ok5 && $ok6 && $ok7 && $ok8) {
+    if ($settingsSaved) {
       if (function_exists('adiwira_redirect_with_flash')) {
         adiwira_redirect_with_flash($self, 'success', 'Quiz Settings saved successfully.');
         exit;
       }
       $success_msg = 'Quiz Settings saved successfully.';
-    } else {
+    } elseif (!$errors) {
       $add_error('Quiz Settings could not be saved. Try again.');
     }
   }
 }
+
+try {
+  $active_global_public_prefix = quiz_global_public_prefix($pdo);
+} catch (\RuntimeException) {
+  $active_global_public_prefix = null;
+}
+$global_public_prefix_active = $active_global_public_prefix === $global_public_prefix;
 
 $selected_quiz_ids = array_filter(array_map('trim', explode(',', $quiz_start_ids)), fn($v) => $v !== '');
 $selected_quizzes = [];
@@ -151,6 +195,18 @@ $test_number_preview = function_exists('quiz_format_test_number')
   <aside class="qz-settings-summary" aria-label="Current form values">
     <dl>
       <div>
+        <dt>Global public URL</dt>
+        <dd>
+          <?php if ($global_public_prefix_active): ?>
+            <code>/<?= h($global_public_prefix) ?>/</code>
+          <?php elseif ($active_global_public_prefix !== null): ?>
+            <code>/<?= h($active_global_public_prefix) ?>/</code> active; configured <code>/<?= h($global_public_prefix) ?>/</code> is unavailable
+          <?php else: ?>
+            No global public route is available
+          <?php endif; ?>
+        </dd>
+      </div>
+      <div>
         <dt>Participant Verification</dt>
         <dd data-qz-settings-summary="verification"><?= h($verification_summary) ?></dd>
       </div>
@@ -187,6 +243,33 @@ $test_number_preview = function_exists('quiz_format_test_number')
 
   <form method="post" id="qz-settings-form" class="qz-settings-form" novalidate>
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+
+    <section class="settings-section settings-section--general" data-open="1">
+      <button type="button" class="settings-section-toggle" aria-expanded="true" aria-controls="qz-public-url-section">
+        <span class="qz-section-heading">
+          <span class="qz-section-title">Global Public URL</span>
+          <span class="qz-section-description">Set the public namespace used by Quizzes without a dedicated prefix.</span>
+        </span>
+        <span class="chevron" aria-hidden="true">&#8250;</span>
+      </button>
+      <div class="settings-section-body" id="qz-public-url-section">
+        <div class="qz-field">
+          <label for="quiz_global_public_prefix">Global URL slug</label>
+          <input type="text" name="quiz_global_public_prefix" id="quiz_global_public_prefix"
+            value="<?= h($global_public_prefix) ?>" class="inp inp-w100" required maxlength="63"
+            pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" placeholder="quiz"
+            aria-describedby="quiz_global_public_prefix_help<?= isset($field_errors['quiz_global_public_prefix']) ? ' quiz_global_public_prefix_error' : '' ?>"
+            <?= isset($field_errors['quiz_global_public_prefix']) ? 'aria-invalid="true"' : '' ?>>
+          <?php if (isset($field_errors['quiz_global_public_prefix'])): ?>
+            <p class="qz-field-error" id="quiz_global_public_prefix_error"><?= h($field_errors['quiz_global_public_prefix']) ?></p>
+          <?php endif; ?>
+          <p class="qz-field-help" id="quiz_global_public_prefix_help">Use 1-63 lowercase letters, numbers, or hyphens. The configured public URL is <code>/<?= h($global_public_prefix) ?>/</code>. The legacy <code>/quiz/</code> route remains available for compatibility.</p>
+          <?php if (!$global_public_prefix_active): ?>
+            <p class="qz-field-error">This configured slug is not currently active because its route is unavailable. Choose a conflict-free slug and save again.</p>
+          <?php endif; ?>
+        </div>
+      </div>
+    </section>
 
     <section class="settings-section settings-section--general" data-open="1">
       <button type="button" class="settings-section-toggle" aria-expanded="true" aria-controls="qz-number-section">
@@ -299,7 +382,7 @@ $test_number_preview = function_exists('quiz_format_test_number')
       <button type="button" class="settings-section-toggle" aria-expanded="true" aria-controls="qz-start-section">
         <span class="qz-section-heading">
           <span class="qz-section-title">Start Page</span>
-          <span class="qz-section-description">Choose which quizzes are visible and set their display order.</span>
+          <span class="qz-section-description">Choose which quizzes are visible at <code>/<?= h($global_public_prefix) ?>/start/</code> and set their display order. Dedicated Quiz prefixes bypass this list.</span>
         </span>
         <span class="chevron" aria-hidden="true">&#8250;</span>
       </button>
@@ -402,7 +485,7 @@ $test_number_preview = function_exists('quiz_format_test_number')
     </section>
 
     <div class="qz-form-actions">
-      <p>Review Participant Verification channels and the Start Page display before applying changes.</p>
+      <p>Review the Global Public URL, Participant Verification channels, and Start Page display before applying changes.</p>
       <button type="submit" class="adam-button">Save changes</button>
     </div>
   </form>

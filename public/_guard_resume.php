@@ -86,8 +86,9 @@ if (!function_exists('qz_guard_resume')) {
   function qz_guard_resume(PDO $pdo): void {
     // jangan redirect kalau sudah di take/api (hindari loop)
     $path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
-    if (strpos($path, '/quiz/take') === 0) return;
-    if (strpos($path, '/quiz/api/') === 0) return;
+    $publicBase = quiz_public_base();
+    if (strpos($path, $publicBase . '/take') === 0) return;
+    if (strpos($path, $publicBase . '/api/') === 0) return;
 
     // anti BFCache / back-button nge-bypass
     if (!headers_sent()) {
@@ -148,7 +149,7 @@ if (!function_exists('qz_guard_resume')) {
         $tokHash = qz_token_cookie_hash($quizId);
 
         if ($tokHash !== '' && hash_equals((string)$att['token_hash'], $tokHash)) {
-          qz_redirect('/quiz/take/?a=' . rawurlencode((string)$att['attempt_alias']));
+          qz_redirect(quiz_public_url_for_quiz($pdo, $quizId, 'take', ['a' => (string)$att['attempt_alias']]));
         }
 
         // ACTIVE tapi token mismatch -> jangan resume paksa; cookie alias boleh dibersihkan agar tidak loop
@@ -178,7 +179,7 @@ if (!function_exists('qz_guard_resume')) {
 
       if ($tokHash !== '' && hash_equals((string)$att['token_hash'], $tokHash)) {
         qz_cookie_set('quiz_attempt', (string)$att['attempt_alias']);
-        qz_redirect('/quiz/take/?a=' . rawurlencode((string)$att['attempt_alias']));
+        qz_redirect(quiz_public_url_for_quiz($pdo, $quizId, 'take', ['a' => (string)$att['attempt_alias']]));
       }
     }
   }

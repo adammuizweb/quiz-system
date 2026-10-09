@@ -137,6 +137,10 @@ function quiz_upgrade_schema(\PDO $pdo): void {
 
     // 1.5.0 is additive only. Existing quiz rows receive the exact 1.4.13 behavior.
     $addColumn('quizzes', 'shuffle_answers', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER duration_minutes');
+    $addColumn('quizzes', 'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title');
+    if (!$indexExists('quizzes', 'uq_quizzes_public_prefix')) {
+        $pdo->exec('ALTER TABLE quizzes ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)');
+    }
     $addColumn('quizzes', 'timer_warning_seconds', 'VARCHAR(255) NULL AFTER shuffle_answers');
     $addColumn('quizzes', 'allow_mark_for_review', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER timer_warning_seconds');
     $addColumn('quizzes', 'result_visibility', "ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden' AFTER allow_mark_for_review");
@@ -281,7 +285,7 @@ function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshot
 // --- Idempotent schema installation on Quiz requests ---
 function quiz_install_schema(\PDO $pdo): bool {
     try {
-        $schemaRevision = '20261008-submitted-delivery-snapshot-backfill';
+        $schemaRevision = '20261009-per-quiz-public-prefix';
         $manifest = plugin_manifest('quiz');
         $version = is_array($manifest) && is_string($manifest['version'] ?? null)
             ? $manifest['version']
@@ -327,12 +331,17 @@ function quiz_schema_is_ready(\PDO $pdo): bool {
     $version = is_array($manifest) ? (string)($manifest['version'] ?? '') : '';
     return $version !== ''
         && settings_get($pdo, 'quiz_test_version', '') === $version
-        && settings_get($pdo, 'quiz_schema_revision', '') === '20261008-submitted-delivery-snapshot-backfill';
+        && settings_get($pdo, 'quiz_schema_revision', '') === '20261009-per-quiz-public-prefix';
 }
 
-/** Resolve only explicitly supported public PHP entrypoints. */
-function quiz_frontend_entrypoint(string $route): ?string {
-    $entrypoints = [
+// Shared helpers are required before public routes are registered.
+$helperFile = __DIR__ . '/includes/helpers.php';
+if (is_file($helperFile)) require_once $helperFile;
+$extensionFile = __DIR__ . '/includes/extensions.php';
+if (is_file($extensionFile)) require_once $extensionFile;
+
+function quiz_frontend_routes(): array {
+    return [
         '' => 'index.php',
         'index.php' => 'index.php',
         'register' => 'register/index.php',
@@ -356,6 +365,11 @@ function quiz_frontend_entrypoint(string $route): ?string {
         'api/set_review.php' => 'api/set_review.php',
         'api/submit.php' => 'api/submit.php',
     ];
+}
+
+/** Resolve only explicitly supported public PHP entrypoints. */
+function quiz_frontend_entrypoint(string $route): ?string {
+    $entrypoints = quiz_frontend_routes();
 
     $relative = $entrypoints[trim($route, '/')] ?? null;
     if ($relative === null) return null;
@@ -369,45 +383,89 @@ function quiz_frontend_entrypoint(string $route): ?string {
     return $file;
 }
 
-// --- Frontend route: /quiz/* ---
-register_frontend_route('quiz', function (\PDO $pdo): void {
-    if (!quiz_schema_is_ready($pdo)) {
-        http_response_code(503);
-        echo 'Quiz is not ready. An authorized administrator must open the Quiz dashboard first.';
-        return;
+function quiz_register_public_prefix(string $prefix, ?int $quizId = null): bool {
+    $prefix = trim($prefix, '/');
+    if ($prefix === '') return false;
+    $paths = [];
+    foreach (array_keys(quiz_frontend_routes()) as $route) {
+        $paths[] = $prefix . ($route === '' ? '' : '/' . $route);
     }
 
-    $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
-    $path = rawurldecode($path);
-
-    $route = $path === '/quiz'
-        ? ''
-        : (str_starts_with($path, '/quiz/') ? substr($path, strlen('/quiz/')) : null);
-    $entrypoint = is_string($route) ? quiz_frontend_entrypoint($route) : null;
-    if ($entrypoint !== null) {
-        require $entrypoint;
-        exit;
+    if (function_exists('get_frontend_route_definitions')) {
+        foreach (get_frontend_route_definitions() as $definition) {
+            $existing = (string)($definition['path'] ?? '');
+            $match = (string)($definition['match'] ?? 'prefix');
+            if (in_array($existing, $paths, true)
+                || ($match === 'prefix' && $existing !== ''
+                    && ($existing === $prefix || str_starts_with($prefix, $existing . '/')))) {
+                error_log('[quiz] Public prefix route conflict: ' . $prefix);
+                return false;
+            }
+        }
     }
 
-    http_response_code(404);
-    echo 'Quiz page not found';
-    exit;
-});
+    foreach (quiz_frontend_routes() as $route => $_relative) {
+        $path = $prefix . ($route === '' ? '' : '/' . $route);
+        $handler = static function (\PDO $pdo) use ($prefix, $quizId, $route): void {
+            if (!quiz_schema_is_ready($pdo)) {
+                http_response_code(503);
+                echo 'Quiz is not ready. An authorized administrator must open the Quiz dashboard first.';
+                return;
+            }
+            quiz_set_public_route_context($prefix, $quizId);
+            $entrypoint = quiz_frontend_entrypoint($route);
+            if ($entrypoint === null) quiz_render_core_404();
+            require $entrypoint;
+        };
+        if (!register_frontend_route($path, $handler, ['match' => 'exact'])) return false;
+        $GLOBALS['quiz_public_route_paths'][$path] = true;
+    }
+    if (($quizId ?? 0) > 0) $GLOBALS['quiz_public_registered_quiz_prefixes'][$quizId] = $prefix;
+    return true;
+}
 
-// --- Include shared helpers ---
-$helperFile = __DIR__ . '/includes/helpers.php';
-if (is_file($helperFile)) {
-    require_once $helperFile;
+function quiz_register_public_routes(): void {
+    if (($GLOBALS['quiz_public_routes_initialized'] ?? false) === true) return;
+    if (quiz_register_public_prefix('quiz')) $GLOBALS['quiz_public_registered_global_prefix'] = 'quiz';
+
+    try {
+        $routePdo = $GLOBALS['pdo'] ?? null;
+        if ($routePdo instanceof \PDO) {
+            $globalPrefix = quiz_stored_global_public_prefix($routePdo);
+            if ($globalPrefix !== 'quiz'
+                && quiz_public_prefix_conflict($routePdo, $globalPrefix, null, true, false) === null
+                && quiz_register_public_prefix($globalPrefix)) {
+                $GLOBALS['quiz_public_registered_global_prefix'] = $globalPrefix;
+            }
+            $prefixes = $routePdo->query("SELECT id, public_prefix FROM quizzes WHERE public_prefix IS NOT NULL AND public_prefix<>'' ORDER BY id ASC");
+            foreach ($prefixes !== false ? $prefixes->fetchAll(\PDO::FETCH_ASSOC) : [] as $row) {
+                try {
+                    $prefix = quiz_normalize_public_prefix($row['public_prefix'] ?? null);
+                    if ($prefix !== null && quiz_public_prefix_conflict($routePdo, $prefix, (int)$row['id'], false, false) === null) {
+                        quiz_register_public_prefix($prefix, (int)$row['id']);
+                    }
+                } catch (\InvalidArgumentException) {
+                    error_log('[quiz] Ignored an invalid stored public prefix.');
+                }
+            }
+        }
+    } catch (\Throwable) {
+        // Existing installations register custom prefixes after the admin migration succeeds.
+    } finally {
+        $GLOBALS['quiz_public_routes_initialized'] = true;
+    }
 }
-$extensionFile = __DIR__ . '/includes/extensions.php';
-if (is_file($extensionFile)) {
-    require_once $extensionFile;
+
+if (function_exists('add_action')) {
+    $quizRouteRegistrationHook = defined('ADMIN_BASE_PATH') ? 'plugins_loaded' : 'init';
+    add_action($quizRouteRegistrationHook, 'quiz_register_public_routes', PHP_INT_MAX);
 }
+else quiz_register_public_routes();
 
 function quiz_is_public_request(): bool {
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
-    $path = rawurldecode($path);
-    return $path === '/quiz' || str_starts_with($path, '/quiz/');
+    $path = trim(rawurldecode($path), '/');
+    return isset($GLOBALS['quiz_public_route_paths'][$path]);
 }
 
 function quiz_is_admin_request(): bool {
@@ -428,8 +486,8 @@ add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
     $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
     $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
-    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.6.0';
-    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.6.0';
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.7.0';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.7.0';
     echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
     echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });

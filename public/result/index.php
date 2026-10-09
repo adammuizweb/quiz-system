@@ -29,6 +29,8 @@ $stmt = $pdo->prepare('SELECT a.id, a.quiz_id, a.status, a.token_hash, a.user_ag
 $stmt->execute([':alias' => $alias, ':student_id' => $studentId]);
 $attempt = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$attempt) { http_response_code(404); exit('Result not found'); }
+quiz_public_require_quiz((int)$attempt['quiz_id']);
+$backUrl = quiz_public_url_for_quiz($pdo, (int)$attempt['quiz_id'], 'start');
 $token = (string)($_COOKIE['quiz_token_' . (int)$attempt['quiz_id']] ?? '');
 if ($token === '' || !hash_equals((string)$attempt['token_hash'], hash('sha256', $token))
     || !hash_equals((string)$attempt['user_agent_hash'], hash('sha256', (string)($_SERVER['HTTP_USER_AGENT'] ?? '')))) {
@@ -42,7 +44,7 @@ if (!quiz_attempt_result_is_ready($pdo, (int)$attempt['id'])) {
   $page_title = 'Quiz Result';
   $content_html = '<section class="st"><div class="st-wrap"><div class="st-hero"><div class="st-badge">RESULT</div>'
     . '<h1 class="st-h1">Result Unavailable</h1><div class="st-desc">A complete verified result is not available for this submission.</div></div>'
-    . '<div class="st-box"><a class="st-btn primary" href="/quiz/start/">Back to Quiz List</a></div></div></section>';
+    . '<div class="st-box"><a class="st-btn primary" href="' . h($backUrl) . '">Back to Quiz List</a></div></div></section>';
   require __DIR__ . '/../layout.php';
   return;
 }
@@ -89,5 +91,5 @@ $content_html = '<section class="st"><div class="st-wrap"><div class="st-hero"><
   . '<div class="st-box ok"><div class="st-box-title">Overall Summary</div><p><strong>Score:</strong> ' . h($scoreText) . '</p>'
   . '<p><strong>Answered:</strong> ' . $answered . '/' . $totalQuestions . '</p><p><strong>Elapsed time:</strong> ' . h($elapsedText) . '</p>'
   . '<p><strong>Submitted:</strong> ' . h((string)$attempt['submitted_at']) . '</p></div>' . $categoryHtml
-  . '<div style="margin-top:14px"><a class="st-btn primary" href="/quiz/start/">Back to Quiz List</a></div></div></section>';
+  . '<div style="margin-top:14px"><a class="st-btn primary" href="' . h($backUrl) . '">Back to Quiz List</a></div></div></section>';
 require __DIR__ . '/../layout.php';

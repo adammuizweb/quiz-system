@@ -58,7 +58,7 @@ try {
     $where[] = qz_quiz_access_sql($pdo, $user['id'], $params, 'q', 'list_uid');
   }
   if ($q !== '') {
-    $where[] = '(q.title LIKE :q OR q.description LIKE :q OR CAST(q.id AS CHAR) = :qid)';
+    $where[] = '(q.title LIKE :q OR q.description LIKE :q OR q.public_prefix LIKE :q OR CAST(q.id AS CHAR) = :qid)';
     $params[':q'] = '%' . $q . '%';
     $params[':qid'] = $q;
   }
@@ -81,7 +81,7 @@ try {
 
   $sql = "
     SELECT
-      q.id, q.title, q.description,
+      q.id, q.title, q.public_prefix, q.description,
       q.is_active, q.is_primary,
       q.questions_per_attempt, q.duration_minutes,
       q.start_at, q.end_at, q.created_at,
@@ -166,7 +166,7 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
 
   <form method="get" class="qz-command-bar qz-filterbar">
     <input type="hidden" name="page" value="<?= h($pluginPage) ?>">
-    <label class="qz-field qz-filterbar__search" for="quizzes-q"><span>Search Quizzes</span><input class="adam-input" type="search" id="quizzes-q" name="q" value="<?= h($q) ?>" placeholder="ID, title, or description..."></label>
+    <label class="qz-field qz-filterbar__search" for="quizzes-q"><span>Search Quizzes</span><input class="adam-input" type="search" id="quizzes-q" name="q" value="<?= h($q) ?>" placeholder="ID, title, prefix, or description..."></label>
     <label class="qz-field" for="quizzes-status"><span>Status</span>
       <select class="adam-input" id="quizzes-status" name="status">
         <option value="">All Statuses</option>
@@ -259,11 +259,14 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       $ansTotal = (int)($qz['answer_count'] ?? 0);
       $badZero  = (int)($qz['choice_no_answer_count'] ?? 0);
       $missingAns = ($badZero > 0);
+      $publicPrefix = trim((string)($qz['public_prefix'] ?? ''));
+      $publicUrl = $publicPrefix !== '' ? '/' . $publicPrefix . '/register/' : '';
 
       $quizJson = h((string)json_encode([
         'id' => $qid,
         'title' => $qz['title'],
         'description' => $qz['description'] ?? '',
+        'public_url' => $publicUrl,
         'owner' => $ownerLine,
         'is_active' => $isActive,
         'is_primary' => $isPrimary,
@@ -287,6 +290,7 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         <div class="qz-row-title"><?= h($qz['title']) ?></div>
         <div class="qz-row-sub">
           <span><?= h($ownerLine) ?></span>
+          <?php if ($publicUrl !== ''): ?><span class="sep">&bull;</span><a href="<?= h($publicUrl) ?>" target="_blank" rel="noopener"><?= h($publicUrl) ?></a><?php endif; ?>
           <?php if (!empty($qz['description'])): ?>
             <span class="sep">&bull;</span>
             <span class="desc-text"><?= h(cut($qz['description'], 100)) ?></span>

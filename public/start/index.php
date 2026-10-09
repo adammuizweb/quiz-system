@@ -53,10 +53,15 @@ $now = date('Y-m-d H:i:s');
 $err = trim((string)($_GET['err'] ?? ''));
 $msg = trim((string)($_GET['msg'] ?? ''));
 
-// 1) Jika quiz dipilih via query param
+// 1) Dedicated prefixes are pinned to one Quiz; /quiz/ keeps explicit selection.
 $quiz_id = (int)($_GET['quiz'] ?? 0);
+$boundQuizId = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
+if ($boundQuizId > 0) {
+  if ($quiz_id > 0 && $quiz_id !== $boundQuizId) quiz_render_core_404();
+  $quiz_id = $boundQuizId;
+}
 if ($quiz_id > 0) {
-  go('/quiz/start/confirm/?quiz=' . $quiz_id);
+  go(quiz_public_url('start/confirm', ['quiz' => $quiz_id]));
 }
 
 // pastikan pdo valid
@@ -105,7 +110,7 @@ if ($auto && $hasPrimary) {
         && (empty($primary['start_at']) || $now >= (string)$primary['start_at'])
         && (empty($primary['end_at'])   || $now <= (string)$primary['end_at']);
 
-      if ($open) go('/quiz/start/confirm/?quiz=' . (int)$primary['id']);
+      if ($open) go(quiz_public_url_for_quiz($pdo, (int)$primary['id'], 'start/confirm', ['quiz' => (int)$primary['id']]));
     }
   } catch (Throwable $e) {
     error_log("[quiz/start] primary check error: " . $e->getMessage());
@@ -231,7 +236,7 @@ if (!empty($rows)) {
 
     // default action
     $btnText = 'Open';
-    $btnHref = '/quiz/start/confirm/?quiz=' . $qid;
+    $btnHref = quiz_public_url_for_quiz($pdo, $qid, 'start/confirm', ['quiz' => $qid]);
     $btnCls  = 'qz-btn';
     $btnAttr = '';
 
@@ -244,7 +249,7 @@ if (!empty($rows)) {
         if (quiz_safe_result_visibility($r['result_visibility'] ?? 'hidden') !== 'hidden' && $alias !== ''
             && quiz_attempt_result_is_ready($pdo, (int)($r['attempt_id'] ?? 0))) {
           $btnText = 'View result';
-          $btnHref = '/quiz/result/?a=' . rawurlencode($alias);
+          $btnHref = quiz_public_url_for_quiz($pdo, $qid, 'result', ['a' => $alias]);
         } else {
           $btnText = 'Already submitted';
           $btnHref = '#';
@@ -253,11 +258,11 @@ if (!empty($rows)) {
         }
       } elseif (in_array($st, ['verified','in_progress'], true) && $alias !== '') {
         $btnText = 'Continue';
-        $btnHref = '/quiz/take/?a=' . rawurlencode($alias);
+        $btnHref = quiz_public_url_for_quiz($pdo, $qid, 'take', ['a' => $alias]);
       } else {
         // registered / expired / unknown -> back to confirm
         $btnText = 'Open';
-        $btnHref = '/quiz/start/confirm/?quiz=' . $qid;
+        $btnHref = quiz_public_url_for_quiz($pdo, $qid, 'start/confirm', ['quiz' => $qid]);
       }
     }
 

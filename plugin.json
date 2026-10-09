@@ -1,6 +1,6 @@
 {
   "name": "quiz",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "title": "Quiz",
   "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
@@ -14,7 +14,7 @@
     "slug": "quiz"
   },
   "requires": {
-    "jyavani": ">=2.3.74",
+    "jyavani": ">=2.3.91",
     "php": ">=8.3",
     "extensions": [
       "pdo",

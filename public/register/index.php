@@ -32,18 +32,6 @@ function uuid_v4(): string {
   return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
 
-/**
- * Anti open redirect: hanya izinkan path internal /quiz/...
- */
-function safe_next(string $next): string {
-  $next = trim($next);
-  if ($next === '') return '/quiz/start/';
-  if ($next[0] !== '/') return '/quiz/start/';
-  if (strpos($next, '//') !== false) return '/quiz/start/';
-  if (strpos($next, '/quiz/') !== 0) return '/quiz/start/'; // kunci ke prefix quiz
-  return $next;
-}
-
 function normalize_phone_id(string $phone): string {
   $p = trim($phone);
   if ($p === '') return '';
@@ -53,7 +41,7 @@ function normalize_phone_id(string $phone): string {
   return $p;
 }
 
-$next = safe_next((string)($_GET['next'] ?? $_POST['next'] ?? '/quiz/start/'));
+$next = quiz_public_safe_next((string)($_GET['next'] ?? $_POST['next'] ?? ''), 'start');
 
 $cookieName = 'quiz_cid';
 $cookie_id = isset($_COOKIE[$cookieName]) ? trim((string)$_COOKIE[$cookieName]) : '';

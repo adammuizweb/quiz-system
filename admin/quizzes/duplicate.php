@@ -39,11 +39,11 @@ try {
 
   $insQuiz = $pdo->prepare("
     INSERT INTO quizzes
-      (created_by, title, description, question_pool_size, questions_per_attempt, duration_minutes,
+      (created_by, title, public_prefix, description, question_pool_size, questions_per_attempt, duration_minutes,
        shuffle_answers, timer_warning_seconds, allow_mark_for_review, result_visibility,
        is_active, is_primary, start_at, end_at, created_at, updated_at)
     VALUES
-      (:created_by, :title, :description, 0, :qpa, :dur, :shuffle_answers, :timer_warnings, :allow_review, :result_visibility,
+      (:created_by, :title, NULL, :description, 0, :qpa, :dur, :shuffle_answers, :timer_warnings, :allow_review, :result_visibility,
        0, 0, NULL, NULL, NOW(), NOW())
   ");
   $insQuiz->execute([

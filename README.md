@@ -2,7 +2,7 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.6.0`.
+Current release: `1.7.0`.
 
 ## Admin Experience
 
@@ -14,7 +14,7 @@ and quality-control workflows retain their existing interface and behavior.
 
 ## Requirements
 
-- Jyavani Core 2.3.74 or newer
+- Jyavani Core 2.3.91 or newer
 - PHP 8.3 or newer
 - PDO, JSON, and mbstring PHP extensions
 
@@ -31,7 +31,12 @@ PhpSpreadsheet on 64-bit PHP (`ctype`, `dom`, `fileinfo`, `filter`, `gd`, `iconv
 shows Excel as the primary export when those extensions are available and keeps
 a semicolon-delimited CSV export as the fallback.
 
-Public quiz routes are served below `/quiz/`.
+Public quiz routes use a global prefix configured in Quiz Settings, defaulting
+to `quiz`. `/quiz/` remains available as the compatibility namespace when the
+global prefix changes. Each Quiz can also claim one unique public prefix, such
+as `pmb` or `tpa`, producing routes like `/pmb/register/` and `/tpa/register/`.
+Only explicit Quiz endpoints are claimed; unknown descendants continue to
+Jyavani's normal content and 404 resolver.
 
 ## Authorization Model
 

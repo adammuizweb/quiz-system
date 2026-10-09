@@ -44,6 +44,9 @@ function gen_otp6(): string {
   return str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 }
 
+$startUrl = quiz_public_url('start');
+$registerStartUrl = quiz_public_url('register', ['next' => $startUrl]);
+
 function send_mail_basic(
   string $to,
   string $subject,
@@ -74,14 +77,14 @@ if (!in_array($via, ['email','whatsapp'], true)) {
 $alias = trim((string)($_POST['a'] ?? ''));
 if ($alias === '') $alias = trim((string)($_COOKIE['quiz_attempt'] ?? ''));
 if ($alias === '' || !preg_match('/^[a-zA-Z0-9_\-]{6,80}$/', $alias)) {
-  go('/quiz/start/?err=' . rawurlencode('Invalid attempt. Restart from Start.'));
+  go(quiz_public_url('start', ['err' => 'Invalid attempt. Restart from Start.']));
 }
 
 // student cookie
 $cookieName = 'quiz_cid';
 $cookie_id = isset($_COOKIE[$cookieName]) ? trim((string)$_COOKIE[$cookieName]) : '';
 if ($cookie_id === '' || !preg_match('/^[a-f0-9\-]{36}$/i', $cookie_id)) {
-  go('/quiz/register/?next=' . urlencode('/quiz/start/'));
+  go($registerStartUrl);
 }
 
 try {
@@ -90,7 +93,7 @@ try {
   $st->execute([':cid'=>$cookie_id]);
   $student = $st->fetch(PDO::FETCH_ASSOC);
   $sid = (int)($student['id'] ?? 0);
-  if ($sid <= 0) go('/quiz/register/?next=' . urlencode('/quiz/start/'));
+  if ($sid <= 0) go($registerStartUrl);
 
   $pdo->beginTransaction();
 
@@ -112,22 +115,26 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
 
   if (!$A) {
     $pdo->rollBack();
-    go('/quiz/start/?err=' . rawurlencode('Attempt not found. Restart from Start.'));
+    go(quiz_public_url('start', ['err' => 'Attempt not found. Restart from Start.']));
   }
 
   $quiz_id = (int)$A['quiz_id'];
+  if (!quiz_public_route_accepts_quiz($quiz_id)) {
+    $pdo->rollBack();
+    quiz_render_core_404();
+  }
   $status  = (string)($A['status'] ?? '');
 
   $methodEnabled = $via === 'email' ? $email_enabled : $whatsapp_enabled;
   if (!$methodEnabled) {
     $pdo->commit();
-    go('/quiz/verify/?quiz='.(int)$quiz_id.'&err=' . rawurlencode('This OTP request method is disabled. Please use an available method or contact admin.'));
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'This OTP request method is disabled. Please use an available method or contact admin.']));
   }
 
   // kalau sudah berjalan / selesai, jangan kirim OTP lagi
   if (in_array($status, ['in_progress','verified','submitted'], true) || !empty($A['email_verified_at'] ?? null)) {
     $pdo->commit();
-    go('/quiz/take/?a=' . rawurlencode($alias));
+    go(quiz_public_url('take', ['a' => $alias]));
   }
 
   // security: token cookie + UA wajib match
@@ -135,7 +142,7 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
   $token_plain = isset($_COOKIE[$tokenCookieName]) ? (string)$_COOKIE[$tokenCookieName] : '';
   if ($token_plain === '') {
     $pdo->commit();
-    go('/quiz/start/confirm/?quiz='.(int)$quiz_id.'&err=' . rawurlencode('Token does not exist. Please try again from Confirmation.'));
+    go(quiz_public_url('start/confirm', ['quiz' => $quiz_id, 'err' => 'Token does not exist. Please try again from Confirmation.']));
   }
 
   $tokHash = hash('sha256', $token_plain);
@@ -146,7 +153,7 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
     !hash_equals((string)$A['user_agent_hash'], $uaH)
   ) {
     $pdo->commit();
-    go('/quiz/start/confirm/?quiz='.(int)$quiz_id.'&err=' . rawurlencode('Invalid access. Please use the same browser/device.'));
+    go(quiz_public_url('start/confirm', ['quiz' => $quiz_id, 'err' => 'Invalid access. Please use the same browser/device.']));
   }
 
   $MAX_TRIES = 10;
@@ -159,7 +166,7 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
           ->execute([':id'=>(int)$A['id']]);
     }
     $pdo->commit();
-    go('/quiz/verify/?quiz='.(int)$quiz_id.'&err=' . rawurlencode('OTP is locked. Contact admin for a reset attempt.'));
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'OTP is locked. Contact admin for a reset attempt.']));
   }
 
   // pastikan OTP ada (sekali)
@@ -174,7 +181,7 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
 
     if (!empty($A['otp_email_sent_at'])) {
       $pdo->commit();
-      go('/quiz/verify/?quiz='.(int)$quiz_id.'&msg=' . rawurlencode('The OTP email has been sent. Please check your Inbox/Spam.'));
+      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'The OTP email has been sent. Please check your Inbox/Spam.']));
     }
 
     // mark sent dulu (rule 1x)
@@ -191,7 +198,7 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
     $to = trim((string)($A['contact_email'] ?? ''));
     if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
       $fallback = $whatsapp_enabled ? 'Use WhatsApp or contact admin.' : 'Contact admin.';
-      go('/quiz/verify/?quiz='.(int)$quiz_id.'&err=' . rawurlencode('Invalid email. ' . $fallback));
+      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'Invalid email. ' . $fallback]));
     }
 
     $name = (string)($student['name'] ?? 'Peserta');
@@ -211,16 +218,16 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
     $ok = send_mail_basic($to, $subject, $html, $mail_from_name, $mail_from_email);
     if (!$ok) {
       $fallback = $whatsapp_enabled ? 'Please use WhatsApp or contact admin.' : 'Please contact admin.';
-      go('/quiz/verify/?quiz='.(int)$quiz_id.'&err=' . rawurlencode('Failed to send OTP email. ' . $fallback));
+      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'Failed to send OTP email. ' . $fallback]));
     }
 
-    go('/quiz/verify/?quiz='.(int)$quiz_id.'&msg=' . rawurlencode('The OTP has been sent to your email. Check your inbox/spam..'));
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'The OTP has been sent to your email. Check your inbox/spam..']));
 
   } else { // whatsapp
 
     if (!empty($A['otp_wa_sent_at'])) {
       $pdo->commit();
-      go('/quiz/verify/?quiz='.(int)$quiz_id.'&msg=' . rawurlencode('WhatsApp request has already been made. Please wait admin.'));
+      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'WhatsApp request has already been made. Please wait admin.']));
     }
 
     $pdo->prepare("
@@ -232,11 +239,11 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
     ")->execute([':id'=>(int)$A['id']]);
 
     $pdo->commit();
-    go('/quiz/verify/?quiz='.(int)$quiz_id.'&msg=' . rawurlencode('Your WhatsApp request has been recorded. Please wait for the admin to send you an OTP.'));
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Your WhatsApp request has been recorded. Please wait for the admin to send you an OTP.']));
   }
 
 } catch (Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log('[quiz/send_otp attempt] ' . $e->getMessage());
-  go('/quiz/start/?err=' . rawurlencode('An error occurred. Please try again.'));
+  go(quiz_public_url('start', ['err' => 'An error occurred. Please try again.']));
 }

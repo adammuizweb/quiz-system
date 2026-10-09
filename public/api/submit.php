@@ -38,6 +38,7 @@ $quiz_id = (int)($in['quiz_id'] ?? 0);
 $attemptAlias = trim((string)($in['attempt'] ?? ''));
 
 if ($quiz_id <= 0) json_fail(400, 'quiz_id invalid');
+if (!quiz_public_route_accepts_quiz($quiz_id)) json_fail(404, 'Not found');
 if ($attemptAlias === '' || !preg_match('/^[a-zA-Z0-9_\-]{6,80}$/', $attemptAlias)) json_fail(400, 'attempt invalid');
 
 // cookies
@@ -91,7 +92,7 @@ try {
     $alreadyData = ['already_submitted'=>true];
     if (quiz_safe_result_visibility($attempt['result_visibility'] ?? 'hidden') !== 'hidden'
         && quiz_attempt_result_is_ready($pdo, (int)$attempt['id'])) {
-      $alreadyData['result_url'] = '/quiz/result/?a=' . rawurlencode($attemptAlias);
+      $alreadyData['result_url'] = quiz_public_url('result', ['a' => $attemptAlias]);
     }
     echo json_encode(['ok'=>true,'data'=>$alreadyData], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
     exit;

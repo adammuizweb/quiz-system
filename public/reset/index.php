@@ -12,22 +12,7 @@ if (!headers_sent()) {
 
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
-function safe_next(string $next): string {
-  $next = trim($next);
-  if (!str_starts_with($next, '/quiz/')) return '/quiz/register/';
-
-  $parts = parse_url($next);
-  if ($parts === false || isset($parts['scheme']) || isset($parts['host']) || isset($parts['user'])) {
-    return '/quiz/register/';
-  }
-  $path = rawurldecode((string)($parts['path'] ?? ''));
-  if (!str_starts_with($path, '/quiz/')) return '/quiz/register/';
-  if (str_contains($path, '//') || str_contains($path, '\\')) return '/quiz/register/';
-  if (preg_match('~(?:^|/)\.\.(?:/|$)|[\x00-\x1F\x7F]~', $path)) return '/quiz/register/';
-  return $next;
-}
-
-$next = safe_next((string)($_GET['next'] ?? '/quiz/register/'));
+$next = quiz_public_safe_next((string)($_GET['next'] ?? ''), 'register');
 $isReset = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
 if ($isReset && !qz_public_csrf_check(qz_public_csrf_from_request())) {
   http_response_code(419);

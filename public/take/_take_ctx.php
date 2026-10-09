@@ -772,6 +772,11 @@ function qz_resequence_attempt_questions(PDO $pdo, int $attempt_id): void {
    ========================= */
 $alias = trim((string)($_GET['a'] ?? ''));
 $quizParam = (int)($_GET['quiz'] ?? 0);
+$boundQuizId = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
+if ($boundQuizId > 0) {
+  if ($quizParam > 0 && $quizParam !== $boundQuizId) quiz_render_core_404();
+  if ($alias === '') $quizParam = $boundQuizId;
+}
 
 if ($alias === '' && $quizParam <= 0) {
   $alias = trim((string)($_COOKIE['quiz_attempt'] ?? ''));
@@ -786,16 +791,16 @@ if ($alias !== '' && !preg_match('/^[a-zA-Z0-9_\-]{6,80}$/', $alias)) {
 $cookieName = 'quiz_cid';
 $cookie_id = isset($_COOKIE[$cookieName]) ? trim((string)$_COOKIE[$cookieName]) : '';
 if ($cookie_id === '' || !preg_match('/^[a-f0-9\-]{36}$/i', $cookie_id)) {
-  $next = $alias ? ('/quiz/take/?a=' . rawurlencode($alias)) : ($quizParam ? ('/quiz/take/?quiz='.$quizParam) : '/quiz/take/');
-  go('/quiz/register/?next=' . urlencode($next));
+  $next = quiz_public_url('take', $alias !== '' ? ['a' => $alias] : ($quizParam > 0 ? ['quiz' => $quizParam] : []));
+  go(quiz_public_url('register', ['next' => $next]));
 }
 
 $stmt = $pdo->prepare("SELECT id, name, email, phone FROM students WHERE cookie_id = :cid LIMIT 1");
 $stmt->execute([':cid'=>$cookie_id]);
 $student = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$student) {
-  $next = $alias ? ('/quiz/take/?a=' . rawurlencode($alias)) : ($quizParam ? ('/quiz/take/?quiz='.$quizParam) : '/quiz/take/');
-  go('/quiz/register/?next=' . urlencode($next));
+  $next = quiz_public_url('take', $alias !== '' ? ['a' => $alias] : ($quizParam > 0 ? ['quiz' => $quizParam] : []));
+  go(quiz_public_url('register', ['next' => $next]));
 }
 $student_id = (int)$student['id'];
 
@@ -832,17 +837,18 @@ if ($alias !== '') {
           ->execute([':a'=>$alias, ':id'=>(int)$attempt['id']]);
     }
     set_cookie('quiz_attempt', $alias);
-    go('/quiz/take/?a=' . rawurlencode($alias));
+    go(quiz_public_url('take', ['a' => $alias]));
   }
 }
 
 if (!$attempt) {
-  if ($quizParam > 0) go('/quiz/start/confirm/?quiz=' . $quizParam);
-  go('/quiz/start/');
+  if ($quizParam > 0) go(quiz_public_url('start/confirm', ['quiz' => $quizParam]));
+  go(quiz_public_url('start'));
 }
 
 $attempt_id = (int)$attempt['id'];
 $quiz_id = (int)$attempt['quiz_id'];
+quiz_public_require_quiz($quiz_id);
 $alias = (string)($attempt['attempt_alias'] ?? $alias);
 if ($alias !== '') set_cookie('quiz_attempt', $alias);
 
@@ -877,7 +883,7 @@ if (!quiz_is_open($quiz, $now)) {
 $tokenCookieName = 'quiz_token_' . $quiz_id;
 $token_plain = (string)($_COOKIE[$tokenCookieName] ?? '');
 if ($token_plain === '') {
-  go('/quiz/start/confirm/?quiz=' . $quiz_id);
+  go(quiz_public_url('start/confirm', ['quiz' => $quiz_id]));
 }
 
 $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
@@ -897,7 +903,7 @@ $content_html = '
         <div class="st-desc">Please use the same browser/device that was used to start the quiz.</div>
       </div>
       <div class="st-box warn">
-        <a class="st-btn primary" href="/quiz/start/">Back to Start</a>
+        <a class="st-btn primary" href="'.h(quiz_public_url('start')).'">Back to Start</a>
       </div>
     </div>
   </section>';
@@ -914,7 +920,7 @@ $verified_at = (string)($attempt['email_verified_at'] ?? '');
 if ($status === 'submitted') {
 $resultLink = quiz_safe_result_visibility($quiz['result_visibility'] ?? 'hidden') !== 'hidden'
   && quiz_attempt_result_is_ready($pdo, $attempt_id)
-  ? '<a class="st-btn primary" href="/quiz/result/?a=' . rawurlencode($alias) . '">View Result</a>'
+  ? '<a class="st-btn primary" href="' . h(quiz_public_url('result', ['a' => $alias])) . '">View Result</a>'
   : '<a class="st-btn primary" href="/">Back</a>';
 $content_html = '
   <section class="st">
@@ -934,8 +940,8 @@ $content_html = '
 }
 
 if ($verified_at === '' || $status === 'registered') {
-  $next = '/quiz/take/?a=' . rawurlencode($alias);
-  go('/quiz/verify/?quiz=' . $quiz_id . '&next=' . urlencode($next));
+  $next = quiz_public_url('take', ['a' => $alias]);
+  go(quiz_public_url('verify', ['quiz' => $quiz_id, 'next' => $next]));
 }
 
 /* =========================
@@ -951,7 +957,7 @@ if ($needsPreparation && !$isBeginRequest) {
   $content_html = '<section class="st"><div class="st-wrap"><div class="st-hero">'
     . '<div class="st-badge">QUIZ</div><h1 class="st-h1">' . h((string)$quiz['title']) . '</h1>'
     . '<div class="st-desc">Start or resume this quiz when you are ready. The timer begins after confirmation.</div></div>'
-    . '<form class="st-box" method="post" action="/quiz/take/?a=' . rawurlencode($alias) . '">'
+    . '<form class="st-box" method="post" action="' . h(quiz_public_url('take', ['a' => $alias])) . '">'
     . '<input type="hidden" name="csrf_token" value="' . h($csrf) . '">'
     . '<button class="st-btn primary" type="submit">Start / Resume Quiz</button></form></div></section>';
   $ctx = null;
@@ -979,7 +985,7 @@ try {
 
   if (!$A) {
     $pdo->rollBack();
-    go('/quiz/start/');
+    go(quiz_public_url('start'));
   }
 
   $st2 = (string)($A['status'] ?? '');
@@ -987,12 +993,12 @@ try {
 
   if ($st2 === 'submitted') {
     $pdo->commit();
-    go('/quiz/take/?a=' . rawurlencode($alias));
+    go(quiz_public_url('take', ['a' => $alias]));
   }
   if ($ver2 === '' || $st2 === 'registered') {
     $pdo->commit();
-    $next = '/quiz/take/?a=' . rawurlencode($alias);
-    go('/quiz/verify/?quiz=' . $quiz_id . '&next=' . urlencode($next));
+    $next = quiz_public_url('take', ['a' => $alias]);
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'next' => $next]));
   }
 
   $limit = quiz_questions_per_attempt_limit($quiz['questions_per_attempt'] ?? null);
@@ -1071,7 +1077,7 @@ try {
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">
     <h1 style="margin:0 0 8px">Terjadi kendala</h1>
     <p style="margin:0 0 14px;opacity:.8">Paket soal tidak valid dan perlu di-reset oleh admin sebelum dapat dilanjutkan.</p>
-    <a class="st-btn primary" href="/quiz/start/">Kembali ke Start</a>
+    <a class="st-btn primary" href="'.h(quiz_public_url('start')).'">Kembali ke Start</a>
   </div>';
   $ctx = null;
   return;

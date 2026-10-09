@@ -53,12 +53,20 @@ function ua_hash(): string {
    1) Validate quiz
    ========================= */
 $quiz_id = (int)($_GET['quiz'] ?? 0);
+$boundQuizId = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
+if ($boundQuizId > 0) {
+  if ($quiz_id > 0 && $quiz_id !== $boundQuizId) quiz_render_core_404();
+  $quiz_id = $boundQuizId;
+}
 if ($quiz_id <= 0) {
   http_response_code(400);
   $content_html = '<div class="container" style="padding:40px 16px">Quiz tidak valid.</div>';
   require __DIR__ . '/../layout.php';
   exit;
 }
+quiz_public_require_quiz($quiz_id);
+$startUrl = quiz_public_url('start');
+$confirmUrl = quiz_public_url('start/confirm', ['quiz' => $quiz_id]);
 
 $now = date('Y-m-d H:i:s');
 
@@ -84,15 +92,14 @@ if (!$quiz || !quiz_is_open($quiz, $now)) {
 $studentCookieName = 'quiz_cid';
 $student_cookie_id = isset($_COOKIE[$studentCookieName]) ? trim((string)$_COOKIE[$studentCookieName]) : '';
 if ($student_cookie_id === '' || !preg_match('/^[a-f0-9\-]{36}$/i', $student_cookie_id)) {
-  $next = '/quiz/start/confirm/?quiz=' . $quiz_id;
-  go('/quiz/register/?next=' . urlencode($next));
+  go(quiz_public_url('register', ['next' => $confirmUrl]));
 }
 
 $tokenCookieName = 'quiz_token_' . $quiz_id;
 $token_plain = isset($_COOKIE[$tokenCookieName]) ? (string)$_COOKIE[$tokenCookieName] : '';
 if ($token_plain === '') {
   // token dibuat di confirm; jangan balik ke start list
-  go('/quiz/start/confirm/?quiz=' . $quiz_id . '&err=' . rawurlencode('Token missing. Please continue from Confirmation.'));
+  go(quiz_public_url('start/confirm', ['quiz' => $quiz_id, 'err' => 'Token missing. Please continue from Confirmation.']));
 }
 
 $user_agent_hash = ua_hash();
@@ -106,8 +113,7 @@ $stmt->execute([':cid' => $student_cookie_id]);
 $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$student) {
-  $next = '/quiz/start/confirm/?quiz=' . $quiz_id;
-  go('/quiz/register/?next=' . urlencode($next));
+  go(quiz_public_url('register', ['next' => $confirmUrl]));
 }
 $student_id = (int)$student['id'];
 
@@ -122,7 +128,7 @@ $stmt->execute([':quiz_id' => $quiz_id, ':student_id' => $student_id]);
 $attempt = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$attempt) {
-  go('/quiz/start/confirm/?quiz=' . $quiz_id);
+  go($confirmUrl);
 }
 
 if ((string)$attempt['status'] === 'submitted') {
@@ -135,7 +141,7 @@ $content_html = '
         <div class="st-desc">You cannot retake this quiz.</div>
       </div>
       <div class="st-box ok">
-        <a class="st-btn primary" href="/quiz/start/">Back</a>
+        <a class="st-btn primary" href="'.h($startUrl).'">Back</a>
       </div>
     </div>
   </section>';
@@ -157,7 +163,7 @@ $content_html = '
         <div class="st-desc">Please use the same browser/device that was used to start the quiz.</div>
       </div>
       <div class="st-box warn">
-        <a class="st-btn primary" href="/quiz/start/confirm/?quiz='.(int)$quiz_id.'">Back to Confirmation</a>
+        <a class="st-btn primary" href="'.h($confirmUrl).'">Back to Confirmation</a>
       </div>
     </div>
   </section>';
@@ -195,7 +201,7 @@ if ($alreadyVerified || in_array($st_now, ['verified','in_progress','submitted']
       'samesite' => 'Lax',
     ]);
   }
-  go('/quiz/take/?a=' . rawurlencode($attempt_alias));
+  go(quiz_public_url('take', ['a' => $attempt_alias]));
 }
 
 /* =========================
@@ -249,7 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
         // kalau sudah verified/in_progress, jangan proses OTP lagi
         if ($verified_db || in_array($status_db, ['verified','in_progress','submitted'], true)) {
           $pdo->commit();
-          go('/quiz/take/?a=' . rawurlencode((string)($row['attempt_alias'] ?? $attempt_alias)));
+          go(quiz_public_url('take', ['a' => (string)($row['attempt_alias'] ?? $attempt_alias)]));
         }
 
         // lock kalau sudah 10x
@@ -312,7 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
               ]);
             }
 
-            go('/quiz/take/?a=' . rawurlencode($attempt_alias));
+            go(quiz_public_url('take', ['a' => $attempt_alias]));
           }
         }
       }
@@ -403,7 +409,7 @@ $emailPanelHtml = $emailEnabled ? '
   <div class="qv-panel" id="panelEmail" style="display:none">
     <div class="qv-step">2) Send OTP via Email</div>
     <div class="qv-desc">Usually arrives within <b>30–60 seconds</b>. If delayed, wait up to <b>'.$cooldownSec.' seconds</b> and check your Spam folder.</div>
-    <form method="post" action="/quiz/send_otp.php" style="margin-top:10px">
+    <form method="post" action="'.h(quiz_public_url('send_otp.php')).'" style="margin-top:10px">
       '.$csrfField.'
       <input type="hidden" name="a" value="'.h($attempt_alias).'">
       <input type="hidden" name="via" value="email">
@@ -421,7 +427,7 @@ $waPanelHtml = $waEnabled ? '
       <a class="qv-wa" href="'.h($wa_link).'" target="_blank" rel="noopener" id="btnOpenWa">Open WhatsApp &amp; Send Request</a>
       <div class="qv-mini">Admin WhatsApp: <b>'.h($admin_wa).'</b></div>
     </div>
-    <form method="post" action="/quiz/send_otp.php" style="margin-top:10px">
+    <form method="post" action="'.h(quiz_public_url('send_otp.php')).'" style="margin-top:10px">
       '.$csrfField.'
       <input type="hidden" name="a" value="'.h($attempt_alias).'">
       <input type="hidden" name="via" value="whatsapp">
@@ -477,7 +483,7 @@ $content_html = '
                placeholder="Enter 6-digit OTP" value="'.h($otp).'" required '.($lockedNow?'disabled':'').'>
         <div class="qv-actions">
           <button class="st-btn primary" type="submit" '.($lockedNow?'disabled':'').'>Verify</button>
-          <a class="st-btn ghost" href="/quiz/start/">Back to Start</a>
+          <a class="st-btn ghost" href="'.h($startUrl).'">Back to Start</a>
         </div>
       </form>
 

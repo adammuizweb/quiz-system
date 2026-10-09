@@ -145,6 +145,8 @@ function csrf_check_or_fail(int $ttl = 3600): void {
   }
 }
 
+$startUrl = quiz_public_url('start');
+
 /* ===============================
    0) Cek schema agar tidak 500
    =============================== */
@@ -175,7 +177,7 @@ try {
         <div style="margin-top:10px;opacity:.8">Dev: run ALTER TABLE to add those columns (or run your migration script).</div>
       </div>
       <div class="st-box ok" style="margin-top:12px">
-        <a class="st-btn primary" href="/quiz/start/">Kembali</a>
+        <a class="st-btn primary" href="'.h($startUrl).'">Kembali</a>
       </div>
     </div></section>';
     require __DIR__ . '/../../layout.php';
@@ -191,7 +193,13 @@ try {
    =============================== */
 $now = date('Y-m-d H:i:s');
 $quiz_id = (int)($_GET['quiz'] ?? 0);
-if ($quiz_id <= 0) go('/quiz/start/');
+$boundQuizId = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
+if ($boundQuizId > 0) {
+  if ($quiz_id > 0 && $quiz_id !== $boundQuizId) quiz_render_core_404();
+  $quiz_id = $boundQuizId;
+}
+if ($quiz_id <= 0) go($startUrl);
+quiz_public_require_quiz($quiz_id);
 
 $stmt = $pdo->prepare("
   SELECT id, title, description, is_active, is_primary, start_at, end_at, questions_per_attempt, duration_minutes
@@ -212,7 +220,7 @@ if (!$quiz || !quiz_is_open($quiz, $now)) {
         <div class="st-desc">This quiz is not yet open / has been closed / or is inactive.</div>
       </div>
       <div class="st-box warn">
-        <a class="st-btn primary" href="/quiz/start/">Back to Select Quiz</a>
+        <a class="st-btn primary" href="'.h($startUrl).'">Back to Select Quiz</a>
       </div>
     </div>
   </section>';
@@ -225,8 +233,8 @@ if (!$quiz || !quiz_is_open($quiz, $now)) {
    =============================== */
 $studentCookieName = 'quiz_cid';
 $cookie_id = isset($_COOKIE[$studentCookieName]) ? trim((string)$_COOKIE[$studentCookieName]) : '';
-$nextSelf  = '/quiz/start/confirm/?quiz=' . (int)$quiz_id;
-$regUrl    = '/quiz/register/?next=' . urlencode($nextSelf);
+$nextSelf  = quiz_public_url('start/confirm', ['quiz' => $quiz_id]);
+$regUrl    = quiz_public_url('register', ['next' => $nextSelf]);
 
 if ($cookie_id === '' || !preg_match('/^[a-f0-9\-]{36}$/i', $cookie_id)) {
   go($regUrl);
@@ -288,7 +296,7 @@ if ($attempt) {
           <div class="st-desc">Kamu tidak bisa mengulang quiz ini.</div>
         </div>
         <div class="st-box ok">
-          <a class="st-btn primary" href="/quiz/start/">Kembali</a>
+          <a class="st-btn primary" href="'.h($startUrl).'">Kembali</a>
         </div>
       </div>
     </section>';
@@ -347,7 +355,7 @@ if ($attempt) {
           <h1 class="st-h1">Access is not Valid</h1>
           <div class="st-desc">Use the same browser/device when starting the quiz.</div>
         </div>
-        <div class="st-box warn"><a class="st-btn primary" href="/quiz/start/">Back</a></div>
+        <div class="st-box warn"><a class="st-btn primary" href="'.h($startUrl).'">Back</a></div>
       </div></section>';
       require __DIR__ . '/../../layout.php';
       exit;
@@ -375,7 +383,7 @@ if ($attempt) {
 
     if ($alias !== '') set_cookie('quiz_attempt', $alias, 86400*365);
 
-    go('/quiz/take/?a=' . rawurlencode($alias));
+    go(quiz_public_url('take', ['a' => $alias]));
   }
 }
 
@@ -436,7 +444,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->commit();
         $alias = trim((string)($A['attempt_alias'] ?? ''));
         if ($alias !== '') set_cookie('quiz_attempt', $alias, 86400*365);
-        go('/quiz/take/?a=' . rawurlencode($alias));
+        go(quiz_public_url('take', ['a' => $alias]));
       }
 
       if ($st !== 'registered') {
@@ -527,7 +535,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       set_cookie($tokenCookieName, $token_plain, 86400);
       set_cookie('quiz_attempt', $alias, 86400*365);
 
-      go('/quiz/verify/?quiz='.(int)$quiz_id.'&msg=' . rawurlencode('Enter the OTP code to continue.'));
+      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
     }
 
     // ===== ENFORCE: hanya 1 attempt AKTIF (verified/in_progress) lintas quiz =====
@@ -575,7 +583,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if ($pdo->inTransaction()) $pdo->commit();
 
           set_cookie('quiz_attempt', $activeAlias, 86400*365);
-          go('/quiz/take/?a=' . rawurlencode($activeAlias));
+          go(quiz_public_url_for_quiz($pdo, $activeQuizId, 'take', ['a' => $activeAlias]));
         }
       }
     } catch (Throwable $e) {
@@ -680,7 +688,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->commit();
         $alias = trim((string)($A['attempt_alias'] ?? ''));
         if ($alias !== '') set_cookie('quiz_attempt', $alias, 86400*365);
-        go('/quiz/take/?a=' . rawurlencode($alias));
+        go(quiz_public_url('take', ['a' => $alias]));
       }
 
       // registered: issue token baru supaya cookie valid
@@ -708,7 +716,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     set_cookie('quiz_token_' . (int)$quiz_id, $token_plain, 86400);
     set_cookie('quiz_attempt', $attempt_alias, 86400*365);
 
-    go('/quiz/verify/?quiz='.(int)$quiz_id.'&msg=' . rawurlencode('Enter the OTP code to continue.'));
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
     }
     }
 
@@ -849,8 +857,8 @@ $content_html = '
         '.$deliveryModeField.'
         <div class="st-actions">
           <button class="st-btn primary" type="submit">'.$btnLabel.'</button>
-          <a class="st-btn ghost" href="/quiz/register/?next='.h(urlencode($nextSelf)).'">Edit Details</a>
-          <a class="st-btn" href="/quiz/start/">Change Quiz</a>
+          <a class="st-btn ghost" href="'.h(quiz_public_url('register', ['next' => $nextSelf])).'">Edit Details</a>
+          <a class="st-btn" href="'.h($startUrl).'">Back to Start</a>
         </div>
       </form>
     </div>

@@ -32,6 +32,303 @@ function quiz_json_ok(array $data = []): never {
   quiz_json(['ok' => true] + $data);
 }
 
+function quiz_normalize_public_prefix(mixed $value, bool $allowQuiz = false): ?string {
+  $prefix = strtolower(trim((string)$value));
+  if ($prefix === '') return null;
+  if (strlen($prefix) > 63 || preg_match('/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\z/', $prefix) !== 1) {
+    throw new InvalidArgumentException('Public URL prefix must use 1-63 lowercase letters, numbers, or hyphens.');
+  }
+  if ((!$allowQuiz && $prefix === 'quiz') || preg_match('/\A[0-9]{4}\z/', $prefix) === 1) {
+    throw new InvalidArgumentException('This public URL prefix is reserved.');
+  }
+  return $prefix;
+}
+
+function quiz_database_setting(PDO $pdo, string $key, ?string $default = null): ?string {
+  try {
+    $stmt = $pdo->prepare('SELECT `value` FROM settings WHERE `key`=:key LIMIT 1');
+    $stmt->execute([':key' => $key]);
+    $value = $stmt->fetchColumn();
+    return $value === false || $value === null ? $default : (string)$value;
+  } catch (Throwable) {
+    return function_exists('settings_get') ? settings_get($pdo, $key, $default) : $default;
+  }
+}
+
+function quiz_public_prefix_conflict(PDO $pdo, string $prefix, ?int $excludeQuizId = null,
+    bool $allowGlobalPrefix = false, bool $deepContentCheck = true): ?string {
+  $reserved = ['admin', 'dashboard', 'login', 'register', 'author', 'private', 'plugin', 'plugins',
+    'theme', 'themes', 'download', 'tags', 'posts', 'pages', 'category', 'static', 'pondasi', 'sitemaps', 'views'];
+  $settingDefaults = [
+    'admin_path' => 'dashboard',
+    'login_path' => 'login',
+    'register_path' => 'register',
+    'posts_list_path' => 'artikel',
+    'pages_list_path' => 'halaman',
+    'category_path' => 'category',
+  ];
+  foreach ($settingDefaults as $key => $default) {
+    if (!function_exists('settings_get')) continue;
+    $configured = trim((string)(settings_get($pdo, $key, $default) ?? $default), '/ ');
+    if ($configured !== '') $reserved[] = strtolower((string)explode('/', $configured, 2)[0]);
+  }
+  if (in_array($prefix, array_unique($reserved), true)) return 'This public URL prefix is reserved by Jyavani.';
+  if (!$allowGlobalPrefix) {
+    try {
+      $globalPrefix = quiz_normalize_public_prefix(
+        quiz_database_setting($pdo, 'quiz_global_public_prefix', 'quiz'),
+        true
+      ) ?? 'quiz';
+      if ($prefix === $globalPrefix) return 'This public URL prefix is already used by the global Quiz route.';
+    } catch (InvalidArgumentException) {
+      // An invalid stored global prefix safely falls back to /quiz/.
+    }
+  }
+
+  $paths = [$prefix => $prefix];
+  if (function_exists('quiz_frontend_routes')) {
+    foreach (array_keys(quiz_frontend_routes()) as $route) {
+      $path = $prefix . ($route === '' ? '' : '/' . $route);
+      $paths[$path] = $path;
+    }
+  }
+
+  try {
+    if (function_exists('router_core_path_is_owned')) {
+      foreach ($paths as $path) {
+        if (router_core_path_is_owned($pdo, $path)) {
+          return 'This public URL prefix conflicts with an existing Jyavani route.';
+        }
+      }
+    }
+
+    $contentPaths = array_values(array_filter($paths, static fn(string $path): bool =>
+      !function_exists('content_route_is_valid_path') || content_route_is_valid_path($path)));
+    if ($contentPaths !== []) {
+      $placeholders = [];
+      $params = [];
+      foreach ($contentPaths as $index => $path) {
+        $placeholder = ':content_path_' . $index;
+        $placeholders[] = $placeholder;
+        $params[$placeholder] = $path;
+      }
+      $content = $pdo->prepare('SELECT 1 FROM content_routes WHERE path IN (' . implode(', ', $placeholders) . ') LIMIT 1');
+      $content->execute($params);
+      if ($content->fetchColumn() !== false) {
+        return 'This public URL prefix conflicts with an existing Jyavani route.';
+      }
+    }
+  } catch (Throwable) {
+    return 'This public URL prefix could not be validated against Jyavani routes.';
+  }
+
+  if ($deepContentCheck && function_exists('content_route_path_conflict')) {
+    try {
+      foreach ($paths as $path) {
+        if (function_exists('content_route_is_valid_path') && !content_route_is_valid_path($path)) continue;
+        $conflict = content_route_path_conflict($pdo, $path);
+        if (($conflict['type'] ?? '') === 'plugin_route'
+            && isset($GLOBALS['quiz_public_route_paths'][trim((string)($conflict['value'] ?? ''), '/')])) {
+          continue;
+        }
+        if ($conflict !== null) {
+          return 'This public URL prefix conflicts with an existing Jyavani route.';
+        }
+      }
+    } catch (Throwable) {
+      return 'This public URL prefix could not be validated against Jyavani routes.';
+    }
+  }
+
+  $sql = 'SELECT id FROM quizzes WHERE public_prefix=:prefix';
+  $params = [':prefix' => $prefix];
+  if (($excludeQuizId ?? 0) > 0) {
+    $sql .= ' AND id<>:quiz_id';
+    $params[':quiz_id'] = $excludeQuizId;
+  }
+  $sql .= ' LIMIT 1';
+  $duplicate = $pdo->prepare($sql);
+  $duplicate->execute($params);
+  if ($duplicate->fetchColumn() !== false) return 'This public URL prefix is already assigned to another Quiz.';
+
+  if (function_exists('get_frontend_route_definitions')) {
+    foreach (get_frontend_route_definitions() as $definition) {
+      $path = trim((string)($definition['path'] ?? ''), '/');
+      if ($path === '') continue;
+      if (isset($GLOBALS['quiz_public_route_paths'][$path])) continue;
+      if (strtolower((string)explode('/', $path, 2)[0]) === $prefix) {
+        return 'This public URL prefix conflicts with another frontend route.';
+      }
+    }
+  }
+  return null;
+}
+
+function quiz_validate_public_prefix(PDO $pdo, mixed $value, ?int $excludeQuizId = null,
+    ?string $currentPrefix = null): ?string {
+  $prefix = quiz_normalize_public_prefix($value);
+  if ($prefix === null) return null;
+  $conflict = quiz_public_prefix_conflict($pdo, $prefix, $excludeQuizId);
+  if ($conflict !== null) throw new InvalidArgumentException($conflict);
+  return $prefix;
+}
+
+function quiz_validate_global_public_prefix(PDO $pdo, mixed $value, string $currentPrefix = 'quiz'): string {
+  $prefix = quiz_normalize_public_prefix($value, true) ?? 'quiz';
+  $conflict = quiz_public_prefix_conflict($pdo, $prefix, null, true);
+  if ($conflict !== null) throw new InvalidArgumentException($conflict);
+  return $prefix;
+}
+
+function quiz_stored_global_public_prefix(PDO $pdo): string {
+  try {
+    $stored = quiz_database_setting($pdo, 'quiz_global_public_prefix', 'quiz');
+    return quiz_normalize_public_prefix($stored, true) ?? 'quiz';
+  } catch (Throwable) {
+    return 'quiz';
+  }
+}
+
+function quiz_global_public_prefix(PDO $pdo): string {
+  $prefix = quiz_stored_global_public_prefix($pdo);
+  if (($GLOBALS['quiz_public_routes_initialized'] ?? false) === true) {
+    $registered = $GLOBALS['quiz_public_registered_global_prefix'] ?? null;
+    if (!is_string($registered) || $registered === '') {
+      throw new RuntimeException('No global Quiz public route is available.');
+    }
+    return $registered;
+  }
+  if ($prefix !== 'quiz' && quiz_public_prefix_conflict($pdo, $prefix, null, true) !== null) return 'quiz';
+  return $prefix;
+}
+
+function quiz_public_prefix_lock(PDO $pdo, int $timeoutSeconds = 5): bool {
+  try {
+    if (strtolower((string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) !== 'mysql') return true;
+    $stmt = $pdo->prepare("SELECT GET_LOCK('quiz-public-prefixes', :timeout)");
+    $stmt->execute([':timeout' => max(0, min(30, $timeoutSeconds))]);
+    return (int)$stmt->fetchColumn() === 1;
+  } catch (Throwable) {
+    return false;
+  }
+}
+
+function quiz_public_prefix_unlock(PDO $pdo): void {
+  try {
+    if (strtolower((string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)) !== 'mysql') return;
+    $pdo->query("SELECT RELEASE_LOCK('quiz-public-prefixes')");
+  } catch (Throwable) {
+  }
+}
+
+function quiz_set_public_route_context(string $prefix, ?int $quizId): void {
+  $GLOBALS['quiz_public_route_context'] = [
+    'prefix' => $prefix,
+    'quiz_id' => ($quizId ?? 0) > 0 ? $quizId : null,
+  ];
+}
+
+function quiz_public_route_context(): array {
+  $context = $GLOBALS['quiz_public_route_context'] ?? null;
+  return is_array($context) ? $context : ['prefix' => 'quiz', 'quiz_id' => null];
+}
+
+function quiz_public_base(): string {
+  $prefix = (string)(quiz_public_route_context()['prefix'] ?? 'quiz');
+  return '/' . ($prefix !== '' ? $prefix : 'quiz');
+}
+
+function quiz_public_url(string $route = '', array $query = []): string {
+  $route = trim($route, '/');
+  $url = quiz_public_base() . '/';
+  if ($route !== '') $url .= $route . (str_ends_with($route, '.php') ? '' : '/');
+  if ($query !== []) $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+  return $url;
+}
+
+function quiz_global_public_url(PDO $pdo, string $route = '', array $query = []): string {
+  $previous = $GLOBALS['quiz_public_route_context'] ?? null;
+  quiz_set_public_route_context(quiz_global_public_prefix($pdo), null);
+  try {
+    return quiz_public_url($route, $query);
+  } finally {
+    if (is_array($previous)) $GLOBALS['quiz_public_route_context'] = $previous;
+    else unset($GLOBALS['quiz_public_route_context']);
+  }
+}
+
+function quiz_public_prefix_for_quiz(PDO $pdo, int $quizId): ?string {
+  if ($quizId <= 0) return null;
+  static $cache = [];
+  if (!array_key_exists($quizId, $cache)) {
+    try {
+      $stmt = $pdo->prepare('SELECT public_prefix FROM quizzes WHERE id=:id LIMIT 1');
+      $stmt->execute([':id' => $quizId]);
+      $value = $stmt->fetchColumn();
+      $cache[$quizId] = $value === false ? null : quiz_normalize_public_prefix($value);
+    } catch (Throwable) {
+      $cache[$quizId] = null;
+    }
+  }
+  $prefix = $cache[$quizId];
+  if ($prefix !== null) {
+    if (($GLOBALS['quiz_public_routes_initialized'] ?? false) === true) {
+      if (($GLOBALS['quiz_public_registered_quiz_prefixes'][$quizId] ?? null) !== $prefix) return null;
+    } elseif (quiz_public_prefix_conflict($pdo, $prefix, $quizId) !== null) {
+      return null;
+    }
+  }
+  return $prefix;
+}
+
+function quiz_public_url_for_quiz(PDO $pdo, int $quizId, string $route = '', array $query = []): string {
+  $context = quiz_public_route_context();
+  if ((int)($context['quiz_id'] ?? 0) === $quizId && $quizId > 0) return quiz_public_url($route, $query);
+  $dedicatedPrefix = quiz_public_prefix_for_quiz($pdo, $quizId);
+  $prefix = $dedicatedPrefix ?? quiz_global_public_prefix($pdo);
+  $previous = $GLOBALS['quiz_public_route_context'] ?? null;
+  quiz_set_public_route_context($prefix, $dedicatedPrefix !== null ? $quizId : null);
+  try {
+    return quiz_public_url($route, $query);
+  } finally {
+    if (is_array($previous)) $GLOBALS['quiz_public_route_context'] = $previous;
+    else unset($GLOBALS['quiz_public_route_context']);
+  }
+}
+
+function quiz_public_route_accepts_quiz(int $quizId): bool {
+  $bound = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
+  return $quizId > 0 && ($bound <= 0 || $bound === $quizId);
+}
+
+function quiz_render_core_404(): never {
+  http_response_code(404);
+  $core404 = defined('PLUGIN_PATH') ? dirname(PLUGIN_PATH) . '/app/frontend_404.php' : '';
+  if ($core404 !== '' && is_file($core404)) require $core404;
+  exit('Page not found');
+}
+
+function quiz_public_require_quiz(int $quizId): int {
+  if (!quiz_public_route_accepts_quiz($quizId)) quiz_render_core_404();
+  return $quizId;
+}
+
+function quiz_public_safe_next(string $next, string $fallbackRoute = 'start'): string {
+  $fallback = quiz_public_url($fallbackRoute);
+  $next = trim($next);
+  if ($next === '') return $fallback;
+  $parts = parse_url($next);
+  if ($parts === false || isset($parts['scheme']) || isset($parts['host']) || isset($parts['user'])
+      || isset($parts['fragment']) || str_contains($next, '\\') || preg_match('/[\x00-\x1F\x7F]/', $next) === 1) {
+    return $fallback;
+  }
+  $path = rawurldecode((string)($parts['path'] ?? ''));
+  $base = quiz_public_base();
+  if (!str_starts_with($path, $base . '/') || str_contains($path, '//')
+      || preg_match('~(?:^|/)\.\.(?:/|$)|[\x00-\x1F\x7F]~', $path) === 1) return $fallback;
+  return $next;
+}
+
 function quiz_normalize_bool(mixed $value, int $default = 0): int {
   if ($value === null || $value === '') return $default === 1 ? 1 : 0;
   if ($value === true || $value === 1 || $value === '1') return 1;
@@ -772,7 +1069,7 @@ function quiz_participant_submit_payload(int $attemptId, int $total, int $answer
     'time_up' => $timeUp,
   ];
   if (in_array($visibility, ['summary', 'categories'], true) && $resultReady) {
-    $data['result_url'] = '/quiz/result/?a=' . rawurlencode($attemptAlias);
+    $data['result_url'] = quiz_public_url('result', ['a' => $attemptAlias]);
   }
   return $data;
 }
@@ -875,7 +1172,7 @@ function quiz_finalize_attempt(PDO $pdo, int $attemptId): array {
 function quiz_available_quizzes(PDO $pdo): array {
   $now = date('Y-m-d H:i:s');
   $st = $pdo->prepare("
-    SELECT id, title, description, questions_per_attempt, duration_minutes,
+    SELECT id, title, public_prefix, description, questions_per_attempt, duration_minutes,
            is_active, start_at, end_at, is_primary,
            (SELECT COUNT(*) FROM questions WHERE quiz_id=quizzes.id AND is_active=1) AS qcount,
            (SELECT COUNT(*) FROM question_passages WHERE quiz_id=quizzes.id AND is_active=1) AS pcount

@@ -30,6 +30,7 @@ try {
     $fail(400, 'Invalid review state');
   }
   if ($quizId <= 0 || $questionId <= 0 || preg_match('/^[a-zA-Z0-9_-]{6,80}$/', $alias) !== 1) $fail(400, 'Invalid params');
+  if (!quiz_public_route_accepts_quiz($quizId)) $fail(404, 'Not found');
 
   $cookieId = trim((string)($_COOKIE['quiz_cid'] ?? ''));
   $token = (string)($_COOKIE['quiz_token_' . $quizId] ?? '');

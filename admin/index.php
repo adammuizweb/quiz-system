@@ -14,6 +14,13 @@ $canManageStudents = $user['id'] > 0 && function_exists('user_can')
   && user_can($pdo, $user['id'], 'plugin.quiz.students.manage');
 $canViewAttempts = $user['can_view_attempts'];
 $canManageSettings = qz_user_can($pdo, $user['id'], 'plugin.quiz.settings.manage');
+$globalStartUrl = '';
+$globalRegisterUrl = '';
+try {
+  $globalStartUrl = quiz_global_public_url($pdo, 'start');
+  $globalRegisterUrl = quiz_global_public_url($pdo, 'register');
+} catch (RuntimeException) {
+}
 
 $stats = ['quizzes'=>0,'categories'=>0,'passages'=>0,'questions'=>0,'answers'=>0,'students'=>0,'attempts'=>0,'submitted'=>0];
 try {
@@ -128,9 +135,11 @@ if ($canAccessWorkspace) try {
         <p>Check the displayed Quiz, verification method, and Student links before the schedule opens.</p>
         <div class="qz-page-actions qz-toolbar">
           <?php if ($canManageSettings): ?><a class="adam-button" href="<?=h($base)?>/?page=admin/quiz/settings">Open Settings</a><?php endif; ?>
-          <?php if ($canAccessWorkspace): ?>
-            <a class="adam-button ghost" href="/quiz/start/" target="_blank" rel="noopener">Preview Start Page</a>
-            <a class="adam-button ghost" href="/quiz/register/" target="_blank" rel="noopener">Open Registration</a>
+          <?php if ($canAccessWorkspace && $globalStartUrl !== '' && $globalRegisterUrl !== ''): ?>
+            <a class="adam-button ghost" href="<?= h($globalStartUrl) ?>" target="_blank" rel="noopener">Preview Start Page</a>
+            <a class="adam-button ghost" href="<?= h($globalRegisterUrl) ?>" target="_blank" rel="noopener">Open Registration</a>
+          <?php elseif ($canAccessWorkspace): ?>
+            <span class="text-muted">Global public routes are unavailable. Resolve the prefix conflict in Settings.</span>
           <?php endif; ?>
         </div>
       </div>
