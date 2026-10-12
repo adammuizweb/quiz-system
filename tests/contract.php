@@ -1345,6 +1345,13 @@ $check(str_contains($reviewSource, 'qz_public_csrf_check') && str_contains($revi
 $check(str_contains($resultSource, "header('Cache-Control: no-store")
     && str_contains($resultSource, "status'] !== 'submitted'") && str_contains($resultSource, "visibility === 'hidden'")
     && !str_contains($resultSource, 'attempt_answers aa.answer_text'), 'participant results must be no-store, submitted-only, opt-in, and response-free');
+$check(str_contains($resultSource, 'q.visual_theme_override')
+    && str_contains($resultSource, "settings_get(\$pdo, 'quiz_visual_theme', 'default')")
+    && str_contains($resultSource, 'class="qr-score-ring"')
+    && str_contains($resultSource, 'class="qr-category"')
+    && str_contains($resultSource, '$available > 0 ?')
+    && str_contains($resultSource, '$totalQuestions > 0 ?'),
+    'participant results must use the resolved visual theme, responsive report UI, and zero-safe score and completion calculations');
 $check(str_contains($saveAnswerSource, '$pdo->beginTransaction()') && str_contains($saveAnswerSource, 'LIMIT 1 FOR UPDATE')
     && str_contains($saveAnswerSource, 'attempt_answer_revisions') && str_contains($saveAnswerSource, 'if (!$same)'), 'answer saves must lock, revise material changes, and ignore identical retries');
 $check(str_contains($submitSource, 'quiz_finalize_attempt($pdo, $attempt_id)')
@@ -2328,7 +2335,7 @@ $check(str_contains($proctorSource, 'INTERVAL 1 MINUTE') && str_contains($procto
 $check(str_contains($confirmSource, 'quiz_public_require_quiz($quiz_id)')
     && str_contains($verifySource, 'quiz_public_require_quiz($quiz_id)')
     && str_contains($takeContext, 'quiz_public_require_quiz($quiz_id)')
-    && str_contains($resultSource, "quiz_public_require_quiz((int)\$attempt['quiz_id'])")
+    && str_contains($resultSource, 'quiz_public_require_quiz($quizId)')
     && str_contains($sendOtpSource, 'quiz_public_route_accepts_quiz($quiz_id)')
     && str_contains($getQuestionSource, 'quiz_public_route_accepts_quiz($quiz_id)')
     && str_contains($saveAnswerSource, 'quiz_public_route_accepts_quiz($quizId)')
