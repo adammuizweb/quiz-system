@@ -877,6 +877,8 @@ if (!quiz_is_open($quiz, $now)) {
   $ctx = null;
   return;
 }
+$quiz['visual_theme'] = quiz_safe_visual_theme_override($quiz['visual_theme_override'] ?? null)
+  ?? quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
 
 /* =========================
    4) SECURITY: require token cookie per quiz + UA match
@@ -919,23 +921,7 @@ $status = (string)($attempt['status'] ?? '');
 $verified_at = (string)($attempt['email_verified_at'] ?? '');
 
 if ($status === 'submitted') {
-$resultLink = quiz_safe_result_visibility($quiz['result_visibility'] ?? 'hidden') !== 'hidden'
-  && quiz_attempt_result_is_ready($pdo, $attempt_id)
-  ? '<a class="st-btn primary" href="' . h(quiz_public_url('result', ['a' => $alias])) . '">View Result</a>'
-  : '<a class="st-btn primary" href="/">Back</a>';
-$content_html = '
-  <section class="st">
-    <div class="st-wrap">
-      <div class="st-hero">
-        <div class="st-badge">QUIZ</div>
-        <h1 class="st-h1">Quiz Already Submitted</h1>
-        <div class="st-desc">You cannot retake this quiz.</div>
-      </div>
-      <div class="st-box ok">
-         ' . $resultLink . '
-      </div>
-    </div>
-  </section>';
+  require __DIR__ . '/_submitted_view.php';
   $ctx = null;
   return;
 }
@@ -967,8 +953,6 @@ $quiz['proctor'] = [
   'devtoolsDetect' => $quiz['devtools_detect_override'] === null ? true : (int)$quiz['devtools_detect_override'] === 1,
   'showBadge' => $quiz['show_exam_badge_override'] === null ? true : (int)$quiz['show_exam_badge_override'] === 1,
 ];
-$quiz['visual_theme'] = quiz_safe_visual_theme_override($quiz['visual_theme_override'] ?? null)
-  ?? quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
 if ($isBeginRequest && !qz_public_csrf_check(qz_public_csrf_from_request())) {
   http_response_code(403);
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">Invalid CSRF token.</div>';

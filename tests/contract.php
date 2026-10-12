@@ -1311,6 +1311,7 @@ $check(str_contains($takeJs, 'JSON_HEX_TAG'), 'inline take-page JSON must hex-es
 $check(!preg_match('/nav(?:Sections|CatMap)Json\s*=\s*json_encode\([^\n]+JSON_UNESCAPED_SLASHES/', $takeJs), 'navigation JSON must not allow script-closing tags');
 $takeView = (string)file_get_contents($pluginRoot . '/public/take/_take_view.php');
 $takeContext = (string)file_get_contents($pluginRoot . '/public/take/_take_ctx.php');
+$submittedViewSource = (string)file_get_contents($pluginRoot . '/public/take/_submitted_view.php');
 $timerHelper = (string)file_get_contents($pluginRoot . '/public/api/_timer_helper.php');
 $saveAnswerSource = (string)file_get_contents($pluginRoot . '/public/api/save_answer.php');
 $submitSource = (string)file_get_contents($pluginRoot . '/public/api/submit.php');
@@ -1333,6 +1334,18 @@ $check(str_contains($takeContext, 'visual_theme_override')
     && str_contains($takeJs, 'document.body.classList.add("qz-theme-" + VISUAL_THEME)')
     && str_contains($takeJs, 'body.qz-theme-studio #qzProctorCard'),
     'the resolved global or per-Quiz theme must color the take page, answer states, and proctor surfaces');
+$themeResolutionPosition = strpos($takeContext, "\$quiz['visual_theme'] =");
+$submittedGuardPosition = strpos($takeContext, "if (\$status === 'submitted')");
+$check($themeResolutionPosition !== false && $submittedGuardPosition !== false && $themeResolutionPosition < $submittedGuardPosition
+    && str_contains($takeContext, "require __DIR__ . '/_submitted_view.php'")
+    && str_contains($submittedViewSource, 'qs-theme-studio')
+    && str_contains($submittedViewSource, "quiz_public_url('start')")
+    && str_contains($submittedViewSource, "\$visibility === 'hidden'")
+    && str_contains($submittedViewSource, 'Results are private')
+    && !str_contains($submittedViewSource, 'total_score')
+    && !str_contains($submittedViewSource, 'attempt_category_scores')
+    && !str_contains($submittedViewSource, 'elapsed_seconds'),
+    'submitted hidden-result attempts must render a themed private completion state without scores, categories, or elapsed result data');
 $check(str_contains($takeView, "class=\"qt-sec'.(\$sectionDone?' done':'').'\"")
     && str_contains($takeView, '.qt-sec.done{')
     && str_contains($takeJs, 'function refreshSectionStates()')
@@ -1517,7 +1530,7 @@ $check(str_contains($helperSource, 'function quiz_attempt_result_is_ready')
     && str_contains($resultSource, 'quiz_attempt_result_is_ready'), 'historical or inconsistent results must fail closed without a raw score');
 $startSource = (string)file_get_contents($pluginRoot . '/public/start/index.php');
 $check(str_contains($startSource, 'quiz_attempt_result_is_ready')
-    && str_contains($takeContext, 'quiz_attempt_result_is_ready'), 'start and take pages must withhold result links until finalized snapshots are valid');
+    && str_contains($submittedViewSource, 'quiz_attempt_result_is_ready'), 'start and take pages must withhold result links until finalized snapshots are valid');
 $check(str_contains($attemptViewSource, "if (\$user['can_view_attempt_responses'])")
     && str_contains($attemptViewSource, 'FROM attempt_answer_revisions r'), 'revision history must remain behind the response-detail permission boundary');
 $adminInitSource = (string)file_get_contents($pluginRoot . '/admin/_init.php');
