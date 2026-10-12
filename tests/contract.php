@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.8.2', 'plugin version must be 1.8.2');
+$check(($manifest['version'] ?? null) === '1.8.3', 'plugin version must be 1.8.3');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -293,6 +293,12 @@ $check($hiddenSubmitPayload === ['attempt_id' => 4, 'total_questions' => 10, 'an
     && !isset($hiddenSubmitPayload['total_score'], $hiddenSubmitPayload['elapsed_seconds'], $hiddenSubmitPayload['result_url'], $hiddenSubmitPayload['category_scores']), 'hidden submit payload must expose no score, elapsed time, categories, or result URL');
 $check(isset(quiz_participant_submit_payload(4, 10, 8, false, 'summary', true, 'a_public')['result_url'])
     && !isset(quiz_participant_submit_payload(4, 10, 8, false, 'summary', false, 'a_incomplete')['result_url']), 'submit result URLs require both visible configuration and a valid finalized snapshot');
+$titleRejections = 0;
+foreach (['', '<b>Exam</b>', "Exam\nTitle", str_repeat('T', 81)] as $invalidTitle) {
+    try { quiz_normalize_public_title($invalidTitle); } catch (InvalidArgumentException) { $titleRejections++; }
+}
+$check(quiz_normalize_public_title(' Exam ') === 'Exam' && $titleRejections === 4,
+    'Global Title normalization must trim valid text and reject blank, markup, control characters, and overlong values');
 $prefixRejected = false;
 try { quiz_normalize_public_prefix('quiz'); } catch (InvalidArgumentException) { $prefixRejected = true; }
 quiz_set_public_route_context('assessment', 9);
@@ -309,6 +315,7 @@ $prefixPdo->exec('CREATE TABLE settings (`key` TEXT PRIMARY KEY, `value` TEXT)')
 $prefixPdo->exec('CREATE TABLE quizzes (id INTEGER PRIMARY KEY, public_prefix TEXT)');
 $prefixPdo->exec('CREATE TABLE content_routes (id INTEGER PRIMARY KEY, post_id INTEGER, locale TEXT, path TEXT, is_canonical INTEGER)');
 $prefixPdo->exec('CREATE TABLE posts (id INTEGER PRIMARY KEY, slug TEXT, type TEXT, is_deleted INTEGER)');
+$prefixPdo->exec("INSERT INTO settings (`key`, `value`) VALUES ('quiz_global_title', 'Exam')");
 $prefixPdo->exec("INSERT INTO quizzes (id, public_prefix) VALUES (901, 'unavailable')");
 $prefixPdo->exec("INSERT INTO content_routes (id, post_id, locale, path, is_canonical) VALUES (1, 1, '', 'training', 1)");
 $GLOBALS['quiz_public_routes_initialized'] = true;
@@ -318,6 +325,9 @@ $check(quiz_public_prefix_conflict($prefixPdo, 'training') !== null
     && quiz_public_url_for_quiz($prefixPdo, 901, 'register') === '/quiz/register/'
     && quiz_public_url_for_quiz($prefixPdo, 901, 'register') === '/quiz/register/',
     'public prefixes must reject Core/content collisions and unavailable stored routes must fall back to /quiz');
+$check(quiz_public_title($prefixPdo) === 'Exam', 'participant terminology must resolve the configured Global Title');
+$prefixPdo->exec("UPDATE settings SET `value`='<script>' WHERE `key`='quiz_global_title'");
+$check(quiz_public_title($prefixPdo) === 'Quiz', 'invalid stored Global Title values must fail closed to Quiz');
 unset($GLOBALS['quiz_public_routes_initialized'], $GLOBALS['quiz_public_registered_global_prefix'], $GLOBALS['quiz_public_registered_quiz_prefixes']);
 $check(quiz_normalize_timer_warning_seconds('60,300,60') === [300, 60]
     && quiz_timer_warning_minutes_to_seconds('5, 1') === [300, 60]
@@ -330,6 +340,25 @@ $check($normalizerRejected && quiz_safe_result_visibility('answers') === 'hidden
     && $themeNormalizerRejected && quiz_normalize_visual_theme(' STUDIO ') === 'studio'
     && quiz_safe_visual_theme('custom') === 'default' && quiz_safe_visual_theme_override('custom') === null
     && quiz_safe_bool(null, 1) === 1, 'quiz setting helpers must validate input strictly and fail closed for stored values');
+$visualThemePdo = new PDO('sqlite::memory:');
+$visualThemePdo->exec('CREATE TABLE settings (`key` TEXT PRIMARY KEY, `value` TEXT)');
+$visualThemePdo->exec('CREATE TABLE quizzes (id INTEGER PRIMARY KEY, visual_theme_override TEXT)');
+$visualThemePdo->exec("INSERT INTO settings (`key`,`value`) VALUES ('quiz_visual_theme','default')");
+$visualThemePdo->exec("INSERT INTO quizzes (id,visual_theme_override) VALUES (9,'studio'),(10,NULL),(11,'invalid')");
+quiz_set_public_route_context('tpa', 9);
+$dedicatedTheme = quiz_public_visual_theme($visualThemePdo);
+quiz_set_public_route_context('assessment', 10);
+$inheritedTheme = quiz_public_visual_theme($visualThemePdo);
+$visualThemePdo->exec("UPDATE settings SET `value`='studio' WHERE `key`='quiz_visual_theme'");
+$inheritedStudioTheme = quiz_public_visual_theme($visualThemePdo);
+quiz_set_public_route_context('assessment', 11);
+$invalidOverrideTheme = quiz_public_visual_theme($visualThemePdo);
+quiz_set_public_route_context('assessment', null);
+$globalTheme = quiz_public_visual_theme($visualThemePdo);
+$check($dedicatedTheme === 'studio' && $inheritedTheme === 'default' && $inheritedStudioTheme === 'studio'
+    && $invalidOverrideTheme === 'studio' && $globalTheme === 'studio',
+    'participant visual themes must use a bound Quiz override and otherwise inherit the allowlisted global theme');
+unset($GLOBALS['quiz_public_route_context']);
 final class AssignmentContractStatement extends PDOStatement {
     private array $rows = [];
     private mixed $row = false;
@@ -975,7 +1004,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1025,7 +1054,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1045,7 +1074,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.2'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.3'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1069,7 +1098,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1161,7 +1190,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1189,7 +1218,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.2'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.3'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -1253,6 +1282,11 @@ $check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_visual_theme'")
     && str_contains($settingsSource, 'name="quiz_visual_theme"')
     && str_contains($settingsSource, '>Studio</option>'),
     'Quiz settings must validate and persist the global participant visual theme');
+$check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_global_title'")
+    && str_contains($settingsSource, 'quiz_normalize_public_title($global_title)')
+    && str_contains($settingsSource, 'name="quiz_global_title"')
+    && str_contains($settingsSource, 'data-qz-settings-summary="global-title"'),
+    'Quiz settings must validate, persist, explain, and summarize the participant Global Title');
 $check(str_contains($settingsSource, 'quiz_public_prefix_lock($pdo)')
     && str_contains($settingsSource, 'quiz_public_prefix_unlock($pdo)')
     && str_contains($settingsSource, 'if (!$pdo->beginTransaction())')
@@ -1264,6 +1298,10 @@ $check(str_contains($helperSource, 'function quiz_database_setting(')
     && str_contains($helperSource, "quiz_database_setting(\$pdo, 'quiz_global_public_prefix', 'quiz')")
     && !str_contains($helperSource, "if (\$prefix === 'quiz') return \$prefix;"),
     'prefix revalidation must read the global namespace uncached and validate the compatibility slug');
+$check(str_contains($helperSource, 'function quiz_normalize_public_title(')
+    && str_contains($helperSource, 'function quiz_public_title(PDO $pdo)')
+    && str_contains($helperSource, "quiz_database_setting(\$pdo, 'quiz_global_title', 'Quiz')"),
+    'public terminology must use one validated database-backed Global Title resolver');
 $quizAddSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/add.php');
 $quizEditSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/edit.php');
 $quizDuplicateSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/duplicate.php');
@@ -1318,8 +1356,42 @@ $submitSource = (string)file_get_contents($pluginRoot . '/public/api/submit.php'
 $reviewSource = (string)file_get_contents($pluginRoot . '/public/api/set_review.php');
 $resultSource = (string)file_get_contents($pluginRoot . '/public/result/index.php');
 $publicLayoutSource = (string)file_get_contents($pluginRoot . '/public/layout.php');
+$publicStyleSource = (string)file_get_contents($pluginRoot . '/public/style.css');
+$registerSource = (string)file_get_contents($pluginRoot . '/public/register/index.php');
+$resetSource = (string)file_get_contents($pluginRoot . '/public/reset/index.php');
 $attemptViewSource = (string)file_get_contents($pluginRoot . '/admin/student/attempts/view.php');
 $readmeSource = (string)file_get_contents($pluginRoot . '/README.md');
+$participantTerminologyPaths = [
+    '/public/layout.php', '/public/_security.php', '/public/register/index.php', '/public/reset/index.php',
+    '/public/start/index.php', '/public/start/confirm/index.php', '/public/verify/index.php', '/public/send_otp.php',
+    '/public/take/index.php', '/public/take/_take_ctx.php', '/public/take/_take_view.php',
+    '/public/take/_take_js.php', '/public/take/_submitted_view.php', '/public/result/index.php',
+    '/public/api/get_question.php', '/public/api/save_answer.php', '/public/api/set_review.php', '/public/api/submit.php',
+];
+$participantTerminologySource = '';
+foreach ($participantTerminologyPaths as $path) $participantTerminologySource .= (string)file_get_contents($pluginRoot . $path);
+$check(str_contains($publicLayoutSource, '<html lang="en">')
+    && str_contains($registerSource, '$publicTitle = quiz_public_title($pdo);')
+    && str_contains($takeJs, '$publicTitleJson = json_encode(quiz_public_title($pdo)')
+    && str_contains($sendOtpSource, '$subject = $publicTitle . \' OTP Verification\';')
+    && str_contains($submittedViewSource, '$publicTitle = quiz_public_title($pdo);')
+    && str_contains($resultSource, '$publicTitle = quiz_public_title($pdo);'),
+    'the complete participant journey must declare English content and resolve generic terminology from Global Title');
+$check(str_contains($resetSource, "if (!function_exists('h'))")
+    && str_contains($resetSource, '$page_title = \'Reset \' . $publicTitle . \' Session\';'),
+    'participant session reset must coexist with the Core escape helper and use the configured Global Title');
+$forbiddenParticipantCopy = [
+    'Quiz tidak valid.', 'Kode OTP harus 6 digit.', 'Kolom quiz_attempts belum lengkap', 'Quiz sudah disubmit',
+    'Kamu tidak bisa', 'Tidak bisa mulai', 'Email ini sudah terdaftar', 'Nomor WhatsApp ini sudah terdaftar',
+    'Waktu ujian sudah habis.', 'Belum semua soal dijawab', 'Konteks quiz tidak valid.', 'Terjadi kendala',
+    'Paket soal tidak valid', 'Memuat soal', 'Gagal memuat soal.', 'Gagal memulai ujian.',
+    'Tindakan ini menghapus', 'Gunakan reset', 'Membersihkan data Quiz', 'Cookies dihapus:',
+    'Setelah ini halaman', 'Kembali ke Register', '>Select Quiz<', '>Quiz List<', '>Take Quiz<',
+    'Quiz OTP Verification', 'Reset Quiz Session', 'Quiz Result', 'Quiz Submitted', 'Quiz complete',
+];
+$check(array_reduce($forbiddenParticipantCopy, static fn(bool $valid, string $copy): bool =>
+    $valid && !str_contains($participantTerminologySource, $copy), true),
+    'participant-rendered copy must not regress to hardcoded Quiz terminology or Indonesian UI text');
 $check(str_contains($takeContext, '$needsPreparation = !$packageComplete || empty($attempt[\'started_at\'])')
     && str_contains($takeContext, '$needsPreparation && !$isBeginRequest')
     && str_contains($takeContext, 'qz_public_csrf_check(qz_public_csrf_from_request())')
@@ -1377,9 +1449,9 @@ $check(str_contains($helperSource, 'function quiz_site_favicon_url(PDO $pdo)')
     && str_contains($helperSource, "settings_get(\$pdo, 'favicon_url', '')")
     && str_contains($helperSource, "settings_favicon_url_validation_error(\$url)")
     && str_contains($resultSource, 'src="<?= h($faviconUrl) ?>"')
-    && str_contains($resultSource, "settings_get(\$pdo, 'site_title', 'Quiz')")
+    && str_contains($resultSource, '$publicTitle = quiz_public_title($pdo);')
     && str_contains($publicLayoutSource, '<link rel="icon" href="<?= htmlspecialchars($faviconUrl'),
-    'public Quiz branding must reuse the validated Core favicon and site title without plugin-specific identity settings');
+    'public participant branding must combine the validated Core favicon with the configured Global Title');
 $check(str_contains($saveAnswerSource, '$pdo->beginTransaction()') && str_contains($saveAnswerSource, 'LIMIT 1 FOR UPDATE')
     && str_contains($saveAnswerSource, 'attempt_answer_revisions') && str_contains($saveAnswerSource, 'if (!$same)'), 'answer saves must lock, revise material changes, and ignore identical retries');
 $check(str_contains($submitSource, 'quiz_finalize_attempt($pdo, $attempt_id)')
@@ -1519,8 +1591,7 @@ foreach ([
     $readinessPosition = strpos($apiSource, 'quiz_attempt_package_is_complete(');
     $mutationPosition = strpos($apiSource, $mutationNeedle);
     $check($readinessPosition !== false && $mutationPosition !== false && $readinessPosition < $mutationPosition
-        && (str_contains($apiSource, "json_fail(409, 'Quiz preparation required.'") || $apiName === 'set review'
-            && str_contains($apiSource, "\$fail(409, 'Quiz preparation required.'")),
+        && str_contains($apiSource, "quiz_public_title(\$pdo) . ' preparation required.'"),
         "{$apiName} API must return bounded 409 preparation-required before timer or participant mutation");
 }
 $check(!str_contains($getQuestionSource, 'quiz_snapshot_attempt_questions(')
@@ -2341,14 +2412,27 @@ $check(str_contains($publicSecuritySource, 'function qz_public_post_redirect(str
     && str_contains($confirmSource, 'qz_public_enter_quiz(')
     && str_contains($verifySource, 'qz_public_enter_quiz(')
     && str_contains($takeContext, 'qz_public_post_redirect(')
-    && str_contains($publicSecuritySource, '>Start Quiz</button>')
+    && str_contains($publicSecuritySource, "<button type=\"submit\">Start ' . \$safeTitle . '</button>")
     && !str_contains($takeContext, 'Start / Resume Quiz'),
-    'normal, direct, and fallback first-start flows must auto-POST while retaining a clear no-JavaScript Start Quiz fallback');
+    'normal, direct, and fallback first-start flows must auto-POST while retaining a configurable no-JavaScript start fallback');
 $check(str_contains($confirmSource, "\$btnLabel = \$verificationRequired ? 'Start &amp; Get OTP' : 'Continue';")
     && str_contains($confirmSource, "\$btnLabel = \$verificationRequired ? 'Continue to OTP Verification' : 'Continue';")
-    && str_contains($confirmSource, ": '<div class=\"rz-step\">4. Take Quiz</div>';")
-    && str_contains($confirmSource, 'OTP verification is disabled for this quiz.'),
+    && str_contains($confirmSource, "\$verificationSteps = \$verificationRequired")
+    && str_contains($confirmSource, "\$confirmationSteps = \$boundQuizId > 0")
+    && str_contains($confirmSource, "OTP verification is disabled for this '.\$publicTitleHtml.'."),
     'confirmation copy and progress steps must omit OTP when the per-Quiz override disables verification');
+$check(str_contains($helperSource, 'function quiz_public_visual_theme(PDO $pdo, ?int $quizId = null): string')
+    && str_contains($helperSource, "quiz_database_setting(\$pdo, 'quiz_visual_theme', 'default')")
+    && str_contains($helperSource, 'SELECT visual_theme_override FROM quizzes WHERE id=:id LIMIT 1')
+    && str_contains($publicLayoutSource, 'data-quiz-visual-theme=')
+    && str_contains($publicLayoutSource, "'quiz-theme-' . quiz_safe_visual_theme(\$visualTheme)")
+    && str_contains($registerSource, "'DEDICATED ' . \$publicTitleUpper . ' ACCESS'")
+    && str_contains($registerSource, 'Register for ')
+    && str_contains($confirmSource, '$quiz_visual_theme_quiz_id = $quiz_id;')
+    && str_contains($verifySource, '$quiz_visual_theme_quiz_id = $quiz_id;')
+    && str_contains($publicStyleSource, 'body.quiz-theme-studio')
+    && str_contains($publicStyleSource, '--qz-shadow: 10px 10px 0 #10162f;'),
+    'dedicated registration, confirmation, and verification must carry the resolved Quiz theme and contextual journey UI');
 $check(str_contains($takeContext, "'requireFullscreen' => \$quiz['require_fullscreen_override'] === null ? true")
     && str_contains($takeContext, "'devtoolsDetect' => \$quiz['devtools_detect_override'] === null ? true")
     && str_contains($takeContext, "'showBadge' => \$quiz['show_exam_badge_override'] === null ? true")

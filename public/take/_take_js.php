@@ -19,6 +19,7 @@ $timerJson       = json_encode([
 ], $scriptJsonFlags);
 $csrfTokenJson   = json_encode($csrfToken, $scriptJsonFlags);
 $visualThemeJson = json_encode(quiz_safe_visual_theme($ctx['quiz']['visual_theme'] ?? 'default'), $scriptJsonFlags);
+$publicTitleJson = json_encode(quiz_public_title($pdo), $scriptJsonFlags);
 
 // OPTIONAL (kalau sudah kamu isi di _take_ctx.php)
 $navSectionsJson = json_encode(($ctx['nav_sections'] ?? []), $scriptJsonFlags);
@@ -41,6 +42,7 @@ if ($reviewMapJson === false) $reviewMapJson = '{}';
 if ($timerJson === false) $timerJson = '{}';
 if ($csrfTokenJson === false) $csrfTokenJson = '""';
 if ($visualThemeJson === false) $visualThemeJson = '"default"';
+if ($publicTitleJson === false) $publicTitleJson = '"Quiz"';
 if ($navSectionsJson === false) $navSectionsJson = '[]';
 if ($navCatMapJson === false) $navCatMapJson = '{}';
 if ($apiGetJson === false) $apiGetJson = '""';
@@ -95,6 +97,7 @@ function makeOptBadge(i){
   const total   = {$total};
   const CSRF_TOKEN = {$csrfTokenJson};
   const VISUAL_THEME = {$visualThemeJson};
+  const PUBLIC_TITLE = {$publicTitleJson};
   document.body.classList.add("qz-theme-" + VISUAL_THEME);
 
   // optional (untuk UI kategori/range)
@@ -254,7 +257,7 @@ function makeOptBadge(i){
     if (imageUrl){
       const img = document.createElement("img");
       img.src = imageUrl;
-      img.alt = imageAlt || "Gambar";
+      img.alt = imageAlt || "Image";
       targetEl.appendChild(img);
       has = true;
     }
@@ -276,7 +279,7 @@ function makeOptBadge(i){
       a.href = fileUrl;
       a.target = "_blank";
       a.rel = "noopener";
-      a.textContent = "Buka";
+      a.textContent = "Open";
       box.appendChild(a);
 
       targetEl.appendChild(box);
@@ -427,7 +430,7 @@ function makeOptBadge(i){
       json = JSON.parse(txt);
     }catch(e){
       const snip = String(txt || "").replace(/\s+/g," ").slice(0, 180);
-      throw new Error("Response bukan JSON ("+res.status+"): " + (snip || "EMPTY"));
+      throw new Error("Response was not JSON ("+res.status+"): " + (snip || "EMPTY"));
     }
 
     if (json && (json.timer || (json.data && json.data.timer))) {
@@ -441,7 +444,7 @@ function makeOptBadge(i){
         timeUpTriggered = true;
         onTimeUp();
       }
-      throw new Error(json.error || ("Request gagal ("+res.status+")"));
+      throw new Error(json.error || ("Request failed ("+res.status+")"));
     }
 
     return json;
@@ -684,16 +687,16 @@ function makeOptBadge(i){
     <div id="qzProctorCard" role="dialog" aria-modal="true">
       <div id="qzProctorTop">
         <div>
-          <p id="qzProctorTitle">Exam Mode</p>
+          <p id="qzProctorTitle"></p>
           <div id="qzProctorMsg">Please enable fullscreen to continue.</div>
         </div>
-        <div id="qzProctorBadge">EXAM MODE</div>
+        <div id="qzProctorBadge"></div>
       </div>
 
       <div class="qzLine"></div>
 
       <ul id="qzProctorRules">
-        <li><b>Fullscreen</b> is required during the exam.</li>
+        <li><b>Fullscreen</b> is required during this session.</li>
         <li>Avoid <b>switching tabs</b> or opening other applications.</li>
         <li>Right-click & certain shortcuts will be restricted.</li>
       </ul>
@@ -706,18 +709,21 @@ function makeOptBadge(i){
     </div>
   `;
   document.body.appendChild(overlay);
+  overlay.querySelector("#qzProctorTitle").textContent = PUBLIC_TITLE + " Mode";
+  overlay.querySelector("#qzProctorBadge").textContent = PUBLIC_TITLE.toUpperCase() + " MODE";
 
   const examBadge = document.createElement("div");
   examBadge.id = "qzExamBadge";
-  examBadge.innerHTML = 'EXAM MODE <small id="qzWarnText">Warn: 0</small>';
+  examBadge.innerHTML = '<span id="qzExamModeTitle"></span> <small id="qzWarnText">Warnings: 0</small>';
   document.body.appendChild(examBadge);
+  examBadge.querySelector("#qzExamModeTitle").textContent = PUBLIC_TITLE.toUpperCase() + " MODE";
 
   const doneModal = document.createElement("div");
   doneModal.id = "qzDoneModal";
   doneModal.innerHTML = `
     <div id="qzDoneCard" role="dialog" aria-modal="true">
       <p id="qzDoneTitle">All answers have been completed ✅</p>
-      <div id="qzDoneMsg">Click <b>Submit</b> to send your answers. Once submitted, you cannot retake the quiz.</div>
+      <div id="qzDoneMsg">Click <b>Submit</b> to send your answers. Once submitted, this attempt cannot be taken again.</div>
       <div id="qzDoneActions">
         <button type="button" class="qzBtn qzBtnGhost" id="qzDoneClose">Later</button>
         <button type="button" class="qzBtn qzBtnPrimary" id="qzDoneGo">Submit</button>
@@ -774,7 +780,7 @@ function showWarn1(missing){
   if (elWarn1Msg){
     elWarn1Msg.innerHTML =
       "There are questions you haven't answered yet. " +
-      "Please review and complete them first while there is remaining exam time.<br><br>" +
+      "Please review and complete them first while there is remaining time.<br><br>" +
       "<b>Unanswered:</b> " + n + " question(s).";
   }
 
@@ -783,7 +789,7 @@ function showWarn1(missing){
       const preview = lastMissingSeq.slice(0, 24).join(", ");
       elWarnList.style.display = "block";
       elWarnList.textContent =
-        "Missing ansewer on questions numbers: " + preview + (n > 24 ? " ..." : "");
+        "Missing answers for question numbers: " + preview + (n > 24 ? " ..." : "");
     } else {
       elWarnList.style.display = "none";
       elWarnList.textContent = "";
@@ -825,7 +831,7 @@ btnWarn2Yes.addEventListener("click", async ()=>{
   const btnDoneGo = doneModal.querySelector("#qzDoneGo");
 
   function setWarnUI(){
-    if (elWarnText) elWarnText.textContent = "Warn: " + warnCount;
+    if (elWarnText) elWarnText.textContent = "Warnings: " + warnCount;
   }
   setWarnUI();
 
@@ -833,7 +839,7 @@ btnWarn2Yes.addEventListener("click", async ()=>{
     document.body.classList.add("qz-exam-lock");
     if (PROCTOR.blockShortcuts) document.body.classList.add("qz-exam-nosel");
     overlay.style.display = "block";
-    if (elOverlayMsg) elOverlayMsg.innerHTML = msg || "Exam paused.";
+    if (elOverlayMsg) elOverlayMsg.innerHTML = msg || "Session paused.";
     if (elOverlayMini) elOverlayMini.innerHTML = mini || "";
   }
 
@@ -899,17 +905,17 @@ btnWarn2Yes.addEventListener("click", async ()=>{
   function explainProctorBlock(){
     if (PROCTOR.requireFullscreen && fullscreenSupported() && !inFullscreen()) {
       return {
-        msg: "Mandatory exam <b>Fullscreen</b>. Enable full screen to continue.",
+        msg: "<b>Fullscreen</b> is required. Enable fullscreen to continue.",
         mini: "Click the <b>Enable Fullscreen</b> button. If it is rejected, click the button again."
       };
     }
     if (!hasFocusAndVisible()) {
-      return { msg: "The exam was paused because you <b>switched tabs/windows</b>.", mini: "Return to the exam tab to continue.." };
+      return { msg: "The session was paused because you <b>switched tabs or windows</b>.", mini: "Return to this tab to continue." };
     }
     if (devtoolsLikelyOpen()) {
       return { msg: "Detected <b>Developer Tools</b> is open. Close DevTools to continue.", mini: "If detected incorrectly, resize the browser / close the tools panel." };
     }
-    return { msg: "Exam paused.", mini: "" };
+    return { msg: "Session paused.", mini: "" };
   }
 
   async function requestFullscreen(){
@@ -920,7 +926,7 @@ btnWarn2Yes.addEventListener("click", async ()=>{
 
   async function proctorGate(){
     if (PROCTOR.showBadge) examBadge.style.display = "block";
-    btnFS.textContent = fullscreenSupported() ? "Enable Fullscreen" : "Start the Exam";
+    btnFS.textContent = fullscreenSupported() ? "Enable Fullscreen" : "Start " + PUBLIC_TITLE;
 
     if (!proctorOk()) {
       const info = explainProctorBlock();
@@ -966,7 +972,7 @@ btnWarn2Yes.addEventListener("click", async ()=>{
       });
 
       window.addEventListener("blur", ()=>{
-        if (PROCTOR.pauseWhenBlur) addWarn("Window blur (Out of the exam)", "window_blur");
+        if (PROCTOR.pauseWhenBlur) addWarn("Window focus lost", "window_blur");
         tryResolve();
       });
 
@@ -1004,7 +1010,7 @@ btnWarn2Yes.addEventListener("click", async ()=>{
       if (block) {
         e.preventDefault();
         e.stopPropagation();
-        addWarn("Shortcut dibatasi", "shortcut_blocked", {key: e.key, ctrl: !!ctrl, shift: !!shift, alt: !!alt});
+        addWarn("Shortcut restricted", "shortcut_blocked", {key: e.key, ctrl: !!ctrl, shift: !!shift, alt: !!alt});
         return false;
       }
 
@@ -1052,7 +1058,7 @@ btnWarn2Yes.addEventListener("click", async ()=>{
       const st = Number(s.start || 0);
       const en = Number(s.end || 0);
       if (!(st > 0 && en > 0)) return;
-      const nm = String(s.name || "Lainnya");
+      const nm = String(s.name || "Other");
 
       const btn = document.createElement("button");
       btn.type = "button";
@@ -1175,7 +1181,7 @@ function refreshProgressUI(){
     if (!proctorOk()) {
       const info = explainProctorBlock();
       showOverlay(info.msg, info.mini);
-      throw new Error("The exam is paused. Please fulfill the exam rules to continue.");
+      throw new Error("The session is paused. Please follow the session rules to continue.");
     }
   }
 
@@ -1249,7 +1255,7 @@ function refreshProgressUI(){
         file_label: pass.file_label,
         file_url: pass.file_url,
         youtube_url: pass.youtube_url
-      }, "Gambar passage");
+      }, "Passage image");
     } else {
       if (elPassBox) elPassBox.style.display = "none";
       if (elPassTitle) elPassTitle.textContent = "";
@@ -1278,7 +1284,7 @@ let meta = "Question " + payload.seq + " from " + payload.total +
     if (elText) renderMDWithMath(payload.question_text || "", elText);
 
     // question media
-    renderMediaInto(elMedia, payload, "Gambar soal");
+    renderMediaInto(elMedia, payload, "Question image");
 
     if (elAnswers) elAnswers.innerHTML = "";
 
@@ -1316,7 +1322,7 @@ let meta = "Question " + payload.seq + " from " + payload.total +
             refreshProgressUI();
           }catch(e){
             showAlert("error", e.message);
-            if (String(e.message || "").toLowerCase().includes("habis")) onTimeUp();
+            if (/time (?:limit )?(?:is up|has expired|is over)/i.test(String(e.message || ""))) onTimeUp();
           }
         }, 450);
       });
@@ -1366,7 +1372,7 @@ let meta = "Question " + payload.seq + " from " + payload.total +
             refreshProgressUI();
           }catch(e){
             showAlert("error", e.message);
-            if (String(e.message || "").toLowerCase().includes("habis")) onTimeUp();
+            if (/time (?:limit )?(?:is up|has expired|is over)/i.test(String(e.message || ""))) onTimeUp();
           }
         });
 
@@ -1445,9 +1451,9 @@ let meta = "Question " + payload.seq + " from " + payload.total +
     const ac = new AbortController();
     qLoadAbort = ac;
 
-    if (elMeta) elMeta.textContent = "Memuat soal…";
+    if (elMeta) elMeta.textContent = "Loading question...";
     if (elText) elText.textContent = "";
-    if (elAnswers) elAnswers.innerHTML = '<div style="padding:12px;opacity:.75">Memuat…</div>';
+    if (elAnswers) elAnswers.innerHTML = '<div style="padding:12px;opacity:.75">Loading...</div>';
 
 // clear optional blocks (loading state)
 if (elCatPill){
@@ -1474,7 +1480,7 @@ if (elCatPill){
       try{ localStorage.setItem("take_last_"+attempt, String(payload.data.seq)); }catch(e){}
     }catch(e){
       if (e && e.name === "AbortError") return;
-      showAlert("error", e.message || "Gagal memuat soal.");
+      showAlert("error", e.message || "Failed to load the question.");
     }finally{
       if (qLoadAbort === ac) qLoadAbort = null;
       qLoadBusy = false;
@@ -1558,7 +1564,7 @@ if (btnSubmit) btnSubmit.addEventListener("click", async ()=>{
 
   async function onTimeUp(){
     if (timeUpTriggered !== true) timeUpTriggered = true;
-    showOverlay("The exam time is up.", "Answers will be sent automatically...");
+    showOverlay("Time is up.", "Answers will be sent automatically...");
     await doSubmit(true);
   }
 
@@ -1572,7 +1578,7 @@ if (btnSubmit) btnSubmit.addEventListener("click", async ()=>{
       const startSeq = getStartSeq();
       await loadQuestion(startSeq);
     }catch(e){
-      showAlert("error", e.message || "Gagal memulai ujian.");
+      showAlert("error", e.message || "Failed to start the session.");
     }
   })();
 

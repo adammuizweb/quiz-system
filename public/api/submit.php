@@ -83,7 +83,7 @@ try {
     $pdo->rollBack(); json_fail(403, 'Not verified');
   }
   if (!quiz_attempt_package_is_complete($pdo, (int)$attempt['id'])) {
-    $pdo->rollBack(); json_fail(409, 'Quiz preparation required.', ['preparation_required' => true]);
+    $pdo->rollBack(); json_fail(409, quiz_public_title($pdo) . ' preparation required.', ['preparation_required' => true]);
   }
 
   if ((string)$attempt['status'] === 'submitted') {
@@ -151,7 +151,7 @@ if ($answered < $total && !$isAuto && !$confirmIncomplete) {
   $missing = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 
   $pdo->rollBack();
-  json_fail(400, "Belum semua soal dijawab ({$answered}/{$total}).", ['missing_seq'=>$missing, 'timer'=>$timer]);
+  json_fail(400, "Not all questions have been answered ({$answered}/{$total}).", ['missing_seq'=>$missing, 'timer'=>$timer]);
 }
 
   $finalized = quiz_finalize_attempt($pdo, $attempt_id);

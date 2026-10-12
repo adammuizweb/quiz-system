@@ -2,7 +2,15 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.8.2`.
+Current release: `1.8.3`.
+
+Quiz `1.8.3` adds a validated Global Title setting, defaulting to `Quiz`, so
+sites can use a participant-facing label such as `Exam` or `Test` throughout the
+English public journey without renaming stored Quizzes or technical routes. It
+also extends each Quiz visual-theme override across its dedicated registration,
+confirmation, and OTP verification journey. Global registration and multi-Quiz
+selection retain the global theme, while a selected Quiz carries its own theme
+and streamlined steps through the rest of the participant flow.
 
 Quiz `1.8.2` keeps confirmation UI aligned with per-Quiz OTP overrides and makes
 an administrator reset release the previous browser/device binding so the

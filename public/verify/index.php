@@ -17,7 +17,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../_security.php';
 
-$page_title = 'Verifikasi OTP';
+$publicTitle = quiz_public_title($pdo);
+$page_title = $publicTitle . ' OTP Verification';
 
 if (!function_exists('h')) {
   function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -60,11 +61,12 @@ if ($boundQuizId > 0) {
 }
 if ($quiz_id <= 0) {
   http_response_code(400);
-  $content_html = '<div class="container" style="padding:40px 16px">Quiz tidak valid.</div>';
+  $content_html = '<div class="container" style="padding:40px 16px">Invalid ' . h($publicTitle) . '.</div>';
   require __DIR__ . '/../layout.php';
   exit;
 }
 quiz_public_require_quiz($quiz_id);
+$quiz_visual_theme_quiz_id = $quiz_id;
 $startUrl = quiz_public_url('start');
 $confirmUrl = quiz_public_url('start/confirm', ['quiz' => $quiz_id]);
 
@@ -81,7 +83,7 @@ $quiz = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$quiz || !quiz_is_open($quiz, $now)) {
   http_response_code(404);
-  $content_html = '<div class="container" style="padding:40px 16px">Quiz not available.</div>';
+  $content_html = '<div class="container" style="padding:40px 16px">' . h($publicTitle) . ' not available.</div>';
   require __DIR__ . '/../layout.php';
   exit;
 }
@@ -136,9 +138,9 @@ $content_html = '
   <section class="st">
     <div class="st-wrap">
       <div class="st-hero">
-        <div class="st-badge">QUIZ</div>
-        <h1 class="st-h1">Quiz Already Submitted</h1>
-        <div class="st-desc">You cannot retake this quiz.</div>
+        <div class="st-badge">'.h(mb_strtoupper($publicTitle, 'UTF-8')).'</div>
+        <h1 class="st-h1">'.h($publicTitle).' Already Submitted</h1>
+        <div class="st-desc">You cannot retake this '.h($publicTitle).'.</div>
       </div>
       <div class="st-box ok">
         <a class="st-btn primary" href="'.h($startUrl).'">Back</a>
@@ -160,7 +162,7 @@ $content_html = '
       <div class="st-hero">
         <div class="st-badge">SECURITY</div>
         <h1 class="st-h1">Invalid Access</h1>
-        <div class="st-desc">Please use the same browser/device that was used to start the quiz.</div>
+        <div class="st-desc">Please use the same browser or device that was used to start the '.h($publicTitle).'.</div>
       </div>
       <div class="st-box warn">
         <a class="st-btn primary" href="'.h($confirmUrl).'">Back to Confirmation</a>
@@ -228,7 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
   $otp = trim((string)($_POST['otp'] ?? ''));
 
   if (!preg_match('/^\d{6}$/', $otp)) {
-    $errors[] = 'Kode OTP harus 6 digit.';
+    $errors[] = 'The OTP code must contain 6 digits.';
   } else {
     try {
       $pdo->beginTransaction();
@@ -356,10 +358,10 @@ $adminDigits = preg_replace('/\D+/', '', $admin_wa);
 if (strpos($adminDigits, '0') === 0) $adminDigits = '62' . substr($adminDigits, 1);
 
 $wa_text =
-  "Hello Admin, I need an OTP for quiz verification.\n"
+  "Hello Admin, I need an OTP for {$publicTitle} verification.\n"
   . "Name: " . ($contact_name !== '' ? $contact_name : '-') . "\n"
   . "Email: " . ($contact_email !== '' ? $contact_email : '-') . "\n"
-  . "Quiz ID: {$quiz_id}\n"
+  . "{$publicTitle} ID: {$quiz_id}\n"
   . "Attempt: " . ($attempt_alias !== '' ? $attempt_alias : '-') . "\n"
   . "Admin link: {$adminAttemptUrl}\n\n"
   . "Please send my OTP via WhatsApp. Thank you.";
@@ -441,6 +443,10 @@ $waPanelHtml = $waEnabled ? '
     <div class="qv-mini">To prevent spam, the WhatsApp option can only be used <b>once</b>. The OTP code will not change.</div>
   </div>' : '';
 $enterOtpStep = ($emailEnabled || $waEnabled) ? '3)' : '2)';
+$publicTitleHtml = h($publicTitle);
+$verificationJourneySteps = $boundQuizId > 0
+  ? '<div class="rz-step">1. Registration</div><div class="rz-step">2. Confirmation</div><div class="rz-step active">3. OTP Verification</div><div class="rz-step">4. Take '.$publicTitleHtml.'</div>'
+  : '<div class="rz-step">1. Registration</div><div class="rz-step">2. Select '.$publicTitleHtml.'</div><div class="rz-step">3. Confirmation</div><div class="rz-step active">4. OTP Verification</div><div class="rz-step">5. Take '.$publicTitleHtml.'</div>';
 
 $content_html = '
 <section class="st">
@@ -452,10 +458,7 @@ $content_html = '
       '.$quizDesc.'
 
       <div class="rz-steps" style="margin-top:12px">
-        <div class="rz-step">1. Registration</div>
-        <div class="rz-step">2. Select Quiz</div>
-        <div class="rz-step active">3. OTP Verification</div>
-        <div class="rz-step">4. Take Quiz</div>
+        '.$verificationJourneySteps.'
       </div>
     </div>
 

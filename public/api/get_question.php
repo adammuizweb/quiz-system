@@ -182,7 +182,7 @@ try {
   }
   if (!quiz_attempt_package_is_complete($pdo, $attempt_id)) {
     $pdo->rollBack();
-    json_fail(409, 'Quiz preparation required.', ['preparation_required' => true]);
+    json_fail(409, quiz_public_title($pdo) . ' preparation required.', ['preparation_required' => true]);
   }
 
   /* ===== TIMER ENFORCE (MySQL based) ===== */
@@ -193,7 +193,7 @@ try {
     'attempt_id' => $attempt_id, 'quiz_id' => $quiz_id, 'reason' => 'timer_expired', 'status' => 'submitted'
   ]);
   if (!empty($timer['time_up'])) {
-    json_fail(403, 'The exam time is over.', ['time_up'=>true, 'timer'=>$timer]);
+    json_fail(403, 'The time limit has expired.', ['time_up'=>true, 'timer'=>$timer]);
   }
   /* ===== END TIMER ===== */
 
@@ -444,7 +444,7 @@ try {
     $catMaxRaw = $q['question_category_max_questions'] ?? null;
   }
 
-  if ($catName === '') $catName = 'Lainnya';
+  if ($catName === '') $catName = 'Other';
   $catMax = ($catMaxRaw === null || $catMaxRaw === '') ? null : (int)$catMaxRaw;
 
   // resolve file info question + passage

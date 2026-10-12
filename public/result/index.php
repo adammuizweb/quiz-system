@@ -51,8 +51,7 @@ $visualTheme = quiz_safe_visual_theme_override($attempt['visual_theme_override']
   ?? quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
 $themeClass = 'qr-theme-' . $visualTheme;
 $faviconUrl = quiz_site_favicon_url($pdo);
-$siteTitle = trim((string)(settings_get($pdo, 'site_title', 'Quiz') ?? 'Quiz'));
-if ($siteTitle === '') $siteTitle = 'Quiz';
+$publicTitle = quiz_public_title($pdo);
 $resultStyles = <<<'HTML'
 <style>
   .qr{
@@ -196,11 +195,11 @@ $resultStyles = <<<'HTML'
 HTML;
 
 if (!quiz_attempt_result_is_ready($pdo, (int)$attempt['id'])) {
-  $page_title = 'Quiz Result';
+  $page_title = $publicTitle . ' Result';
   $content_html = $resultStyles . '<main class="qr ' . h($themeClass) . '"><div class="qr-shell"><section class="qr-empty">'
     . '<div class="qr-empty-mark" aria-hidden="true">!</div><p class="qr-section-kicker">Result report</p>'
     . '<h1>Result Unavailable</h1><p>A complete verified result is not available for this submission.</p>'
-    . '<a class="qr-button" href="' . h($backUrl) . '">Back to Quiz List</a></section></div></main>';
+    . '<a class="qr-button" href="' . h($backUrl) . '">Back to ' . h($publicTitle) . ' List</a></section></div></main>';
   require __DIR__ . '/../layout.php';
   return;
 }
@@ -247,7 +246,7 @@ $submittedText = $submittedRaw !== '' && function_exists('app_display_datetime')
 $participantName = trim((string)($student['name'] ?? ''));
 $testNumber = trim((string)($attempt['nomor_test'] ?? ''));
 
-$page_title = 'Quiz Result - ' . (string)$attempt['title'];
+$page_title = $publicTitle . ' Result - ' . (string)$attempt['title'];
 ob_start();
 ?>
 <?= $resultStyles ?>
@@ -256,14 +255,14 @@ ob_start();
     <header class="qr-topbar">
       <div class="qr-brand">
         <span class="qr-mark"><img src="<?= h($faviconUrl) ?>" alt="" referrerpolicy="no-referrer"></span>
-        <span class="qr-brand-copy"><strong><?= h($siteTitle) ?></strong><span>Private participant result</span></span>
+        <span class="qr-brand-copy"><strong><?= h($publicTitle) ?></strong><span>Private participant result</span></span>
       </div>
       <span class="qr-status"><i aria-hidden="true"></i>Submitted and verified</span>
     </header>
 
     <section class="qr-hero" aria-labelledby="qr-result-title">
       <div class="qr-hero-copy">
-        <p class="qr-eyebrow">Quiz result</p>
+        <p class="qr-eyebrow"><?= h($publicTitle) ?> result</p>
         <h1 class="qr-title" id="qr-result-title"><?= h($attempt['title']) ?></h1>
         <p class="qr-lead">Your submitted result is ready. This report summarizes the final score and completion data without exposing answer keys or individual responses.</p>
         <?php if ($participantName !== '' || $testNumber !== ''): ?>
@@ -282,7 +281,7 @@ ob_start();
       <article class="qr-metric">
         <span class="qr-metric-label">Score earned</span>
         <strong><?= $totalScore ?> / <?= $available ?></strong>
-        <small><?= $available > 0 ? 'Final points from the verified submission.' : 'This Quiz has no scored points.' ?></small>
+        <small><?= $available > 0 ? 'Final points from the verified submission.' : 'This ' . h($publicTitle) . ' has no scored points.' ?></small>
       </article>
       <article class="qr-metric">
         <span class="qr-metric-label">Completion</span>
@@ -330,7 +329,7 @@ ob_start();
 
     <footer class="qr-footer">
       <p>This private report is tied to your current browser and device. It contains summary data only and does not include answer keys or individual responses.</p>
-      <a class="qr-button" href="<?= h($backUrl) ?>">Back to Quiz List</a>
+      <a class="qr-button" href="<?= h($backUrl) ?>">Back to <?= h($publicTitle) ?> List</a>
     </footer>
   </div>
 </main>

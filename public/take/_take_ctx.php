@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../_security.php';
 
+$publicTitle = isset($publicTitle) && is_string($publicTitle) ? $publicTitle : quiz_public_title($pdo);
+
 if (!function_exists('h')) {
   function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 }
@@ -866,14 +868,14 @@ $st = $pdo->prepare("
 $st->execute([':id'=>$quiz_id]);
 $quiz = $st->fetch(PDO::FETCH_ASSOC);
 if (!$quiz) {
-  $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">Quiz tidak ditemukan.</div>';
+  $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">' . h($publicTitle) . ' not found.</div>';
   $ctx = null;
   return;
 }
 
 $now = date('Y-m-d H:i:s');
 if (!quiz_is_open($quiz, $now)) {
-  $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">Quiz tidak tersedia.</div>';
+  $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">' . h($publicTitle) . ' not available.</div>';
   $ctx = null;
   return;
 }
@@ -903,7 +905,7 @@ $content_html = '
       <div class="st-hero">
         <div class="st-badge">SECURITY</div>
         <h1 class="st-h1">Invalid Access</h1>
-        <div class="st-desc">Please use the same browser/device that was used to start the quiz.</div>
+        <div class="st-desc">Please use the same browser or device that was used to start the '.h($publicTitle).'.</div>
       </div>
       <div class="st-box warn">
         <a class="st-btn primary" href="'.h(quiz_public_url('start')).'">Back to Start</a>
@@ -1031,7 +1033,7 @@ try {
 
     $ids = qz_pick_attempt_question_ids($pdo, $quiz_id, $limit);
     if (!$ids) {
-      throw new RuntimeException('There are no active questions for this quiz.');
+      throw new RuntimeException('There are no active questions for this ' . $publicTitle . '.');
     }
 
     $ins = $pdo->prepare("INSERT INTO attempt_questions (attempt_id, question_id, seq) VALUES (:aid, :qid, :seq)");
@@ -1065,9 +1067,9 @@ try {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log("[quiz/take] ensure ctx error: " . $e->getMessage());
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">
-    <h1 style="margin:0 0 8px">Terjadi kendala</h1>
-    <p style="margin:0 0 14px;opacity:.8">Paket soal tidak valid dan perlu di-reset oleh admin sebelum dapat dilanjutkan.</p>
-    <a class="st-btn primary" href="'.h(quiz_public_url('start')).'">Kembali ke Start</a>
+    <h1 style="margin:0 0 8px">Unable to continue</h1>
+    <p style="margin:0 0 14px;opacity:.8">The question package is invalid and must be reset by an administrator.</p>
+    <a class="st-btn primary" href="'.h(quiz_public_url('start')).'">Back to Start</a>
   </div>';
   $ctx = null;
   return;
@@ -1187,7 +1189,7 @@ foreach ($navRows as $r) {
   }
 
   if ($cid <= 0) {
-    $nav_cat_map[$seq] = ['id'=>null, 'name'=>'Lainnya'];
+    $nav_cat_map[$seq] = ['id'=>null, 'name'=>'Other'];
   } else {
     if ($cname === '') $cname = 'Kategori';
     $nav_cat_map[$seq] = ['id'=>$cid, 'name'=>$cname];
@@ -1198,8 +1200,8 @@ $nav_sections = [];
 $cur = null;
 for ($i = 1; $i <= $total; $i++) {
   $cid = $nav_cat_map[$i]['id'] ?? null;
-  $cname = trim((string)($nav_cat_map[$i]['name'] ?? 'Lainnya'));
-  if ($cname === '') $cname = 'Lainnya';
+  $cname = trim((string)($nav_cat_map[$i]['name'] ?? 'Other'));
+  if ($cname === '') $cname = 'Other';
 
   if ($cur === null) {
     $cur = ['id'=>$cid, 'name'=>$cname, 'start'=>$i, 'end'=>$i];

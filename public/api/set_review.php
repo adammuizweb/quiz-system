@@ -56,7 +56,7 @@ try {
   if ((string)$attempt['status'] === 'submitted') { $pdo->rollBack(); $fail(403, 'Already submitted'); }
   if (quiz_safe_bool($attempt['allow_mark_for_review'] ?? 0) !== 1) { $pdo->rollBack(); $fail(403, 'Review marking is disabled'); }
   if (!quiz_attempt_package_is_complete($pdo, (int)$attempt['id'])) {
-    $pdo->rollBack(); $fail(409, 'Quiz preparation required.', ['preparation_required' => true]);
+    $pdo->rollBack(); $fail(409, quiz_public_title($pdo) . ' preparation required.', ['preparation_required' => true]);
   }
 
   $timer = qz_timer_enforce($pdo, (int)$attempt['id'], (int)($attempt['duration_minutes'] ?? 0), true, true, $attempt['timer_warning_seconds'] ?? null);
@@ -65,7 +65,7 @@ try {
     if (!empty($timer['finalized'])) quiz_extension_emit('attempt.submitted', [
       'attempt_id' => (int)$attempt['id'], 'quiz_id' => $quizId, 'reason' => 'timer_expired', 'status' => 'submitted'
     ]);
-    $fail(403, 'Waktu ujian sudah habis.', ['time_up' => true, 'timer' => $timer]);
+    $fail(403, 'The time limit has expired.', ['time_up' => true, 'timer' => $timer]);
   }
 
   $assigned = $pdo->prepare('SELECT id, marked_for_review FROM attempt_questions

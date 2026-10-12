@@ -20,8 +20,9 @@ $add_error = static function (string $message, ?string $field_id = null) use (&$
   }
 };
 
+$global_title = quiz_public_title($pdo);
 $default_from_email = function_exists('quiz_default_sender_email') ? quiz_default_sender_email() : 'no-reply@example.com';
-$current_from_name  = settings_get($pdo, 'quiz_email_from_name', 'Quiz') ?? 'Quiz';
+$current_from_name  = settings_get($pdo, 'quiz_email_from_name', $global_title) ?? $global_title;
 $current_from_email = settings_get($pdo, 'quiz_email_from_address', $default_from_email) ?? $default_from_email;
 $current_admin_wa   = settings_get($pdo, 'quiz_admin_wa', '') ?? '';
 $otp_email_enabled  = (settings_get($pdo, 'quiz_otp_email_enabled', '1') ?? '1') !== '0';
@@ -65,7 +66,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $otp_email_enabled = isset($_POST['quiz_otp_email_enabled']);
   $otp_wa_enabled = isset($_POST['quiz_otp_whatsapp_enabled']);
   $test_number_format = trim((string)($_POST['quiz_test_number_format'] ?? ''));
+  $global_title = trim((string)($_POST['quiz_global_title'] ?? ''));
   $global_public_prefix = trim((string)($_POST['quiz_global_public_prefix'] ?? 'quiz'));
+  try {
+    $global_title = quiz_normalize_public_title($global_title);
+  } catch (InvalidArgumentException $error) {
+    $add_error($error->getMessage(), 'quiz_global_title');
+  }
   try {
     $visual_theme = quiz_normalize_visual_theme($_POST['quiz_visual_theme'] ?? '');
   } catch (InvalidArgumentException $error) {
@@ -120,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $okEmailEnabled = settings_set($pdo, 'quiz_otp_email_enabled', $otp_email_enabled ? '1' : '0', 1);
         $okWaEnabled = settings_set($pdo, 'quiz_otp_whatsapp_enabled', $otp_wa_enabled ? '1' : '0', 1);
         $okTestNumber = settings_set($pdo, 'quiz_test_number_format', $test_number_format, 1);
+        $okGlobalTitle = settings_set($pdo, 'quiz_global_title', $global_title, 1);
         $okGlobalPrefix = settings_set($pdo, 'quiz_global_public_prefix', $global_public_prefix, 1);
         $okVisualTheme = settings_set($pdo, 'quiz_visual_theme', $visual_theme, 1);
 
@@ -129,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ok7 = settings_set($pdo, 'quiz_start_manual', $quiz_start_manual, 1);
         $ok8 = settings_set($pdo, 'quiz_start_limit', (string)$limit_int, 1);
         $settingsSaved = $ok1 && $ok2 && $ok3 && $okEmailEnabled && $okWaEnabled && $okTestNumber
-          && $okGlobalPrefix && $okVisualTheme && $ok4 && $ok5 && $ok6 && $ok7 && $ok8;
+          && $okGlobalTitle && $okGlobalPrefix && $okVisualTheme && $ok4 && $ok5 && $ok6 && $ok7 && $ok8;
         if (!$settingsSaved) throw new RuntimeException('A Quiz setting could not be saved.');
         if (!$pdo->commit()) throw new RuntimeException('Quiz Settings transaction could not commit.');
       } catch (\InvalidArgumentException $error) {
@@ -219,6 +227,10 @@ $test_number_preview = function_exists('quiz_format_test_number')
         </dd>
       </div>
       <div>
+        <dt>Global Title</dt>
+        <dd data-qz-settings-summary="global-title"><?= h($global_title) ?></dd>
+      </div>
+      <div>
         <dt>Participant Verification</dt>
         <dd data-qz-settings-summary="verification"><?= h($verification_summary) ?></dd>
       </div>
@@ -296,6 +308,17 @@ $test_number_preview = function_exists('quiz_format_test_number')
         <span class="chevron" aria-hidden="true">&#8250;</span>
       </button>
       <div class="settings-section-body" id="qz-appearance-section">
+        <div class="qz-field">
+          <label for="quiz_global_title">Global Title</label>
+          <input type="text" name="quiz_global_title" id="quiz_global_title"
+            value="<?= h($global_title) ?>" class="inp inp-w100" required maxlength="80"
+            aria-describedby="quiz_global_title_help<?= isset($field_errors['quiz_global_title']) ? ' quiz_global_title_error' : '' ?>"
+            <?= isset($field_errors['quiz_global_title']) ? 'aria-invalid="true"' : '' ?>>
+          <?php if (isset($field_errors['quiz_global_title'])): ?>
+            <p class="qz-field-error" id="quiz_global_title_error"><?= h($field_errors['quiz_global_title']) ?></p>
+          <?php endif; ?>
+          <p class="qz-field-help" id="quiz_global_title_help">The generic public label shown throughout the participant journey, for example Quiz, Exam, or Test. Individual Quiz titles remain unchanged.</p>
+        </div>
         <div class="qz-field">
           <label for="quiz_visual_theme">Default visual theme</label>
           <select name="quiz_visual_theme" id="quiz_visual_theme" class="inp inp-w100"

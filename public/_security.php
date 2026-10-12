@@ -49,6 +49,9 @@ if (!function_exists('qz_public_csrf_from_request')) {
 
 if (!function_exists('qz_public_post_redirect')) {
   function qz_public_post_redirect(string $action, array $fields): never {
+    global $pdo;
+    $publicTitle = $pdo instanceof PDO ? quiz_public_title($pdo) : 'Quiz';
+    $safeTitle = htmlspecialchars($publicTitle, ENT_QUOTES, 'UTF-8');
     $parts = parse_url($action);
     $path = is_array($parts) ? (string)($parts['path'] ?? '') : '';
     if (!is_array($parts) || !str_starts_with($path, '/') || str_starts_with($path, '//')
@@ -73,11 +76,11 @@ if (!function_exists('qz_public_post_redirect')) {
     }
     $safeAction = htmlspecialchars($action, ENT_QUOTES, 'UTF-8');
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-      . '<title>Starting Quiz</title><style>body{font-family:system-ui,sans-serif;margin:0;background:#f8fafc;color:#0f172a}'
+      . '<title>Starting ' . $safeTitle . '</title><style>body{font-family:system-ui,sans-serif;margin:0;background:#f8fafc;color:#0f172a}'
       . 'main{max-width:560px;margin:12vh auto;padding:24px}button{border:0;border-radius:12px;padding:12px 16px;background:#111827;color:#fff;font-weight:800}</style>'
       . '</head><body><form id="qz-auto-start" method="post" action="' . $safeAction . '">' . $inputs
-      . '<noscript><main><h1>Ready to begin?</h1><p>JavaScript is disabled. Select Start Quiz to continue.</p>'
-      . '<button type="submit">Start Quiz</button></main></noscript></form>'
+      . '<noscript><main><h1>Ready to begin?</h1><p>JavaScript is disabled. Select Start ' . $safeTitle . ' to continue.</p>'
+      . '<button type="submit">Start ' . $safeTitle . '</button></main></noscript></form>'
       . '<script>document.getElementById("qz-auto-start").submit();</script></body></html>';
     exit;
   }

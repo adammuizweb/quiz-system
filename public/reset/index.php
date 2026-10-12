@@ -10,8 +10,13 @@ if (!headers_sent()) {
   header('Expires: 0');
 }
 
-function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+if (!function_exists('h')) {
+  function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+}
 
+$publicTitle = quiz_public_title($pdo);
+$publicTitleHtml = h($publicTitle);
+$page_title = 'Reset ' . $publicTitle . ' Session';
 $next = quiz_public_safe_next((string)($_GET['next'] ?? ''), 'register');
 $isReset = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST';
 if ($isReset && !qz_public_csrf_check(qz_public_csrf_from_request())) {
@@ -39,23 +44,23 @@ if ($isReset) {
   }
 }
 
-$clearedTxt = $cleared ? implode(', ', $cleared) : '(tidak ada cookie quiz_ terdeteksi)';
+$clearedTxt = $cleared ? implode(', ', $cleared) : '(no session cookies detected)';
 
 $content_html = !$isReset ? '
 <section class="st">
   <div class="st-wrap">
     <div class="st-hero">
       <div class="st-badge">RESET</div>
-      <h1 class="st-h1">Reset Quiz Session</h1>
-      <div class="st-desc">Tindakan ini menghapus cookie dan data Quiz di browser ini.</div>
+      <h1 class="st-h1">Reset '.$publicTitleHtml.' Session</h1>
+      <div class="st-desc">This action removes '.$publicTitleHtml.' cookies and session data from this browser.</div>
     </div>
 
     <div class="st-box">
-      <div class="st-note">Gunakan reset hanya jika ingin memulai ulang dari halaman Register.</div>
+      <div class="st-note">Only reset if you want to restart from the registration page.</div>
       <form method="post" class="st-actions" style="margin-top:14px">
         <input type="hidden" name="csrf_token" value="'.h(qz_public_csrf_token()).'">
-        <button class="st-btn primary" type="submit">Reset Quiz Session</button>
-        <a class="st-btn" href="'.h($next).'">Batal</a>
+        <button class="st-btn primary" type="submit">Reset '.$publicTitleHtml.' Session</button>
+        <a class="st-btn" href="'.h($next).'">Cancel</a>
       </form>
     </div>
   </div>
@@ -65,20 +70,20 @@ $content_html = !$isReset ? '
   <div class="st-wrap">
     <div class="st-hero">
       <div class="st-badge">RESET</div>
-      <h1 class="st-h1">Reset Quiz Session</h1>
-      <div class="st-desc">Membersihkan data Quiz di browser untuk mulai dari awal (Register).</div>
+      <h1 class="st-h1">Reset '.$publicTitleHtml.' Session</h1>
+      <div class="st-desc">The '.$publicTitleHtml.' session data was removed from this browser.</div>
     </div>
 
     <div class="st-box ok">
-      <div style="font-weight:800;margin-bottom:6px">Cookies dihapus:</div>
+      <div style="font-weight:800;margin-bottom:6px">Cookies removed:</div>
       <div style="font-family:ui-monospace,monospace;white-space:pre-wrap">'.h($clearedTxt).'</div>
 
       <div class="st-note" style="margin-top:10px">
-        Setelah ini halaman akan otomatis kembali ke <b>'.h($next).'</b>.
+        This page will return automatically to <b>'.h($next).'</b>.
       </div>
 
       <div class="st-actions" style="margin-top:14px">
-        <a class="st-btn primary" href="'.h($next).'">Kembali ke Register</a>
+        <a class="st-btn primary" href="'.h($next).'">Back to Registration</a>
       </div>
     </div>
   </div>

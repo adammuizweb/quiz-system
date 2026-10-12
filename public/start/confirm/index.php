@@ -16,7 +16,8 @@ if (!headers_sent()) {
   header('Expires: 0');
 }
 
-$page_title = 'Konfirmasi Start Quiz';
+$publicTitle = quiz_public_title($pdo);
+$page_title = 'Confirm ' . $publicTitle;
 
 if (!function_exists('h')) {
   function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -89,7 +90,7 @@ function generate_nomor_test(PDO $pdo, int $attemptId, ?int $year = null): strin
     $stmt = $pdo->prepare('SELECT quiz_id FROM quiz_attempts WHERE id=:id LIMIT 1');
     $stmt->execute([':id'=>$attemptId]);
     $quizId = (int)$stmt->fetchColumn();
-    if ($quizId <= 0) throw new RuntimeException('Quiz ID untuk nomor test tidak ditemukan.');
+    if ($quizId <= 0) throw new RuntimeException('The Quiz ID required for the Test Number was not found.');
   }
   return function_exists('quiz_format_test_number')
     ? quiz_format_test_number($format, $attemptId, $year, $quizId)
@@ -168,8 +169,8 @@ try {
     <section class="st"><div class="st-wrap">
       <div class="st-hero">
         <div class="st-badge">DB MIGRATION</div>
-        <h1 class="st-h1">Kolom quiz_attempts belum lengkap</h1>
-        <div class="st-desc">Halaman confirm butuh kolom berikut:</div>
+        <h1 class="st-h1">Participant service unavailable</h1>
+        <div class="st-desc">The required attempt data is incomplete.</div>
       </div>
       <div class="st-box warn">
         <div style="font-weight:800;margin-bottom:8px">Missing:</div>
@@ -177,7 +178,7 @@ try {
         <div style="margin-top:10px;opacity:.8">Dev: run ALTER TABLE to add those columns (or run your migration script).</div>
       </div>
       <div class="st-box ok" style="margin-top:12px">
-        <a class="st-btn primary" href="'.h($startUrl).'">Kembali</a>
+        <a class="st-btn primary" href="'.h($startUrl).'">Back</a>
       </div>
     </div></section>';
     require __DIR__ . '/../../layout.php';
@@ -200,6 +201,7 @@ if ($boundQuizId > 0) {
 }
 if ($quiz_id <= 0) go($startUrl);
 quiz_public_require_quiz($quiz_id);
+$quiz_visual_theme_quiz_id = $quiz_id;
 
 $stmt = $pdo->prepare("
   SELECT id, title, description, is_active, is_primary, start_at, end_at, questions_per_attempt, duration_minutes, verification_required_override
@@ -216,17 +218,18 @@ if (!$quiz || !quiz_is_open($quiz, $now)) {
     <div class="st-wrap">
       <div class="st-hero">
         <div class="st-badge">START</div>
-        <h1 class="st-h1">Quiz Not Available</h1>
-        <div class="st-desc">This quiz is not yet open / has been closed / or is inactive.</div>
+        <h1 class="st-h1">'.h($publicTitle).' Not Available</h1>
+        <div class="st-desc">This '.h($publicTitle).' is not open or is inactive.</div>
       </div>
       <div class="st-box warn">
-        <a class="st-btn primary" href="'.h($startUrl).'">Back to Select Quiz</a>
+        <a class="st-btn primary" href="'.h($startUrl).'">Back to Select '.h($publicTitle).'</a>
       </div>
     </div>
   </section>';
   require __DIR__ . '/../../layout.php';
   exit;
 }
+$page_title = (string)$quiz['title'] . ' Confirmation';
 $verificationRequired = $quiz['verification_required_override'] === null
   ? true
   : (int)$quiz['verification_required_override'] === 1;
@@ -294,12 +297,12 @@ if ($attempt) {
     <section class="st">
       <div class="st-wrap">
         <div class="st-hero">
-          <div class="st-badge">QUIZ</div>
-          <h1 class="st-h1">Quiz sudah disubmit</h1>
-          <div class="st-desc">Kamu tidak bisa mengulang quiz ini.</div>
+          <div class="st-badge">'.h(mb_strtoupper($publicTitle, 'UTF-8')).'</div>
+          <h1 class="st-h1">'.h($publicTitle).' Already Submitted</h1>
+          <div class="st-desc">You cannot retake this '.h($publicTitle).'.</div>
         </div>
         <div class="st-box ok">
-          <a class="st-btn primary" href="'.h($startUrl).'">Kembali</a>
+          <a class="st-btn primary" href="'.h($startUrl).'">Back</a>
         </div>
       </div>
     </section>';
@@ -356,7 +359,7 @@ if ($attempt) {
         <div class="st-hero">
           <div class="st-badge">SECURITY</div>
           <h1 class="st-h1">Access is not Valid</h1>
-          <div class="st-desc">Use the same browser/device when starting the quiz.</div>
+          <div class="st-desc">Use the same browser or device used to start the '.h($publicTitle).'.</div>
         </div>
         <div class="st-box warn"><a class="st-btn primary" href="'.h($startUrl).'">Back</a></div>
       </div></section>';
@@ -440,7 +443,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       if ($st === 'submitted') {
         $pdo->commit();
-        go($nextSelf . '&err=' . rawurlencode('The quiz has been submitted. Cannot be retaken.'));
+        go($nextSelf . '&err=' . rawurlencode('The ' . $publicTitle . ' has been submitted and cannot be retaken.'));
       }
 
       if ($ver || in_array($st, ['verified','in_progress'], true)) {
@@ -452,7 +455,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       if ($st !== 'registered') {
         $pdo->commit();
-        go($nextSelf . '&err=' . rawurlencode('Tidak bisa mulai pada status saat ini.'));
+        go($nextSelf . '&err=' . rawurlencode('This attempt cannot start from its current status.'));
       }
 
       // UA konsisten sejak start
@@ -566,7 +569,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
           if (!empty($active['user_agent_hash']) && !hash_equals((string)$active['user_agent_hash'], $uaH)) {
             if ($pdo->inTransaction()) $pdo->rollBack();
-            go($nextSelf . '&err=' . rawurlencode('There is still an active exam. Use the same device/browser when starting.'));
+            go($nextSelf . '&err=' . rawurlencode('There is still an active ' . $publicTitle . '. Use the same browser or device.'));
           }
 
           $activeAlias = trim((string)($active['attempt_alias'] ?? ''));
@@ -608,12 +611,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($postErrors) && !empty($student['email'])) {
       $st = $pdo->prepare("SELECT 1 FROM quiz_attempts WHERE quiz_id=:qid AND contact_email=:em AND student_id!=:sid LIMIT 1");
       $st->execute([':qid'=>$quiz_id, ':em'=>(string)$student['email'], ':sid'=>$student_id]);
-      if ($st->fetchColumn()) $postErrors[] = 'Email ini sudah terdaftar untuk quiz ini.';
+      if ($st->fetchColumn()) $postErrors[] = 'This email is already registered for this ' . $publicTitle . '.';
     }
     if (empty($postErrors) && !empty($student['phone'])) {
       $st = $pdo->prepare("SELECT 1 FROM quiz_attempts WHERE quiz_id=:qid AND contact_phone=:ph AND student_id!=:sid LIMIT 1");
       $st->execute([':qid'=>$quiz_id, ':ph'=>(string)$student['phone'], ':sid'=>$student_id]);
-      if ($st->fetchColumn()) $postErrors[] = 'Nomor WhatsApp ini sudah terdaftar untuk quiz ini.';
+      if ($st->fetchColumn()) $postErrors[] = 'This WhatsApp number is already registered for this ' . $publicTitle . '.';
     }
     if ($postErrors) {
       if ($pdo->inTransaction()) $pdo->rollBack();
@@ -690,14 +693,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       // Jika attempt milik student lain (conflict email/phone) → jangan redirect ke verify
       if ((int)$A['student_id'] !== $student_id) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        $postErrors[] = 'Email/nomor WhatsApp sudah terdaftar untuk quiz ini oleh peserta lain.';
+        $postErrors[] = 'This email or WhatsApp number is already registered for this ' . $publicTitle . ' by another participant.';
       } else {
       $st = (string)($A['status'] ?? '');
       $ver = !empty($A['email_verified_at']);
 
       if ($st === 'submitted') {
         $pdo->commit();
-        go($nextSelf . '&err=' . rawurlencode('The quiz has been submitted. Cannot be retaken..'));
+        go($nextSelf . '&err=' . rawurlencode('The ' . $publicTitle . ' has been submitted and cannot be retaken.'));
       }
       if ($ver || in_array($st, ['verified','in_progress'], true)) {
         $pdo->commit();
@@ -752,7 +755,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       echo '</pre>';
       exit;
     }
-    go($nextSelf . '&err=' . rawurlencode('Failed to start quiz. Please try again.'));
+    go($nextSelf . '&err=' . rawurlencode('Failed to start the ' . $publicTitle . '. Please try again.'));
   }
 }
 
@@ -760,6 +763,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
    5) Render UI
    =============================== */
 $quizTitle = h((string)$quiz['title']);
+$publicTitleHtml = h($publicTitle);
 $quizDesc  = trim((string)($quiz['description'] ?? ''));
 $quizDesc  = $quizDesc ? '<div class="st-desc">'.h($quizDesc).'</div>' : '';
 
@@ -768,17 +772,17 @@ $onlineChecked = $deliveryMode === 'online' ? ' checked' : '';
 $onsiteChecked = $deliveryMode === 'onsite' ? ' checked' : '';
 $deliveryModeField = '
   <fieldset style="border:0;padding:0;margin:0 0 14px">
-    <legend class="st-label" style="margin-bottom:8px">How will you take this quiz?</legend>
+    <legend class="st-label" style="margin-bottom:8px">How will you take this '.$publicTitleHtml.'?</legend>
     <div class="st-grid">
       <label class="st-note" style="display:block;cursor:pointer">
         <input type="radio" name="delivery_mode" value="online" required'.$onlineChecked.'>
         <strong>Online</strong><br>
-        <span style="margin-left:22px">Take the quiz remotely using this device.</span>
+        <span style="margin-left:22px">Take the '.$publicTitleHtml.' remotely using this device.</span>
       </label>
       <label class="st-note" style="display:block;cursor:pointer">
         <input type="radio" name="delivery_mode" value="onsite" required'.$onsiteChecked.'>
         <strong>Onsite</strong><br>
-        <span style="margin-left:22px">Take the quiz at the designated location.</span>
+        <span style="margin-left:22px">Take the '.$publicTitleHtml.' at the designated location.</span>
       </label>
     </div>
   </fieldset>';
@@ -798,20 +802,23 @@ if ($attempt) {
 }
 
 $verificationSteps = $verificationRequired
-  ? '<div class="rz-step">4. OTP Verification</div><div class="rz-step">5. Take Quiz</div>'
-  : '<div class="rz-step">4. Take Quiz</div>';
+  ? '<div class="rz-step">'.($boundQuizId > 0 ? '3' : '4').'. OTP Verification</div><div class="rz-step">'.($boundQuizId > 0 ? '4' : '5').'. Take '.$publicTitleHtml.'</div>'
+  : '<div class="rz-step">'.($boundQuizId > 0 ? '3' : '4').'. Take '.$publicTitleHtml.'</div>';
+$confirmationSteps = $boundQuizId > 0
+  ? '<div class="rz-step">1. Registration</div><div class="rz-step active">2. Confirmation</div>'.$verificationSteps
+  : '<div class="rz-step">1. Registration</div><div class="rz-step">2. Select '.$publicTitleHtml.'</div><div class="rz-step active">3. Confirmation</div>'.$verificationSteps;
 $proceedInfo = $verificationRequired
   ? '<div class="st-note" style="margin-top:12px">
       Once you proceed, the system will:
       <ul style="margin:8px 0 0 18px;line-height:1.6">
-        <li>create an attempt for this quiz (one-time)</li>
+        <li>create an attempt for this '.$publicTitleHtml.' (one time)</li>
         <li>generate an OTP and a device token</li>
         <li>lock the attempt identity (prevents changing email/WhatsApp after start)</li>
       </ul>
       <div style="margin-top:8px"><b>Important note:</b> once the status becomes <b>in_progress</b>, you cannot return to the Start/Verify steps to reset the OTP/state.</div>
     </div>'
   : '<div class="st-note" style="margin-top:12px">
-      OTP verification is disabled for this quiz. Continue to bind this browser/device and open the quiz directly.
+      OTP verification is disabled for this '.$publicTitleHtml.'. Continue to bind this browser or device and open the '.$publicTitleHtml.' directly.
     </div>';
 
 $alert = '';
@@ -846,10 +853,7 @@ $content_html = '
       '.$quizDesc.'
 
       <div class="rz-steps" style="margin-top:12px">
-        <div class="rz-step">1. Registration</div>
-        <div class="rz-step">2. Select Quiz</div>
-        <div class="rz-step active">3. Confirmation</div>
-        '.$verificationSteps.'
+        '.$confirmationSteps.'
       </div>
     </div>
 

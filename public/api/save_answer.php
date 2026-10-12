@@ -49,7 +49,7 @@ try {
   if (empty($attempt['email_verified_at']) || (string)$attempt['status'] === 'registered') { $pdo->rollBack(); json_fail(403, 'Not verified'); }
   if ((string)$attempt['status'] === 'submitted') { $pdo->rollBack(); json_fail(403, 'Already submitted'); }
   if (!quiz_attempt_package_is_complete($pdo, (int)$attempt['id'])) {
-    $pdo->rollBack(); json_fail(409, 'Quiz preparation required.', ['preparation_required' => true]);
+    $pdo->rollBack(); json_fail(409, quiz_public_title($pdo) . ' preparation required.', ['preparation_required' => true]);
   }
 
   $questionStmt = $pdo->prepare('SELECT id, delivery_snapshot_json FROM attempt_questions
@@ -76,7 +76,7 @@ try {
     if (!empty($timer['finalized'])) quiz_extension_emit('attempt.submitted', [
       'attempt_id' => (int)$attempt['id'], 'quiz_id' => $quizId, 'reason' => 'timer_expired', 'status' => 'submitted'
     ]);
-    json_fail(403, 'Waktu ujian sudah habis.', ['time_up' => true, 'timer' => $timer]);
+    json_fail(403, 'The time limit has expired.', ['time_up' => true, 'timer' => $timer]);
   }
 
   $selectedAnswerId = null;

@@ -61,11 +61,13 @@
     var verification = document.querySelector('[data-qz-settings-summary="verification"]');
     var start = document.querySelector('[data-qz-settings-summary="start"]');
     var number = document.querySelector('[data-qz-settings-summary="number"]');
+    var globalTitleSummary = document.querySelector('[data-qz-settings-summary="global-title"]');
     var email = form.querySelector('[name="quiz_otp_email_enabled"]');
     var whatsapp = form.querySelector('[name="quiz_otp_whatsapp_enabled"]');
     var mode = form.querySelector('[name="quiz_start_mode"]');
     var limit = form.querySelector('[name="quiz_start_limit"]');
     var format = form.querySelector('[name="quiz_test_number_format"]');
+    var globalTitle = form.querySelector('[name="quiz_global_title"]');
     var modeLabels = {
       all: 'All active quizzes',
       selected: 'Selected quizzes',
@@ -94,9 +96,10 @@
         start.textContent = (modeLabels[mode.value] || 'Invalid configuration') + ', up to ' + (limit.value || '0') + ' quizzes';
       }
       if (number && format) number.textContent = previewNumber(format.value);
+      if (globalTitleSummary && globalTitle) globalTitleSummary.textContent = globalTitle.value.trim() || 'Quiz';
     }
 
-    [email, whatsapp, mode, limit, format].forEach(function(control){
+    [email, whatsapp, mode, limit, format, globalTitle].forEach(function(control){
       if (!control) return;
       control.addEventListener('input', syncSettingsSummary);
       control.addEventListener('change', syncSettingsSummary);

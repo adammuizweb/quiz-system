@@ -7,7 +7,8 @@ if (isset($content_html) && is_string($content_html) && trim($content_html) !== 
   return;
 }
 if (!isset($ctx) || !is_array($ctx)) {
-  $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">Konteks quiz tidak valid.</div>';
+  $publicTitle = isset($publicTitle) && is_string($publicTitle) ? $publicTitle : quiz_public_title($pdo);
+  $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">Invalid ' . quiz_h($publicTitle) . ' context.</div>';
   return;
 }
 
@@ -15,7 +16,9 @@ if (!function_exists('h')) {
   function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 }
 
-$quizTitle = h((string)($ctx['quiz']['title'] ?? 'Quiz'));
+$publicTitle = isset($publicTitle) && is_string($publicTitle) ? $publicTitle : quiz_public_title($pdo);
+$publicTitleHtml = h($publicTitle);
+$quizTitle = h((string)($ctx['quiz']['title'] ?? $publicTitle));
 $quizDescRaw  = trim((string)($ctx['quiz']['description'] ?? ''));
 $quizDesc  = $quizDescRaw ? '<div class="qt-sub">'.h($quizDescRaw).'</div>' : '';
 
@@ -32,7 +35,7 @@ $visualThemeClass = h('qt-theme-' . $visualTheme);
 $sectionsHtml = '';
 if ($navSections) {
   foreach ($navSections as $s) {
-    $nm = h((string)($s['name'] ?? 'Lainnya'));
+    $nm = h((string)($s['name'] ?? 'Other'));
     $st = (int)($s['start'] ?? 1);
     $en = (int)($s['end'] ?? $st);
     $sectionDone = true;
@@ -47,7 +50,7 @@ if ($navSections) {
 
 $durMin = (int)($ctx['quiz']['duration_minutes'] ?? 0);
 $durationHtml = ($durMin > 0)
-  ? '<div class="qt-mini">Duration: <b>'.(int)$durMin.' minute</b></div>'
+  ? '<div class="qt-mini">Duration: <b>'.(int)$durMin.' minutes</b></div>'
   : '';
 
 // nav dots (with category tooltip)
@@ -58,9 +61,9 @@ for ($i=1; $i<=$total; $i++) {
   $cname = '';
   if (!empty($navCatMap[$i]['name'])) $cname = (string)$navCatMap[$i]['name'];
   $cname = trim($cname);
-  if ($cname === '') $cname = 'Lainnya';
+  if ($cname === '') $cname = 'Other';
 
-  $title = 'Soal '.$i.' • '.$cname;
+  $title = 'Question '.$i.' • '.$cname;
   $reviewed = $allowReview && !empty($ctx['review_map'][$i]);
   $grid .= '<button type="button" class="qt-dot '.($done?'done':'todo').($reviewed?' reviewed':'').'" data-seq="'.$i.'" data-cat="'.h($cname).'" title="'.h($title).'">'.$i.'</button>';
 }
@@ -72,8 +75,8 @@ $adminWa = settings_get($pdo, 'quiz_admin_wa', '') ?? '';
 $adminDigits = preg_replace('/\D+/', '', $adminWa);
 if (str_starts_with($adminDigits, '0')) $adminDigits = '62' . substr($adminDigits, 1);
 $waText = rawurlencode(
-  "Hello Admin, I need assistance during the exam.\n"
-  ."Quiz: ".(string)($ctx['quiz']['title'] ?? '')."\n"
+  "Hello Admin, I need assistance during the {$publicTitle}.\n"
+  .$publicTitle.": ".(string)($ctx['quiz']['title'] ?? '')."\n"
   ."Attempt: ".(string)($ctx['attempt_alias'] ?? '')."\n"
   ."Name: ".(string)($ctx['student']['name'] ?? '')."\n"
 );
@@ -94,7 +97,7 @@ $content_html = <<<HTML
 
     <div class="qt-head">
       <div>
-        <div class="qt-badge">TAKE QUIZ</div>
+        <div class="qt-badge">TAKE {$publicTitleHtml}</div>
         <h1 class="qt-title">{$quizTitle}</h1>
         {$quizDesc}
       </div>

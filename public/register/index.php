@@ -13,11 +13,20 @@ require_once __DIR__ . '/../_security.php';
 require_once __DIR__ . '/../_guard_resume.php';
 qz_guard_resume($pdo);
 
-$page_title = 'Quiz Registration';
-
 if (!function_exists('h')) {
   function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 }
+
+$boundQuizId = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
+$registrationQuizTitle = '';
+if ($boundQuizId > 0) {
+  $stmt = $pdo->prepare('SELECT title FROM quizzes WHERE id=:id LIMIT 1');
+  $stmt->execute([':id' => $boundQuizId]);
+  $registrationQuizTitle = trim((string)($stmt->fetchColumn() ?: ''));
+  if ($registrationQuizTitle === '') quiz_render_core_404();
+}
+$publicTitle = quiz_public_title($pdo);
+$page_title = $registrationQuizTitle !== '' ? $registrationQuizTitle . ' Registration' : $publicTitle . ' Registration';
 
 function go(string $loc){
   if (!headers_sent()) { header('Location: '.$loc); exit; }
@@ -73,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $phone = normalize_phone_id((string)($_POST['phone'] ?? ''));
 
   if ($name === '' || mb_strlen($name) < 2) $errors[] = 'Name is required (min 2 characters).';
-  if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = 'Email is not Valid.';
+  if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = 'Enter a valid email address.';
   if ($phone === '') $errors[] = 'WhatsApp number is required.';
 
   if (!$errors) {
@@ -135,23 +144,39 @@ if ($errors) {
   $alert = '<div class="qz-alert ok">'.h((string)$_GET['msg']).'</div>';
 }
 
+$publicTitleHtml = h($publicTitle);
+$publicTitleUpper = mb_strtoupper($publicTitle, 'UTF-8');
+$registrationBadge = $registrationQuizTitle !== '' ? 'DEDICATED ' . $publicTitleUpper . ' ACCESS' : $publicTitleUpper . ' ACCESS';
+$registrationHeading = $registrationQuizTitle !== ''
+  ? 'Register for ' . h($registrationQuizTitle)
+  : 'Participant Registration';
+$registrationIntro = $registrationQuizTitle !== ''
+  ? 'Fill in your details to continue directly to this ' . $publicTitleHtml . ' confirmation and verification flow.'
+  : 'Fill in your details for OTP verification. After submitting, you will be redirected to the <b>Start ' . $publicTitleHtml . '</b> page.';
+$registrationSteps = $registrationQuizTitle !== ''
+  ? '<div class="qz-step active">1. Registration</div>
+        <div class="qz-step">2. Confirmation</div>
+        <div class="qz-step">3. OTP Verification</div>
+        <div class="qz-step">4. Start</div>'
+  : '<div class="qz-step active">1. Registration</div>
+        <div class="qz-step">2. Select '.$publicTitleHtml.'</div>
+        <div class="qz-step">3. Confirmation</div>
+        <div class="qz-step">4. OTP Verification</div>
+        <div class="qz-step">5. Start</div>';
+
 $content_html = '
 <section class="qz-page">
   <div class="qz-wrap">
 
     <div class="qz-hero">
-      <div class="qz-badge">QUIZ ACCESS</div>
-      <h1 class="qz-h1">Participant Registration</h1>
+      <div class="qz-badge">'.h($registrationBadge).'</div>
+      <h1 class="qz-h1">'.$registrationHeading.'</h1>
       <div class="qz-sub">
-        Fill in your details for OTP verification. After submitting, you will be redirected to the <b>Start Quiz</b> page.
+        '.$registrationIntro.'
       </div>
 
       <div class="qz-steps">
-        <div class="qz-step active">1. Registration</div>
-        <div class="qz-step">2. Select Quiz</div>
-        <div class="qz-step">3. Confirmation</div>
-        <div class="qz-step">4. OTP Verification</div>
-        <div class="qz-step">5. Start</div>
+        '.$registrationSteps.'
       </div>
     </div>
 
@@ -190,7 +215,7 @@ $content_html = '
         </div>
 
         <div class="qz-note">
-          Data is stored using <b>browser cookies</b>. Do not switch browsers/devices while the quiz is in progress.
+          Data is stored using <b>browser cookies</b>. Do not switch browsers or devices while the '.$publicTitleHtml.' is in progress.
         </div>
       </form>
     </div>

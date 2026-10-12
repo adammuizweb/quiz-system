@@ -17,7 +17,8 @@ if (!headers_sent()) {
   header('Expires: 0');
 }
 
-$page_title = 'Pilih Quiz';
+$publicTitle = quiz_public_title($pdo);
+$page_title = 'Select ' . $publicTitle;
 
 if (!function_exists('h')) {
   function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
@@ -68,8 +69,8 @@ if ($quiz_id > 0) {
 if (!($pdo instanceof PDO)) {
   http_response_code(500);
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">
-    <h1 style="margin:0 0 8px">Koneksi DB tidak tersedia</h1>
-    <p style="margin:0;opacity:.8">PDO tidak terinisialisasi. Cek bootstrap_core.php</p>
+    <h1 style="margin:0 0 8px">Database connection unavailable</h1>
+    <p style="margin:0;opacity:.8">The participant service could not connect. Please try again later.</p>
   </div>';
   require __DIR__ . '/../layout.php';
   exit;
@@ -215,7 +216,7 @@ try {
   http_response_code(500);
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">
     <h1 style="margin:0 0 8px">There was a problem</h1>
-    <p style="margin:0;opacity:.8">Failed to load quiz list.</p>
+    <p style="margin:0;opacity:.8">Failed to load the '.h($publicTitle).' list.</p>
   </div>';
   require __DIR__ . '/../layout.php';
   exit;
@@ -277,35 +278,36 @@ if (!empty($rows)) {
     ';
   }
 } else {
-  $list = '<div class="qz-empty">No quizzes are currently open.</div>';
+  $list = '<div class="qz-empty">No ' . h($publicTitle) . ' options are currently open.</div>';
 }
 
 $alert = '';
 if ($msg !== '') $alert .= '<div class="st-alert ok">'.h($msg).'</div>';
 if ($err !== '') $alert .= '<div class="st-alert err">'.h($err).'</div>';
 
+$publicTitleHtml = h($publicTitle);
 $content_html = '
 <section class="st">
   <div class="st-wrap">
 
     <div class="st-hero">
       <div class="st-badge">START</div>
-      <h1 class="st-h1">Select Quiz</h1>
-      <div class="st-desc">Choose a quiz that is currently open. After that you will be taken to the <b>confirmation</b> page.</div>
+      <h1 class="st-h1">Select '.$publicTitleHtml.'</h1>
+      <div class="st-desc">Choose a '.$publicTitleHtml.' that is currently open. You will then be taken to the <b>confirmation</b> page.</div>
 
       <div class="rz-steps" style="margin-top:12px">
         <div class="rz-step">1. Registration</div>
-        <div class="rz-step active">2. Select Quiz</div>
+        <div class="rz-step active">2. Select '.$publicTitleHtml.'</div>
         <div class="rz-step">3. Confirmation</div>
         <div class="rz-step">4. OTP Verification</div>
-        <div class="rz-step">5. Take Quiz</div>
+        <div class="rz-step">5. Take '.$publicTitleHtml.'</div>
       </div>
     </div>
 
     '.$alert.'
 
     <div class="st-box ok">
-      <div class="st-box-title">Quiz List</div>
+      <div class="st-box-title">'.$publicTitleHtml.' List</div>
       <div style="margin-top:12px">
         '.$list.'
       </div>

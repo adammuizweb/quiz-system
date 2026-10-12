@@ -55,6 +55,31 @@ function quiz_database_setting(PDO $pdo, string $key, ?string $default = null): 
   }
 }
 
+function quiz_normalize_public_title(mixed $value): string {
+  $title = trim((string)$value);
+  if ($title === '') {
+    throw new InvalidArgumentException('Global Title is required.');
+  }
+  if (preg_match('//u', $title) !== 1) {
+    throw new InvalidArgumentException('Global Title must contain valid text.');
+  }
+  if (preg_match('/[\x00-\x1F\x7F<>]/u', $title) === 1) {
+    throw new InvalidArgumentException('Global Title must be plain text without markup or control characters.');
+  }
+  if (mb_strlen($title, 'UTF-8') > 80) {
+    throw new InvalidArgumentException('Global Title must not exceed 80 characters.');
+  }
+  return $title;
+}
+
+function quiz_public_title(PDO $pdo): string {
+  try {
+    return quiz_normalize_public_title(quiz_database_setting($pdo, 'quiz_global_title', 'Quiz'));
+  } catch (Throwable) {
+    return 'Quiz';
+  }
+}
+
 function quiz_public_prefix_conflict(PDO $pdo, string $prefix, ?int $excludeQuizId = null,
     bool $allowGlobalPrefix = false, bool $deepContentCheck = true): ?string {
   $reserved = ['admin', 'dashboard', 'login', 'register', 'author', 'private', 'plugin', 'plugins',
@@ -371,6 +396,21 @@ function quiz_safe_visual_theme_override(mixed $value): ?string {
   if ($value === null || trim((string)$value) === '') return null;
   try { return quiz_normalize_visual_theme($value); }
   catch (InvalidArgumentException) { return null; }
+}
+
+function quiz_public_visual_theme(PDO $pdo, ?int $quizId = null): string {
+  $globalTheme = quiz_safe_visual_theme(quiz_database_setting($pdo, 'quiz_visual_theme', 'default'));
+  $quizId ??= (int)(quiz_public_route_context()['quiz_id'] ?? 0);
+  if ($quizId <= 0) return $globalTheme;
+
+  try {
+    $stmt = $pdo->prepare('SELECT visual_theme_override FROM quizzes WHERE id=:id LIMIT 1');
+    $stmt->execute([':id' => $quizId]);
+    $override = $stmt->fetchColumn();
+    return $override === false ? $globalTheme : (quiz_safe_visual_theme_override($override) ?? $globalTheme);
+  } catch (Throwable) {
+    return $globalTheme;
+  }
 }
 
 function quiz_site_favicon_url(PDO $pdo): string {

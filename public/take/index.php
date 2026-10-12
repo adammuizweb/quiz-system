@@ -7,7 +7,8 @@ header("Content-Security-Policy: frame-ancestors 'none';");
 header('Referrer-Policy: same-origin');
 
 
-$page_title = 'Kerjakan Quiz';
+$publicTitle = quiz_public_title($pdo);
+$page_title = 'Take ' . $publicTitle;
 
 // Anti-cache (ujian)
 if (!headers_sent()) {

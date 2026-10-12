@@ -5,16 +5,15 @@ $visibility = quiz_safe_result_visibility($quiz['result_visibility'] ?? 'hidden'
 $resultReady = $visibility !== 'hidden' && quiz_attempt_result_is_ready($pdo, $attempt_id);
 $themeClass = 'qs-theme-' . quiz_safe_visual_theme($quiz['visual_theme'] ?? 'default');
 $faviconUrl = quiz_site_favicon_url($pdo);
-$siteTitle = trim((string)(settings_get($pdo, 'site_title', 'Quiz') ?? 'Quiz'));
-if ($siteTitle === '') $siteTitle = 'Quiz';
+$publicTitle = quiz_public_title($pdo);
 $participantName = trim((string)($student['name'] ?? ''));
 $testNumber = trim((string)($attempt['nomor_test'] ?? ''));
 $backUrl = quiz_public_url('start');
 $actionUrl = $resultReady ? quiz_public_url('result', ['a' => $alias]) : $backUrl;
-$actionLabel = $resultReady ? 'View Result' : 'Back to Quiz List';
+$actionLabel = $resultReady ? 'View Result' : 'Back to ' . $publicTitle . ' List';
 if ($visibility === 'hidden') {
   $resultTitle = 'Results are private';
-  $resultCopy = 'This Quiz does not publish participant results. Your submission is complete, but no score or answer details are shown.';
+  $resultCopy = 'This ' . $publicTitle . ' does not publish participant results. Your submission is complete, but no score or answer details are shown.';
 } elseif ($resultReady) {
   $resultTitle = 'Your result is ready';
   $resultCopy = 'The verified result report is available for this submission.';
@@ -22,7 +21,7 @@ if ($visibility === 'hidden') {
   $resultTitle = 'Result unavailable';
   $resultCopy = 'A complete verified result is not available for this submission.';
 }
-$page_title = 'Quiz Submitted - ' . (string)$quiz['title'];
+$page_title = $publicTitle . ' Submitted - ' . (string)$quiz['title'];
 
 ob_start();
 ?>
@@ -118,13 +117,13 @@ ob_start();
     <header class="qs-topbar">
       <div class="qs-brand">
         <span class="qs-brand-mark"><img src="<?= h($faviconUrl) ?>" alt="" referrerpolicy="no-referrer"></span>
-        <span class="qs-brand-copy"><strong><?= h($siteTitle) ?></strong><span>Private participant submission</span></span>
+        <span class="qs-brand-copy"><strong><?= h($publicTitle) ?></strong><span>Private participant submission</span></span>
       </div>
       <span class="qs-status"><i aria-hidden="true"></i>Submission received</span>
     </header>
     <section class="qs-hero" aria-labelledby="qs-title">
       <div class="qs-copy">
-        <p class="qs-kicker">Quiz complete</p>
+        <p class="qs-kicker"><?= h($publicTitle) ?> complete</p>
         <h1 class="qs-title" id="qs-title">Submission complete.</h1>
         <p class="qs-lead">Your responses for <strong><?= h($quiz['title']) ?></strong> have been securely submitted. This attempt is closed and cannot be taken again.</p>
         <?php if ($participantName !== '' || $testNumber !== ''): ?>
@@ -146,7 +145,7 @@ ob_start();
       <div><h2 id="qs-result-title"><?= h($resultTitle) ?></h2><p><?= h($resultCopy) ?></p></div>
     </section>
     <footer class="qs-actions">
-      <p>This confirmation is private and tied to the browser and device used for the Quiz.</p>
+      <p>This confirmation is private and tied to the browser and device used for the <?= h($publicTitle) ?>.</p>
       <a class="qs-button" href="<?= h($actionUrl) ?>"><?= h($actionLabel) ?></a>
     </footer>
   </div>

@@ -61,7 +61,8 @@ function send_mail_basic(
   return @mail($to, $subject, $html, implode("\r\n", $headers));
 }
 
-$mail_from_name  = settings_get($pdo, 'quiz_email_from_name', 'Quiz') ?? 'Quiz';
+$publicTitle = quiz_public_title($pdo);
+$mail_from_name  = settings_get($pdo, 'quiz_email_from_name', $publicTitle) ?? $publicTitle;
 $default_from_email = function_exists('quiz_default_sender_email') ? quiz_default_sender_email() : 'no-reply@example.com';
 $mail_from_email = settings_get($pdo, 'quiz_email_from_address', $default_from_email) ?? $default_from_email;
 $email_enabled = (settings_get($pdo, 'quiz_otp_email_enabled', '1') ?? '1') !== '0';
@@ -201,11 +202,11 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
       go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'Invalid email. ' . $fallback]));
     }
 
-    $name = (string)($student['name'] ?? 'Peserta');
-    $subject = 'OTP Verifikasi Quiz';
+    $name = (string)($student['name'] ?? 'Participant');
+    $subject = $publicTitle . ' OTP Verification';
     $html = '
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
-        <h2 style="margin:0 0 10px">Quiz OTP Verification</h2>
+        <h2 style="margin:0 0 10px">'.h($publicTitle).' OTP Verification</h2>
         <p>Hello <b>'.h($name).'</b>,</p>
         <p>Your OTP code:</p>
         <div style="font-size:28px;font-weight:900;letter-spacing:.25em;padding:10px 14px;border:1px solid #e5e7eb;border-radius:12px;display:inline-block;background:#f8fafc">
@@ -221,13 +222,13 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
       go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'Failed to send OTP email. ' . $fallback]));
     }
 
-    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'The OTP has been sent to your email. Check your inbox/spam..']));
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'The OTP has been sent to your email. Check your inbox and spam folder.']));
 
   } else { // whatsapp
 
     if (!empty($A['otp_wa_sent_at'])) {
       $pdo->commit();
-      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'WhatsApp request has already been made. Please wait admin.']));
+      go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'A WhatsApp request has already been made. Please wait for the administrator.']));
     }
 
     $pdo->prepare("
