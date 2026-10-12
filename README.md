@@ -17,7 +17,7 @@ literally into the browser script and stop execution at the first question.
 Quiz `1.8.0` adds nullable per-Quiz overrides for OTP verification and the
 fullscreen, focus, context-menu, shortcut, and DevTools proctor controls. A
 Quiz can inherit the secure defaults or explicitly force each control on or
-off, including direct TPA startup without OTP.
+off, including a Quiz that starts directly without OTP.
 
 ## Admin Experience
 
@@ -49,7 +49,8 @@ a semicolon-delimited CSV export as the fallback.
 Public quiz routes use a global prefix configured in Quiz Settings, defaulting
 to `quiz`. `/quiz/` remains available as the compatibility namespace when the
 global prefix changes. Each Quiz can also claim one unique public prefix, such
-as `pmb` or `tpa`, producing routes like `/pmb/register/` and `/tpa/register/`.
+as `assessment` or `training`, producing routes like `/assessment/register/`
+and `/training/register/`.
 Only explicit Quiz endpoints are claimed; unknown descendants continue to
 Jyavani's normal content and 404 resolver.
 
@@ -101,7 +102,7 @@ receive it through workspace access.
 Existing category, passage, and question rows are assigned to their quiz owner
 when the `1.4.0` ownership migration first runs.
 
-## TPA Readiness
+## Advanced Assessment Readiness
 
 Quiz `1.5.0` adds opt-in answer ordering, timer warnings, mark-for-review, and
 participant result pages. Upgrade defaults deliberately preserve `1.4.13`
@@ -124,7 +125,7 @@ media and file references, passage, effective category, package limits, active
 answer IDs and labels, option scores, delivery order, and available score before
 responses are accepted. Participant delivery, scoring, navigation, and admin
 response history use those snapshots rather than mutable bank presentation.
-This lets lecturers continue non-destructive PMB authoring after a package is
+This lets lecturers continue non-destructive Quiz authoring after a package is
 fully snapshotted.
 
 During the `1.5.0` admin-side schema upgrade, Quiz backfills every legacy
@@ -136,7 +137,7 @@ time without changing existing response records. The schema revision and plugin
 version are recorded only after a global completeness check succeeds. A failed
 assignment leaves the revision pending and public Quiz routes unavailable until
 an administrator retries the upgrade. Attempt status, scores, answers, ordering,
-PMB settings/content, and participant identity are not changed by this migration.
+Quiz settings/content, and participant identity are not changed by this migration.
 
 This release intentionally retains the legacy foreign keys and does not perform
 a destructive rewrite of old attempts. Question deletion therefore remains

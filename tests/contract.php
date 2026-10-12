@@ -238,7 +238,7 @@ $check(!preg_match('/CREATE TABLE IF NOT EXISTS `question_answers` \(.*?`created
 $check(str_contains($schemaSource, '`shuffle_answers` TINYINT(1) NOT NULL DEFAULT 1')
     && str_contains($schemaSource, '`timer_warning_seconds` VARCHAR(255) NULL')
     && str_contains($schemaSource, '`allow_mark_for_review` TINYINT(1) NOT NULL DEFAULT 0')
-    && str_contains($schemaSource, "`result_visibility` ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden'"), 'new quiz settings must preserve 1.4.13 and PMB defaults with a strict result allowlist');
+    && str_contains($schemaSource, "`result_visibility` ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden'"), 'new quiz settings must preserve legacy defaults with a strict result allowlist');
 $check(str_contains($schemaSource, '`public_prefix` VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL')
     && str_contains($schemaSource, 'UNIQUE KEY `uq_quizzes_public_prefix` (`public_prefix`)'), 'new installs must support one unique public URL prefix per Quiz');
 $overrideColumns = ['verification_required_override', 'require_fullscreen_override', 'pause_when_blur_override', 'block_context_menu_override', 'block_shortcuts_override', 'devtools_detect_override', 'show_exam_badge_override'];
@@ -261,7 +261,7 @@ $check(str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_answer_r
     && str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_category_scores`')
     && str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_question_options`')
     && str_contains($schemaSource, '`source_answer_id` INT UNSIGNED NOT NULL')
-    && str_contains($schemaSource, '`delivery_seq` INT UNSIGNED NOT NULL'), 'TPA audit, option snapshot, and aggregate tables must be idempotent on new installs');
+    && str_contains($schemaSource, '`delivery_seq` INT UNSIGNED NOT NULL'), 'attempt audit, option snapshot, and aggregate tables must be idempotent on new installs');
 
 $pluginSource = (string)file_get_contents($pluginRoot . '/plugin.php');
 $extensionSource = (string)file_get_contents($pluginRoot . '/includes/extensions.php');
@@ -295,12 +295,12 @@ $check(isset(quiz_participant_submit_payload(4, 10, 8, false, 'summary', true, '
     && !isset(quiz_participant_submit_payload(4, 10, 8, false, 'summary', false, 'a_incomplete')['result_url']), 'submit result URLs require both visible configuration and a valid finalized snapshot');
 $prefixRejected = false;
 try { quiz_normalize_public_prefix('quiz'); } catch (InvalidArgumentException) { $prefixRejected = true; }
-quiz_set_public_route_context('tpa', 9);
-$check(quiz_normalize_public_prefix(' PMB ') === 'pmb' && quiz_normalize_public_prefix('quiz', true) === 'quiz' && $prefixRejected
-    && quiz_public_url('register') === '/tpa/register/'
-    && quiz_public_url('verify', ['quiz' => 9]) === '/tpa/verify/?quiz=9'
-    && quiz_public_safe_next('/tpa/take/?a=abc') === '/tpa/take/?a=abc'
-    && quiz_public_safe_next('/quiz/take/?a=abc') === '/tpa/start/'
+quiz_set_public_route_context('assessment', 9);
+$check(quiz_normalize_public_prefix(' TRAINING ') === 'training' && quiz_normalize_public_prefix('quiz', true) === 'quiz' && $prefixRejected
+    && quiz_public_url('register') === '/assessment/register/'
+    && quiz_public_url('verify', ['quiz' => 9]) === '/assessment/verify/?quiz=9'
+    && quiz_public_safe_next('/assessment/take/?a=abc') === '/assessment/take/?a=abc'
+    && quiz_public_safe_next('/quiz/take/?a=abc') === '/assessment/start/'
     && quiz_public_route_accepts_quiz(9) && !quiz_public_route_accepts_quiz(8),
     'public route helpers must normalize prefixes, bind one Quiz, and reject cross-prefix redirects');
 unset($GLOBALS['quiz_public_route_context']);
@@ -310,10 +310,10 @@ $prefixPdo->exec('CREATE TABLE quizzes (id INTEGER PRIMARY KEY, public_prefix TE
 $prefixPdo->exec('CREATE TABLE content_routes (id INTEGER PRIMARY KEY, post_id INTEGER, locale TEXT, path TEXT, is_canonical INTEGER)');
 $prefixPdo->exec('CREATE TABLE posts (id INTEGER PRIMARY KEY, slug TEXT, type TEXT, is_deleted INTEGER)');
 $prefixPdo->exec("INSERT INTO quizzes (id, public_prefix) VALUES (901, 'unavailable')");
-$prefixPdo->exec("INSERT INTO content_routes (id, post_id, locale, path, is_canonical) VALUES (1, 1, '', 'pmb', 1)");
+$prefixPdo->exec("INSERT INTO content_routes (id, post_id, locale, path, is_canonical) VALUES (1, 1, '', 'training', 1)");
 $GLOBALS['quiz_public_routes_initialized'] = true;
 $GLOBALS['quiz_public_registered_global_prefix'] = 'quiz';
-$check(quiz_public_prefix_conflict($prefixPdo, 'pmb') !== null
+$check(quiz_public_prefix_conflict($prefixPdo, 'training') !== null
     && quiz_public_prefix_conflict($prefixPdo, 'artikel') !== null
     && quiz_public_url_for_quiz($prefixPdo, 901, 'register') === '/quiz/register/'
     && quiz_public_url_for_quiz($prefixPdo, 901, 'register') === '/quiz/register/',
@@ -844,8 +844,8 @@ foreach ($GLOBALS['contract_routes'] as $path => $options) {
 }
 if (isset($GLOBALS['contract_routes']['quiz/register-notfound'])
     || count($GLOBALS['contract_routes']) !== count(quiz_frontend_routes())) exit(13);
-if (!quiz_register_public_prefix('tpa', 9)) exit(14);
-if (!isset($GLOBALS['contract_routes']['tpa/register'], $GLOBALS['contract_routes']['tpa/api/submit.php'])) exit(15);
+if (!quiz_register_public_prefix('assessment', 9)) exit(14);
+if (!isset($GLOBALS['contract_routes']['assessment/register'], $GLOBALS['contract_routes']['assessment/api/submit.php'])) exit(15);
 PHP;
 $command = [PHP_BINARY, '-r', $resolverScript, $pluginRoot . '/plugin.php'];
 $pipes = [];
@@ -881,15 +881,15 @@ require $argv[1] . '/cfg/helpers/hooks.php';
 require $argv[1] . '/plugins/index.php';
 require $argv[2] . '/plugin.php';
 add_action('init', static function (): void {
-    if (!quiz_register_public_prefix('pmb', 8)) exit(23);
+    if (!quiz_register_public_prefix('training', 8)) exit(23);
 }, 10);
 plugin_run_frontend_init();
 $known = resolve_frontend_route('quiz/register', 'GET');
 if (!is_array($known) || ($known['route']['match'] ?? null) !== 'exact') exit(21);
 if (resolve_frontend_route('quiz/register-notfound', 'GET') !== null) exit(22);
-$custom = resolve_frontend_route('pmb/register', 'GET');
+$custom = resolve_frontend_route('training/register', 'GET');
 if (!is_array($custom) || ($custom['route']['match'] ?? null) !== 'exact') exit(24);
-if (resolve_frontend_route('pmb/register-notfound', 'GET') !== null) exit(25);
+if (resolve_frontend_route('training/register-notfound', 'GET') !== null) exit(25);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $coreRouteScript, $coreRoot, $pluginRoot], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 $coreRouteStatus = -1;
@@ -921,18 +921,18 @@ $pdo->exec('CREATE TABLE settings (`key` TEXT PRIMARY KEY, `value` TEXT)');
 $pdo->exec('CREATE TABLE quizzes (id INTEGER PRIMARY KEY, public_prefix TEXT)');
 $pdo->exec('CREATE TABLE content_routes (id INTEGER PRIMARY KEY, post_id INTEGER, locale TEXT, path TEXT, is_canonical INTEGER)');
 $pdo->exec('CREATE TABLE posts (id INTEGER PRIMARY KEY, slug TEXT, type TEXT, is_deleted INTEGER)');
-$pdo->exec("INSERT INTO quizzes VALUES (8, 'pmb'), (9, 'tpa'), (10, 'portal')");
+$pdo->exec("INSERT INTO quizzes VALUES (8, 'training'), (9, 'certification'), (10, 'portal')");
 $pdo->exec("INSERT INTO settings VALUES ('quiz_global_public_prefix', 'assessment')");
-$pdo->exec("INSERT INTO content_routes VALUES (1, 1, '', 'pmb/register', 1)");
+$pdo->exec("INSERT INTO content_routes VALUES (1, 1, '', 'training/register', 1)");
 $GLOBALS['pdo'] = $pdo;
 add_action('init', static function (): void {
-    register_frontend_route('tpa/foreign', static function (): void {}, ['match' => 'exact']);
+    register_frontend_route('certification/foreign', static function (): void {}, ['match' => 'exact']);
     register_frontend_route('quiz/register', static function (): void {}, ['match' => 'exact']);
 }, 10);
 require $argv[2] . '/plugin.php';
 plugin_run_frontend_init();
-if (resolve_frontend_route('pmb/register', 'GET') !== null) exit(31);
-if (resolve_frontend_route('tpa/register', 'GET') !== null) exit(32);
+if (resolve_frontend_route('training/register', 'GET') !== null) exit(31);
+if (resolve_frontend_route('certification/register', 'GET') !== null) exit(32);
 if (resolve_frontend_route('assessment/register', 'GET') === null
     || resolve_frontend_route('assessment/register-notfound', 'GET') !== null
     || resolve_frontend_route('quiz/register', 'GET') === null) exit(36);
@@ -1222,7 +1222,7 @@ $check($backfillCall !== false && $revisionWrite !== false && $backfillCall < $r
     && str_contains($backfillSource, 'Legacy attempt snapshot verification failed.'), 'schema revision persistence must follow a global incomplete-assignment verification');
 $check(str_contains($backfillSource, "__DIR__ . '/includes/helpers.php'")
     && str_contains($backfillSource, "function_exists('quiz_snapshot_attempt_questions')"), 'schema lifecycle must make the snapshot helper available before backfill');
-$check(!preg_match('/\b(?:UPDATE|DELETE FROM|INSERT INTO)\s+(?:quiz_attempts|attempt_answers|questions|quizzes|students)\b/i', $backfillSource), 'snapshot migration orchestration must not mutate attempts, answers, bank content, PMB settings, or participant identity');
+$check(!preg_match('/\b(?:UPDATE|DELETE FROM|INSERT INTO)\s+(?:quiz_attempts|attempt_answers|questions|quizzes|students)\b/i', $backfillSource), 'snapshot migration orchestration must not mutate attempts, answers, bank content, Quiz settings, or participant identity');
 $check(str_contains((string)file_get_contents($pluginRoot . '/admin/_init.php'), "exit('Quiz upgrade could not be completed. Please retry.')"), 'admin migration failures must return a bounded generic error');
 
 $check(!str_contains($pluginSource, "add_action('init', 'quiz_install_schema'"), 'schema migration must not run on every frontend request');
@@ -1315,6 +1315,7 @@ $saveAnswerSource = (string)file_get_contents($pluginRoot . '/public/api/save_an
 $submitSource = (string)file_get_contents($pluginRoot . '/public/api/submit.php');
 $reviewSource = (string)file_get_contents($pluginRoot . '/public/api/set_review.php');
 $resultSource = (string)file_get_contents($pluginRoot . '/public/result/index.php');
+$publicLayoutSource = (string)file_get_contents($pluginRoot . '/public/layout.php');
 $attemptViewSource = (string)file_get_contents($pluginRoot . '/admin/student/attempts/view.php');
 $readmeSource = (string)file_get_contents($pluginRoot . '/README.md');
 $check(str_contains($takeContext, '$needsPreparation = !$packageComplete || empty($attempt[\'started_at\'])')
@@ -1352,6 +1353,13 @@ $check(str_contains($resultSource, 'q.visual_theme_override')
     && str_contains($resultSource, '$available > 0 ?')
     && str_contains($resultSource, '$totalQuestions > 0 ?'),
     'participant results must use the resolved visual theme, responsive report UI, and zero-safe score and completion calculations');
+$check(str_contains($helperSource, 'function quiz_site_favicon_url(PDO $pdo)')
+    && str_contains($helperSource, "settings_get(\$pdo, 'favicon_url', '')")
+    && str_contains($helperSource, "settings_favicon_url_validation_error(\$url)")
+    && str_contains($resultSource, 'src="<?= h($faviconUrl) ?>"')
+    && str_contains($resultSource, "settings_get(\$pdo, 'site_title', 'Quiz')")
+    && str_contains($publicLayoutSource, '<link rel="icon" href="<?= htmlspecialchars($faviconUrl'),
+    'public Quiz branding must reuse the validated Core favicon and site title without plugin-specific identity settings');
 $check(str_contains($saveAnswerSource, '$pdo->beginTransaction()') && str_contains($saveAnswerSource, 'LIMIT 1 FOR UPDATE')
     && str_contains($saveAnswerSource, 'attempt_answer_revisions') && str_contains($saveAnswerSource, 'if (!$same)'), 'answer saves must lock, revise material changes, and ignore identical retries');
 $check(str_contains($submitSource, 'quiz_finalize_attempt($pdo, $attempt_id)')
@@ -1475,7 +1483,7 @@ $pickerSource = substr($takeContext, (int)strpos($takeContext, 'function qz_pick
 $check(str_contains($pickerSource, 'sort_order ASC') && str_contains($pickerSource, '$catMaxById')
     && str_contains($pickerSource, 'if ($cur >= $cap) return false;')
     && str_contains($takePreparationSource, "DELETE FROM attempt_questions WHERE attempt_id = :aid"),
-    'new and unsnapshotted packages must rebuild through PMB category order and strict category caps');
+    'new and unsnapshotted packages must rebuild through category order and strict category caps');
 $finalizerReadinessPosition = strpos($finalizerSource, 'quiz_attempt_package_is_complete($pdo, $attemptId)');
 $finalizerRowsPosition = strpos($finalizerSource, 'FROM attempt_questions aq');
 $check($finalizerReadinessPosition !== false && $finalizerRowsPosition !== false
@@ -1976,6 +1984,11 @@ $check(str_contains($quizAddSource, 'name="public_prefix"')
     && str_contains($duplicateSource, 'title, public_prefix, description')
     && str_contains($duplicateSource, '(:created_by, :title, NULL, :description'),
     'Quiz management must validate and persist unique prefixes while duplicated Quizzes start without a public route');
+$globalProductCopy = $quizAddSource . $quizEditSource . $readmeSource;
+$check(substr_count($globalProductCopy, 'example-quiz') >= 4
+    && str_contains($readmeSource, 'Advanced Assessment Readiness')
+    && str_contains($readmeSource, '`assessment` or `training`'),
+    'global Quiz documentation and public-prefix guidance must remain organization-neutral');
 $check(str_contains($quizAddSource, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.quiz.quizzes.manage')")
     && str_contains($quizAddSource, "\$user['can_manage_quizzes']"), 'quiz creation must repeat and evaluate exactly quizzes.manage');
 $check(strpos($quizAddSource, 'beginTransaction()') < strpos($quizAddSource, 'qz_require_workspace_mutation_access(')

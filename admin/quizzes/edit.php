@@ -234,8 +234,8 @@ $ownerLine = ($owner !== '' || $oemail !== '')
         </div>
         <div class="qz-field">
           <label for="quiz-public-prefix"><strong>Public URL Prefix</strong> <span class="muted">(optional)</span></label>
-          <input class="adam-input" id="quiz-public-prefix" name="public_prefix" value="<?= h($public_prefix) ?>" placeholder="Example: tpa" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
-          <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/tpa/register/</code>. Changing it changes every public URL for this Quiz.</div>
+          <input class="adam-input" id="quiz-public-prefix" name="public_prefix" value="<?= h($public_prefix) ?>" placeholder="Example: example-quiz" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
+          <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/example-quiz/register/</code>. Changing it changes every public URL for this Quiz.</div>
         </div>
       </div>
     </fieldset>
@@ -262,7 +262,7 @@ $ownerLine = ($owner !== '' || $oemail !== '')
         </div>
       <?php endforeach; ?>
       </div>
-      <div class="small-hint">Use global/default behavior unless this Quiz needs a specific visual or security policy. For TPA, set OTP verification to Force off.</div>
+      <div class="small-hint">Use global/default behavior unless this Quiz needs a specific visual, verification, or proctor policy.</div>
     </fieldset>
 
     <fieldset class="qz-section group-box">

@@ -142,8 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <div class="qz-field">
           <label for="quiz-public-prefix"><strong>Public URL Prefix</strong> <span class="muted">(optional)</span></label>
-          <input class="adam-input" id="quiz-public-prefix" name="public_prefix" value="<?= h($public_prefix) ?>" placeholder="Example: pmb" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
-          <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/pmb/register/</code>. Use lowercase letters, numbers, and hyphens only.</div>
+          <input class="adam-input" id="quiz-public-prefix" name="public_prefix" value="<?= h($public_prefix) ?>" placeholder="Example: example-quiz" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
+          <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/example-quiz/register/</code>. Use lowercase letters, numbers, and hyphens only.</div>
         </div>
       </div>
     </fieldset>

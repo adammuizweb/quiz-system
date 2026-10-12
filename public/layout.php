@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 $bodyContent = $content_html ?? '';
 $pageTitle = $page_title ?? 'Quiz';
+$faviconUrl = isset($pdo) && $pdo instanceof PDO && function_exists('quiz_site_favicon_url')
+  ? quiz_site_favicon_url($pdo)
+  : '/static/img/favicon/jyavani.svg';
 
 ?><!doctype html>
 <html lang="id">
@@ -10,6 +13,7 @@ $pageTitle = $page_title ?? 'Quiz';
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title><?= htmlspecialchars($pageTitle) ?></title>
+  <link rel="icon" href="<?= htmlspecialchars($faviconUrl, ENT_QUOTES, 'UTF-8') ?>">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f8fafc; color: #0f172a; }

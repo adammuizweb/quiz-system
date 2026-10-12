@@ -6,6 +6,7 @@ if (!headers_sent()) {
   header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
   header('Pragma: no-cache');
   header('Expires: 0');
+  header('Referrer-Policy: same-origin');
 }
 
 if (!function_exists('h')) {
@@ -49,6 +50,9 @@ if ((string)$attempt['status'] !== 'submitted' || $visibility === 'hidden') {
 $visualTheme = quiz_safe_visual_theme_override($attempt['visual_theme_override'] ?? null)
   ?? quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
 $themeClass = 'qr-theme-' . $visualTheme;
+$faviconUrl = quiz_site_favicon_url($pdo);
+$siteTitle = trim((string)(settings_get($pdo, 'site_title', 'Quiz') ?? 'Quiz'));
+if ($siteTitle === '') $siteTitle = 'Quiz';
 $resultStyles = <<<'HTML'
 <style>
   .qr{
@@ -95,10 +99,10 @@ $resultStyles = <<<'HTML'
   .qr-shell{ width:min(1120px,100%); margin:0 auto; }
   .qr-topbar{ display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:18px; }
   .qr-brand{ display:flex; align-items:center; gap:12px; min-width:0; }
-  .qr-mark{ position:relative; width:38px; height:38px; flex:0 0 38px; overflow:hidden; border-radius:11px; background:var(--qr-hero); }
-  .qr-mark::before{ content:""; position:absolute; width:22px; height:5px; left:10px; top:8px; transform:rotate(-35deg); border-radius:99px; background:var(--qr-score); box-shadow:-5px 10px 0 var(--qr-coral),5px 20px 0 var(--qr-accent); }
+  .qr-mark{ width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; overflow:hidden; padding:3px; border:1px solid var(--qr-line); border-radius:11px; background:#fff; }
+  .qr-mark img{ display:block; width:100%; height:100%; object-fit:contain; border-radius:8px; }
   .qr-brand-copy{ min-width:0; }
-  .qr-brand-copy strong{ display:block; color:var(--qr-ink); font-size:.8rem; letter-spacing:.13em; text-transform:uppercase; }
+  .qr-brand-copy strong{ max-width:min(52vw,420px); display:block; overflow:hidden; color:var(--qr-ink); font-size:.8rem; letter-spacing:.08em; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
   .qr-brand-copy span{ display:block; margin-top:2px; color:var(--qr-muted); font-size:.76rem; }
   .qr-status{ display:inline-flex; align-items:center; gap:8px; padding:8px 11px; border:1px solid var(--qr-line); border-radius:999px; background:rgba(255,255,255,.72); color:var(--qr-muted); font-size:.76rem; font-weight:800; white-space:nowrap; }
   .qr-status i{ width:8px; height:8px; border-radius:50%; background:var(--qr-positive); box-shadow:0 0 0 4px color-mix(in srgb,var(--qr-positive) 14%,transparent); }
@@ -247,8 +251,8 @@ ob_start();
   <div class="qr-shell">
     <header class="qr-topbar">
       <div class="qr-brand">
-        <span class="qr-mark" aria-hidden="true"></span>
-        <span class="qr-brand-copy"><strong>Result report</strong><span>Private participant summary</span></span>
+        <span class="qr-mark"><img src="<?= h($faviconUrl) ?>" alt="" referrerpolicy="no-referrer"></span>
+        <span class="qr-brand-copy"><strong><?= h($siteTitle) ?></strong><span>Private participant result</span></span>
       </div>
       <span class="qr-status"><i aria-hidden="true"></i>Submitted and verified</span>
     </header>

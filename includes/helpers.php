@@ -373,6 +373,28 @@ function quiz_safe_visual_theme_override(mixed $value): ?string {
   catch (InvalidArgumentException) { return null; }
 }
 
+function quiz_site_favicon_url(PDO $pdo): string {
+  $fallback = '/static/img/favicon/jyavani.svg';
+  if (!function_exists('settings_get')) return $fallback;
+  $url = trim((string)(settings_get($pdo, 'favicon_url', '') ?? ''));
+  if ($url === '') return $fallback;
+  if (function_exists('settings_favicon_url_validation_error')) {
+    return settings_favicon_url_validation_error($url) === null ? $url : $fallback;
+  }
+
+  $parts = parse_url($url);
+  if (!is_array($parts)) return $fallback;
+  $path = rawurldecode((string)($parts['path'] ?? ''));
+  $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+  $isLocal = str_starts_with($url, '/') && !str_starts_with($url, '//')
+    && !isset($parts['scheme'], $parts['host'], $parts['user'], $parts['pass']);
+  $isHttps = ($parts['scheme'] ?? '') === 'https' && !empty($parts['host'])
+    && !isset($parts['user'], $parts['pass']);
+  if ((!$isLocal && !$isHttps) || isset($parts['fragment']) || !in_array($extension, ['png', 'ico', 'svg'], true)
+      || preg_match('/[\x00-\x20\x7F]/', $url) === 1 || str_contains($path, '\\')) return $fallback;
+  return $url;
+}
+
 /** Normalize stored seconds into unique, descending warning thresholds. */
 function quiz_normalize_timer_warning_seconds(mixed $value): array {
   if ($value === null || $value === '') return [];
