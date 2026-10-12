@@ -857,7 +857,7 @@ if ($alias !== '') set_cookie('quiz_attempt', $alias);
    ========================= */
 $st = $pdo->prepare("
   SELECT id, title, description, is_active, start_at, end_at, questions_per_attempt, duration_minutes,
-         require_fullscreen_override, pause_when_blur_override, block_context_menu_override, block_shortcuts_override, devtools_detect_override, show_exam_badge_override,
+         require_fullscreen_override, pause_when_blur_override, block_context_menu_override, block_shortcuts_override, devtools_detect_override, show_exam_badge_override, visual_theme_override,
          shuffle_answers, timer_warning_seconds, allow_mark_for_review, result_visibility
   FROM quizzes
   WHERE id = :id
@@ -972,6 +972,8 @@ $quiz['proctor'] = [
   'devtoolsDetect' => $quiz['devtools_detect_override'] === null ? true : (int)$quiz['devtools_detect_override'] === 1,
   'showBadge' => $quiz['show_exam_badge_override'] === null ? true : (int)$quiz['show_exam_badge_override'] === 1,
 ];
+$quiz['visual_theme'] = quiz_safe_visual_theme_override($quiz['visual_theme_override'] ?? null)
+  ?? quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
 if ($isBeginRequest && !qz_public_csrf_check(qz_public_csrf_from_request())) {
   http_response_code(403);
   $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">Invalid CSRF token.</div>';

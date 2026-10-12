@@ -18,6 +18,7 @@ $timerJson       = json_encode([
   'warning_seconds' => $ctx['warning_seconds'] ?? [],
 ], $scriptJsonFlags);
 $csrfTokenJson   = json_encode($csrfToken, $scriptJsonFlags);
+$visualThemeJson = json_encode(quiz_safe_visual_theme($ctx['quiz']['visual_theme'] ?? 'default'), $scriptJsonFlags);
 
 // OPTIONAL (kalau sudah kamu isi di _take_ctx.php)
 $navSectionsJson = json_encode(($ctx['nav_sections'] ?? []), $scriptJsonFlags);
@@ -39,6 +40,7 @@ if ($answeredMapJson === false) $answeredMapJson = '{}';
 if ($reviewMapJson === false) $reviewMapJson = '{}';
 if ($timerJson === false) $timerJson = '{}';
 if ($csrfTokenJson === false) $csrfTokenJson = '""';
+if ($visualThemeJson === false) $visualThemeJson = '"default"';
 if ($navSectionsJson === false) $navSectionsJson = '[]';
 if ($navCatMapJson === false) $navCatMapJson = '{}';
 if ($apiGetJson === false) $apiGetJson = '""';
@@ -92,6 +94,8 @@ function makeOptBadge(i){
   const attempt = {$attemptJson};
   const total   = {$total};
   const CSRF_TOKEN = {$csrfTokenJson};
+  const VISUAL_THEME = {$visualThemeJson};
+  document.body.classList.add("qz-theme-" + VISUAL_THEME);
 
   // optional (untuk UI kategori/range)
   const NAV_SECTIONS = {$navSectionsJson} || [];
@@ -640,6 +644,35 @@ function makeOptBadge(i){
     #qzDoneMsg{ margin:10px 0 0; color: rgba(15,23,42,.82); line-height:1.45; }
     #qzDoneActions{ margin-top: 14px; display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
     .qzBtnGhost{ background:#f1f5f9; color:#0f172a; border:1px solid rgba(15,23,42,.12); }
+
+    body.qz-theme-studio #qzProctorOverlay,
+    body.qz-theme-studio #qzDoneModal,
+    body.qz-theme-studio #qzSubmitWarn1,
+    body.qz-theme-studio #qzSubmitWarn2{ background:rgba(16,22,47,.64); }
+    body.qz-theme-studio #qzProctorCard,
+    body.qz-theme-studio #qzDoneCard,
+    body.qz-theme-studio #qzSubmitWarn1Card,
+    body.qz-theme-studio #qzSubmitWarn2Card{
+      background:#fff;
+      border-color:#10162f;
+      color:#171a24;
+    }
+    body.qz-theme-studio #qzProctorBadge{
+      background:#d9ff63;
+      border-color:#a8c84c;
+      color:#10162f;
+    }
+    body.qz-theme-studio #qzProctorMsg,
+    body.qz-theme-studio #qzProctorMini,
+    body.qz-theme-studio #qzProctorRules,
+    body.qz-theme-studio #qzDoneMsg,
+    body.qz-theme-studio #qzWarn1Msg,
+    body.qz-theme-studio #qzWarn2Msg{ color:#596174; }
+    body.qz-theme-studio .qzLine{ background:#ccd2ca; }
+    body.qz-theme-studio .qzBtnPrimary{ background:#10162f; color:#fff; }
+    body.qz-theme-studio .qzBtnGhost{ background:#f2f4ee; border-color:#ccd2ca; color:#10162f; }
+    body.qz-theme-studio #qzWarnList{ background:#f2f4ee; border-color:#ccd2ca; color:#10162f; }
+    body.qz-theme-studio #qzExamBadge{ background:#10162f; color:#d9ff63; }
 
   `;
   document.head.appendChild(css);

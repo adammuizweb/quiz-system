@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS `quizzes` (
   `block_shortcuts_override` TINYINT(1) NULL,
   `devtools_detect_override` TINYINT(1) NULL,
   `show_exam_badge_override` TINYINT(1) NULL,
+  `visual_theme_override` VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL,
   `description` TEXT NULL,
   `created_by` INT UNSIGNED NOT NULL,
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,

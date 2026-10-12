@@ -42,12 +42,12 @@ try {
       (created_by, title, public_prefix, description, question_pool_size, questions_per_attempt, duration_minutes,
        shuffle_answers, timer_warning_seconds, allow_mark_for_review, result_visibility,
        verification_required_override, require_fullscreen_override, pause_when_blur_override,
-        block_context_menu_override, block_shortcuts_override, devtools_detect_override, show_exam_badge_override,
+        block_context_menu_override, block_shortcuts_override, devtools_detect_override, show_exam_badge_override, visual_theme_override,
        is_active, is_primary, start_at, end_at, created_at, updated_at)
     VALUES
       (:created_by, :title, NULL, :description, 0, :qpa, :dur, :shuffle_answers, :timer_warnings, :allow_review, :result_visibility,
        :verification_required_override, :require_fullscreen_override, :pause_when_blur_override,
-        :block_context_menu_override, :block_shortcuts_override, :devtools_detect_override, :show_exam_badge_override,
+        :block_context_menu_override, :block_shortcuts_override, :devtools_detect_override, :show_exam_badge_override, :visual_theme_override,
        0, 0, NULL, NULL, NOW(), NOW())
   ");
   $insQuiz->execute([
@@ -67,6 +67,7 @@ try {
     ':block_shortcuts_override' => $srcQuiz['block_shortcuts_override'],
     ':devtools_detect_override' => $srcQuiz['devtools_detect_override'],
     ':show_exam_badge_override' => $srcQuiz['show_exam_badge_override'],
+    ':visual_theme_override' => quiz_safe_visual_theme_override($srcQuiz['visual_theme_override'] ?? null),
   ]);
   if ($insQuiz->rowCount() !== 1) throw new RuntimeException('Quiz copy was not created.');
   $newQuizId = (int)$pdo->lastInsertId();

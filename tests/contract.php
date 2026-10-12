@@ -244,6 +244,8 @@ $check(str_contains($schemaSource, '`public_prefix` VARCHAR(63) CHARACTER SET as
 $overrideColumns = ['verification_required_override', 'require_fullscreen_override', 'pause_when_blur_override', 'block_context_menu_override', 'block_shortcuts_override', 'devtools_detect_override', 'show_exam_badge_override'];
 $check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid && str_contains($schemaSource, "`{$column}` TINYINT(1) NULL"), true),
     'new installs must support nullable per-Quiz verification and proctor overrides');
+$check(str_contains($schemaSource, '`visual_theme_override` VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL'),
+    'new installs must support a nullable allowlisted per-Quiz visual theme override');
 $check(str_contains($schemaSource, '`elapsed_seconds` INT UNSIGNED NULL')
     && str_contains($schemaSource, '`marked_for_review` TINYINT(1) NOT NULL DEFAULT 0')
     && str_contains($schemaSource, '`revision_count` INT UNSIGNED NOT NULL DEFAULT 0'), 'attempt readiness columns must use backward-compatible defaults');
@@ -322,7 +324,11 @@ $check(quiz_normalize_timer_warning_seconds('60,300,60') === [300, 60]
     && quiz_serialize_timer_warning_seconds([]) === null, 'timer warning helpers must normalize, deduplicate, sort, and preserve empty defaults');
 $normalizerRejected = false;
 try { quiz_normalize_result_visibility('answers'); } catch (InvalidArgumentException) { $normalizerRejected = true; }
+$themeNormalizerRejected = false;
+try { quiz_normalize_visual_theme('custom'); } catch (InvalidArgumentException) { $themeNormalizerRejected = true; }
 $check($normalizerRejected && quiz_safe_result_visibility('answers') === 'hidden'
+    && $themeNormalizerRejected && quiz_normalize_visual_theme(' STUDIO ') === 'studio'
+    && quiz_safe_visual_theme('custom') === 'default' && quiz_safe_visual_theme_override('custom') === null
     && quiz_safe_bool(null, 1) === 1, 'quiz setting helpers must validate input strictly and fail closed for stored values');
 final class AssignmentContractStatement extends PDOStatement {
     private array $rows = [];
@@ -785,11 +791,13 @@ $check(str_contains($extensionSource, 'function quiz_extension_subscribe')
 $check(str_contains($pluginSource, "require_once \$extensionFile")
     && !str_contains($pluginSource, "do_action('quiz_loaded'")
     && !str_contains($pluginSource, "do_action_isolated('quiz_loaded'"), 'Quiz publishes a load-order-safe callable extension API');
-$check(str_contains($pluginSource, "\$schemaRevision = '20261012-exam-badge-override'"), 'the per-Quiz override schema revision must retain the migration gate');
+$check(str_contains($pluginSource, "\$schemaRevision = '20261012-visual-theme'"), 'the visual-theme schema revision must retain the migration gate');
 $check(str_contains($pluginSource, "'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title'")
     && str_contains($pluginSource, 'ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)'), 'existing installs must add and uniquely index the optional public prefix');
 $check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid && str_contains($pluginSource, "'{$column}', 'TINYINT(1) NULL"), true),
     'existing installs must add every nullable per-Quiz override');
+$check(str_contains($pluginSource, "'visual_theme_override', 'VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL"),
+    'existing installs must add the nullable per-Quiz visual theme override');
 $check(str_contains($pluginSource, "'shuffle_answers', 'TINYINT(1) NOT NULL DEFAULT 1")
     && str_contains($pluginSource, "'result_visibility', \"ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden'")
     && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_answer_revisions') === 1
@@ -1038,13 +1046,13 @@ if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
 if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.2'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-exam-badge-override'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
 if ($pdo->executions !== 2) exit(23);
 unset($GLOBALS['contract_settings']['quiz_schema_revision']);
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-exam-badge-override'
+if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
     || $pdo->executions !== 2) exit(24);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1182,7 +1190,7 @@ $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
     || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.2'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-exam-badge-override'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationGateScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1240,6 +1248,11 @@ $check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_global_public_pr
     && str_contains($settingsSource, 'name="quiz_global_public_prefix"')
     && str_contains($settingsSource, 'The legacy <code>/quiz/</code> route remains available for compatibility.'),
     'Quiz settings must validate, persist, and explain the configurable global public URL');
+$check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_visual_theme'")
+    && str_contains($settingsSource, 'quiz_normalize_visual_theme(')
+    && str_contains($settingsSource, 'name="quiz_visual_theme"')
+    && str_contains($settingsSource, '>Studio</option>'),
+    'Quiz settings must validate and persist the global participant visual theme');
 $check(str_contains($settingsSource, 'quiz_public_prefix_lock($pdo)')
     && str_contains($settingsSource, 'quiz_public_prefix_unlock($pdo)')
     && str_contains($settingsSource, 'if (!$pdo->beginTransaction())')
@@ -1259,6 +1272,10 @@ $check(str_contains($quizEditSource, 'name="<?= h($field) ?>"')
         && str_contains($quizEditSource, $column . ' = :' . $column)
         && str_contains($quizDuplicateSource, ':' . $column), true),
     'Quiz edit and duplication must preserve every verification and proctor override');
+$check(str_contains($quizEditSource, 'name="visual_theme_override"')
+    && str_contains($quizEditSource, 'visual_theme_override = :visual_theme_override')
+    && str_contains($quizDuplicateSource, "':visual_theme_override' => quiz_safe_visual_theme_override"),
+    'Quiz edit and duplication must preserve a validated nullable visual theme override');
 $check(str_contains($quizAddSource, 'quiz_public_prefix_lock($pdo)')
     && str_contains($quizEditSource, 'quiz_public_prefix_lock($pdo)')
     && substr_count($quizAddSource, 'quiz_validate_public_prefix($pdo, $public_prefix)') >= 2
@@ -1307,6 +1324,13 @@ $check(str_contains($takeContext, '$needsPreparation = !$packageComplete || empt
     && str_contains($timerHelper, 'if (!$startIfMissing && !$finalizeIfExpired)'), 'take-page GET is read-only and preparation requires CSRF-protected POST');
 $check(substr_count($takeJs, 'input.className = "qt-choice-input";') === 2, 'single and multiple choice controls must share aligned input styling');
 $check(str_contains($takeView, '.qt-answers .qt-choice-input{') && str_contains($takeView, 'margin:5px 0 0;'), 'choice controls must align vertically with the 28px answer badge');
+$check(str_contains($takeContext, 'visual_theme_override')
+    && str_contains($takeContext, "settings_get(\$pdo, 'quiz_visual_theme', 'default')")
+    && str_contains($takeView, 'qt-theme-studio')
+    && str_contains($takeView, '.qt-theme-studio .qt-answers label:has(.qt-choice-input:checked)')
+    && str_contains($takeJs, 'document.body.classList.add("qz-theme-" + VISUAL_THEME)')
+    && str_contains($takeJs, 'body.qz-theme-studio #qzProctorCard'),
+    'the resolved global or per-Quiz theme must color the take page, answer states, and proctor surfaces');
 $check(str_contains($takeView, "class=\"qt-sec'.(\$sectionDone?' done':'').'\"")
     && str_contains($takeView, '.qt-sec.done{')
     && str_contains($takeJs, 'function refreshSectionStates()')
@@ -1920,7 +1944,7 @@ $check(str_contains($initSource, 'function qz_admin_breadcrumb(array $items)')
     && str_contains($settingsSource, "['label'=>'Quiz Settings']"), 'primary Quiz workflow pages must expose consistent shared breadcrumbs');
 $check(!str_contains($settingsSource, 'qz-menu-card')
     && !str_contains($settingsSource, '$stats[')
-    && str_contains($settingsSource, 'Manage the Test Number format, Participant Verification channels'), 'Config must contain settings only instead of duplicating the Quiz dashboard');
+    && str_contains($settingsSource, 'Manage participant appearance, the Test Number format, verification channels'), 'Config must contain settings only instead of duplicating the Quiz dashboard');
 
 $dumpSource = (string)file_get_contents($pluginRoot . '/admin/dump/index.php');
 $check(str_contains($dumpSource, 'cms_sanitize_restricted_html') && !str_contains($dumpSource, 'javascript:'), 'Dump QC uses the Core HTML sanitizer');

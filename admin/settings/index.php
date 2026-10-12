@@ -38,6 +38,7 @@ $quiz_start_ids   = settings_get($pdo, 'quiz_start_ids', '') ?? '';
 $quiz_start_order = settings_get($pdo, 'quiz_start_order', 'default') ?? 'default';
 $quiz_start_manual= settings_get($pdo, 'quiz_start_manual', '') ?? '';
 $quiz_start_limit = settings_get($pdo, 'quiz_start_limit', '50') ?? '50';
+$visual_theme = quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
 $user = qz_admin_user($pdo);
 
 $allQuizzes = [];
@@ -65,6 +66,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $otp_wa_enabled = isset($_POST['quiz_otp_whatsapp_enabled']);
   $test_number_format = trim((string)($_POST['quiz_test_number_format'] ?? ''));
   $global_public_prefix = trim((string)($_POST['quiz_global_public_prefix'] ?? 'quiz'));
+  try {
+    $visual_theme = quiz_normalize_visual_theme($_POST['quiz_visual_theme'] ?? '');
+  } catch (InvalidArgumentException $error) {
+    $visual_theme = 'default';
+    $add_error($error->getMessage(), 'quiz_visual_theme');
+  }
 
   $current_from_name  = $from_name;
   $current_from_email = $from_email;
@@ -114,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $okWaEnabled = settings_set($pdo, 'quiz_otp_whatsapp_enabled', $otp_wa_enabled ? '1' : '0', 1);
         $okTestNumber = settings_set($pdo, 'quiz_test_number_format', $test_number_format, 1);
         $okGlobalPrefix = settings_set($pdo, 'quiz_global_public_prefix', $global_public_prefix, 1);
+        $okVisualTheme = settings_set($pdo, 'quiz_visual_theme', $visual_theme, 1);
 
         $ok4 = settings_set($pdo, 'quiz_start_mode', $quiz_start_mode, 1);
         $ok5 = settings_set($pdo, 'quiz_start_ids', $quiz_start_ids, 1);
@@ -121,7 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ok7 = settings_set($pdo, 'quiz_start_manual', $quiz_start_manual, 1);
         $ok8 = settings_set($pdo, 'quiz_start_limit', (string)$limit_int, 1);
         $settingsSaved = $ok1 && $ok2 && $ok3 && $okEmailEnabled && $okWaEnabled && $okTestNumber
-          && $okGlobalPrefix && $ok4 && $ok5 && $ok6 && $ok7 && $ok8;
+          && $okGlobalPrefix && $okVisualTheme && $ok4 && $ok5 && $ok6 && $ok7 && $ok8;
         if (!$settingsSaved) throw new RuntimeException('A Quiz setting could not be saved.');
         if (!$pdo->commit()) throw new RuntimeException('Quiz Settings transaction could not commit.');
       } catch (\InvalidArgumentException $error) {
@@ -170,6 +178,10 @@ $start_mode_labels = [
   'selected' => 'Selected quizzes',
   'primary' => 'Primary Quiz only',
 ];
+$visual_theme_labels = [
+  'default' => 'Default',
+  'studio' => 'Studio',
+];
 $enabled_methods = [];
 if ($otp_email_enabled) $enabled_methods[] = 'Email';
 if ($otp_wa_enabled) $enabled_methods[] = 'WhatsApp';
@@ -185,7 +197,7 @@ $test_number_preview = function_exists('quiz_format_test_number')
     <div class="qz-page-head__copy">
       <p class="qz-eyebrow">Operational configuration</p>
       <h1 class="qz-page-title">Quiz Settings</h1>
-      <p class="qz-page-description">Manage the Test Number format, Participant Verification channels, and quizzes available on the Start Page. Saved changes apply to subsequent sessions.</p>
+      <p class="qz-page-description">Manage participant appearance, the Test Number format, verification channels, and quizzes available on the Start Page. Saved changes apply to subsequent sessions.</p>
     </div>
     <div class="qz-page-actions">
       <button type="submit" class="adam-button" form="qz-settings-form">Save changes</button>
@@ -209,6 +221,10 @@ $test_number_preview = function_exists('quiz_format_test_number')
       <div>
         <dt>Participant Verification</dt>
         <dd data-qz-settings-summary="verification"><?= h($verification_summary) ?></dd>
+      </div>
+      <div>
+        <dt>Participant appearance</dt>
+        <dd><?= h($visual_theme_labels[$visual_theme]) ?></dd>
       </div>
       <div>
         <dt>Start Page display</dt>
@@ -266,6 +282,31 @@ $test_number_preview = function_exists('quiz_format_test_number')
           <p class="qz-field-help" id="quiz_global_public_prefix_help">Use 1-63 lowercase letters, numbers, or hyphens. The configured public URL is <code>/<?= h($global_public_prefix) ?>/</code>. The legacy <code>/quiz/</code> route remains available for compatibility.</p>
           <?php if (!$global_public_prefix_active): ?>
             <p class="qz-field-error">This configured slug is not currently active because its route is unavailable. Choose a conflict-free slug and save again.</p>
+          <?php endif; ?>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-section settings-section--general" data-open="1">
+      <button type="button" class="settings-section-toggle" aria-expanded="true" aria-controls="qz-appearance-section">
+        <span class="qz-section-heading">
+          <span class="qz-section-title">Participant Appearance</span>
+          <span class="qz-section-description">Choose the default color theme used while participants take a Quiz.</span>
+        </span>
+        <span class="chevron" aria-hidden="true">&#8250;</span>
+      </button>
+      <div class="settings-section-body" id="qz-appearance-section">
+        <div class="qz-field">
+          <label for="quiz_visual_theme">Default visual theme</label>
+          <select name="quiz_visual_theme" id="quiz_visual_theme" class="inp inp-w100"
+            aria-describedby="quiz_visual_theme_help<?= isset($field_errors['quiz_visual_theme']) ? ' quiz_visual_theme_error' : '' ?>"
+            <?= isset($field_errors['quiz_visual_theme']) ? 'aria-invalid="true"' : '' ?>>
+            <option value="default" <?= $visual_theme === 'default' ? 'selected' : '' ?>>Default</option>
+            <option value="studio" <?= $visual_theme === 'studio' ? 'selected' : '' ?>>Studio</option>
+          </select>
+          <p class="qz-field-help" id="quiz_visual_theme_help">Default preserves the current colors. Studio uses a navy, lime, violet, coral, and aqua palette. Individual Quizzes can override this setting.</p>
+          <?php if (isset($field_errors['quiz_visual_theme'])): ?>
+            <p class="qz-field-error" id="quiz_visual_theme_error"><?= h($field_errors['quiz_visual_theme']) ?></p>
           <?php endif; ?>
         </div>
       </div>
@@ -485,7 +526,7 @@ $test_number_preview = function_exists('quiz_format_test_number')
     </section>
 
     <div class="qz-form-actions">
-      <p>Review the Global Public URL, Participant Verification channels, and Start Page display before applying changes.</p>
+      <p>Review the Global Public URL, participant appearance, verification channels, and Start Page display before applying changes.</p>
       <button type="submit" class="adam-button">Save changes</button>
     </div>
   </form>

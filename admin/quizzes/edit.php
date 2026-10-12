@@ -52,6 +52,7 @@ $result_visibility = quiz_safe_result_visibility($quiz['result_visibility'] ?? '
 $is_active = (int)($quiz['is_active'] ?? 1);
 $start_at = (string)($quiz['start_at'] ?? '');
 $end_at   = (string)($quiz['end_at'] ?? '');
+$visual_theme_override = quiz_safe_visual_theme_override($quiz['visual_theme_override'] ?? null) ?? '';
 $overrideFields = ['verification_required_override','require_fullscreen_override','pause_when_blur_override','block_context_menu_override','block_shortcuts_override','devtools_detect_override','show_exam_badge_override'];
 $overrides = [];
 foreach ($overrideFields as $field) $overrides[$field] = $quiz[$field] === null ? '' : (string)(int)$quiz[$field];
@@ -70,6 +71,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $is_active = (int)($_POST['is_active'] ?? 1);
   $start_at = trim((string)($_POST['start_at'] ?? ''));
   $end_at = trim((string)($_POST['end_at'] ?? ''));
+  $visual_theme_override = trim((string)($_POST['visual_theme_override'] ?? ''));
+  if ($visual_theme_override !== '') {
+    try {
+      $visual_theme_override = quiz_normalize_visual_theme($visual_theme_override);
+    } catch (InvalidArgumentException $error) {
+      $visual_theme_override = '';
+      $errors[] = $error->getMessage();
+    }
+  }
   foreach ($overrideFields as $field) {
     $value = (string)($_POST[$field] ?? '');
     if (!in_array($value, ['', '0', '1'], true)) $errors[] = 'Invalid per-Quiz override.';
@@ -135,7 +145,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             block_context_menu_override = :block_context_menu_override,
             block_shortcuts_override = :block_shortcuts_override,
             devtools_detect_override = :devtools_detect_override,
-            show_exam_badge_override = :show_exam_badge_override
+            show_exam_badge_override = :show_exam_badge_override,
+            visual_theme_override = :visual_theme_override
         WHERE id = :id
         LIMIT 1
       ");
@@ -159,6 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':block_shortcuts_override' => $overrides['block_shortcuts_override'] === '' ? null : (int)$overrides['block_shortcuts_override'],
         ':devtools_detect_override' => $overrides['devtools_detect_override'] === '' ? null : (int)$overrides['devtools_detect_override'],
         ':show_exam_badge_override' => $overrides['show_exam_badge_override'] === '' ? null : (int)$overrides['show_exam_badge_override'],
+        ':visual_theme_override' => $visual_theme_override === '' ? null : $visual_theme_override,
         ':id' => $id,
       ];
       $stmt->execute($params);
@@ -231,6 +243,14 @@ $ownerLine = ($owner !== '' || $oemail !== '')
     <fieldset class="qz-section group-box">
       <legend class="qz-section__head"><strong>Per-Quiz Overrides</strong></legend>
       <div class="qz-section__body qz-form-grid qz-student-form-grid">
+        <div class="qz-field">
+          <label for="visual_theme_override"><strong>Visual theme</strong></label>
+          <select class="adam-input" id="visual_theme_override" name="visual_theme_override">
+            <option value="" <?= $visual_theme_override===''?'selected':'' ?>>Use global setting</option>
+            <option value="default" <?= $visual_theme_override==='default'?'selected':'' ?>>Default</option>
+            <option value="studio" <?= $visual_theme_override==='studio'?'selected':'' ?>>Studio</option>
+          </select>
+        </div>
       <?php $labels = ['verification_required_override'=>'OTP verification','require_fullscreen_override'=>'Require fullscreen','pause_when_blur_override'=>'Pause when tab/window loses focus','block_context_menu_override'=>'Block right-click','block_shortcuts_override'=>'Block copy, paste, shortcuts','devtools_detect_override'=>'Detect DevTools','show_exam_badge_override'=>'Show exam mode badge']; foreach ($labels as $field=>$label): ?>
         <div class="qz-field">
           <label for="<?= h($field) ?>"><strong><?= h($label) ?></strong></label>
@@ -242,7 +262,7 @@ $ownerLine = ($owner !== '' || $oemail !== '')
         </div>
       <?php endforeach; ?>
       </div>
-      <div class="small-hint">Use the default behavior unless this Quiz needs a specific security policy. For TPA, set OTP verification to Force off.</div>
+      <div class="small-hint">Use global/default behavior unless this Quiz needs a specific visual or security policy. For TPA, set OTP verification to Force off.</div>
     </fieldset>
 
     <fieldset class="qz-section group-box">

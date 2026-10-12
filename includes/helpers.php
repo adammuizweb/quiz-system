@@ -354,6 +354,25 @@ function quiz_safe_result_visibility(mixed $value): string {
   catch (InvalidArgumentException) { return 'hidden'; }
 }
 
+function quiz_normalize_visual_theme(mixed $value): string {
+  $value = strtolower(trim((string)$value));
+  if (!in_array($value, ['default', 'studio'], true)) {
+    throw new InvalidArgumentException('Invalid visual theme.');
+  }
+  return $value;
+}
+
+function quiz_safe_visual_theme(mixed $value): string {
+  try { return quiz_normalize_visual_theme($value); }
+  catch (InvalidArgumentException) { return 'default'; }
+}
+
+function quiz_safe_visual_theme_override(mixed $value): ?string {
+  if ($value === null || trim((string)$value) === '') return null;
+  try { return quiz_normalize_visual_theme($value); }
+  catch (InvalidArgumentException) { return null; }
+}
+
 /** Normalize stored seconds into unique, descending warning thresholds. */
 function quiz_normalize_timer_warning_seconds(mixed $value): array {
   if ($value === null || $value === '') return [];

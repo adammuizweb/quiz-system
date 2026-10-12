@@ -25,6 +25,8 @@ $answeredCount = (int)($ctx['answered_count'] ?? 0);
 $navSections = (isset($ctx['nav_sections']) && is_array($ctx['nav_sections'])) ? $ctx['nav_sections'] : [];
 $navCatMap   = (isset($ctx['nav_cat_map']) && is_array($ctx['nav_cat_map'])) ? $ctx['nav_cat_map'] : [];
 $allowReview = !empty($ctx['allow_mark_for_review']);
+$visualTheme = quiz_safe_visual_theme($ctx['quiz']['visual_theme'] ?? 'default');
+$visualThemeClass = h('qt-theme-' . $visualTheme);
 
 // build sections buttons
 $sectionsHtml = '';
@@ -87,7 +89,7 @@ $content_html = <<<HTML
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 
-<section class="qt">
+<section class="qt {$visualThemeClass}">
   <div class="qt-wrap">
 
     <div class="qt-head">
@@ -545,6 +547,144 @@ $content_html = <<<HTML
 body.qz-nav-open{
   overflow:hidden;
   touch-action:none;
+}
+
+/* Studio changes only the palette; layout and dimensions remain shared with Default. */
+.qt-theme-studio{
+  background:#f2f4ee;
+  color:#171a24;
+}
+.qt-theme-studio .qt-title,
+.qt-theme-studio .qt-side-title,
+.qt-theme-studio .qt-qtext,
+.qt-theme-studio .qt-pass-title{
+  color:#10162f;
+}
+.qt-theme-studio .qt-badge,
+.qt-theme-studio .qt-help,
+.qt-theme-studio .qt-file a{
+  color:#4d5bd5;
+}
+.qt-theme-studio .qt-sub,
+.qt-theme-studio .qt-meta,
+.qt-theme-studio .qt-side-sub,
+.qt-theme-studio .qt-side-note,
+.qt-theme-studio .qt-qmeta,
+.qt-theme-studio .qt-footnote{
+  color:#596174;
+  opacity:1;
+}
+.qt-theme-studio .qt-side,
+.qt-theme-studio .qt-main .qt-card{
+  background:rgba(255,255,255,.94);
+  border-color:#ccd2ca;
+}
+.qt-theme-studio .qt-sec{
+  background:#fff;
+  border-color:#ccd2ca;
+  color:#10162f;
+}
+.qt-theme-studio .qt-sec.active{
+  background:#e8eaff;
+  border-color:#7783ff;
+  outline-color:rgba(119,131,255,.24);
+}
+.qt-theme-studio .qt-sec.done{
+  background:#d9ff63;
+  border-color:#a8c84c;
+}
+.qt-theme-studio .qt-dot,
+.qt-theme-studio .qt-dot.todo{
+  background:#fff;
+  border-color:#ccd2ca;
+  color:#10162f;
+}
+.qt-theme-studio .qt-dot.done{
+  background:#d9ff63;
+  border-color:#a8c84c;
+}
+.qt-theme-studio .qt-dot.reviewed{ box-shadow:inset 0 0 0 3px #ff826b; }
+.qt-theme-studio .qt-dot.active{
+  border-color:#7783ff;
+  outline-color:rgba(119,131,255,.28);
+}
+.qt-theme-studio .qt-catpill{
+  background:#d9ff63;
+  border-color:#a8c84c;
+  color:#10162f;
+}
+.qt-theme-studio .qt-pass{
+  background:#f0f1ff;
+  border-color:#c4c9ff;
+}
+.qt-theme-studio .qt-answers .qt-choice-input{ accent-color:#10162f; }
+.qt-theme-studio .qt-answers label{
+  background:#fff !important;
+  border-color:#ccd2ca !important;
+  color:#171a24;
+}
+.qt-theme-studio .qt-answers label > span{
+  background:#e8eaff !important;
+  border-color:#c4c9ff !important;
+  color:#10162f;
+}
+.qt-theme-studio .qt-answers label:has(.qt-choice-input:checked){
+  background:#d9ff63 !important;
+  border-color:#10162f !important;
+}
+.qt-theme-studio .qt-answers label:has(.qt-choice-input:checked) > span{
+  background:#10162f !important;
+  border-color:#10162f !important;
+  color:#fff;
+}
+.qt-theme-studio .qt-answers label:has(.qt-choice-input:focus-visible){
+  outline:3px solid #7783ff;
+  outline-offset:2px;
+}
+.qt-theme-studio .qt-btn.primary{
+  background:#10162f;
+  color:#fff;
+}
+.qt-theme-studio .qt-btn.ghost,
+.qt-theme-studio .qt-navtoggle,
+.qt-theme-studio .qt-x{
+  background:#fff;
+  border-color:#ccd2ca;
+  color:#10162f;
+}
+.qt-theme-studio .qt-btn.danger{
+  background:#ff826b;
+  color:#10162f;
+}
+.qt-theme-studio .qt-btn.danger.ready,
+.qt-theme-studio .qt-btn.danger.qz-submit-ready{
+  background:#ff826b;
+  color:#10162f;
+}
+.qt-theme-studio .qt-input{
+  background:#fff;
+  border-color:#aeb6ae;
+  color:#171a24;
+}
+.qt-theme-studio .qt-input:focus{
+  border-color:#7783ff;
+  box-shadow:0 0 0 4px rgba(119,131,255,.18);
+}
+.qt-theme-studio .qt-file{
+  background:#fff;
+  border-color:#ccd2ca;
+}
+.qt-theme-studio .qt-qmedia img{ border-color:#ccd2ca; }
+@media (max-width:900px){
+  .qt-theme-studio .qt-side{ background:rgba(16,22,47,.64); }
+  .qt-theme-studio .qt-side-card{ background:#fff; border-color:#ccd2ca; }
+  .qt-theme-studio .qt-side-top{ border-bottom-color:#ccd2ca; }
+}
+@media (max-width:420px){
+  .qt-theme-studio .qt-actions{
+    background:rgba(255,255,255,.96);
+    border-color:#ccd2ca;
+  }
 }
 
 </style>
