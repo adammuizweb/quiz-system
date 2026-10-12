@@ -41,6 +41,8 @@ $offset = 0;
 $user = qz_admin_user($pdo);
 $canManagePrimary = $user['id'] > 0 && function_exists('user_can')
   && user_can($pdo, $user['id'], 'plugin.quiz.primary.manage');
+$globalVisualTheme = quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
+$visualThemeLabels = ['default' => 'Default', 'studio' => 'Studio', 'navy' => 'Navy'];
 
 try {
   $countSql = "SELECT COUNT(*) FROM quizzes WHERE is_primary=1";
@@ -81,7 +83,7 @@ try {
 
   $sql = "
     SELECT
-      q.id, q.title, q.public_prefix, q.description,
+      q.id, q.title, q.public_prefix, q.description, q.visual_theme_override,
       q.is_active, q.is_primary,
       q.questions_per_attempt, q.duration_minutes,
       q.start_at, q.end_at, q.created_at,
@@ -143,7 +145,7 @@ $pageActiveCount = count(array_filter($quizzes, static fn(array $quiz): bool => 
 $pageIssueCount = count(array_filter($quizzes, static fn(array $quiz): bool => (int)($quiz['choice_no_answer_count'] ?? 0) > 0));
 $hasFilters = $q !== '' || $status !== '' || $primary !== '';
 ?>
-<section class="adam-card qz-card qz-shell qz-question-page">
+<section class="adam-card qz-card qz-shell qz-question-page qz-quiz-list-page">
   <input type="hidden" name="_csrf" value="<?= h(csrf_token()) ?>">
   <?php qz_admin_breadcrumb([['label'=>'Quiz']]); ?>
   <header class="qz-page-head qz-head">
@@ -254,13 +256,18 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       $owner = trim((string)($qz['owner_name'] ?? ''));
       $oemail = trim((string)($qz['owner_email'] ?? ''));
       $ownerLine = ($owner !== '' || $oemail !== '')
-        ? (($owner !== '' ? $owner : 'User#'.$qid) . ($oemail !== '' ? " · {$oemail}" : ''))
-        : ('User#'.$qid);
+        ? (($owner !== '' ? $owner : 'User#'.(int)$qz['created_by']) . ($oemail !== '' ? " · {$oemail}" : ''))
+        : ('User#'.(int)$qz['created_by']);
       $ansTotal = (int)($qz['answer_count'] ?? 0);
       $badZero  = (int)($qz['choice_no_answer_count'] ?? 0);
       $missingAns = ($badZero > 0);
       $publicPrefix = trim((string)($qz['public_prefix'] ?? ''));
       $publicUrl = $publicPrefix !== '' ? '/' . $publicPrefix . '/register/' : '';
+      $visualThemeOverride = quiz_safe_visual_theme_override($qz['visual_theme_override'] ?? null);
+      $visualTheme = $visualThemeOverride ?? $globalVisualTheme;
+      $visualThemeLabel = $visualThemeLabels[$visualTheme] ?? 'Default';
+      $visualThemeSource = $visualThemeOverride === null ? 'Global' : 'Override';
+      $canDelete = $user['can_manage_quizzes'] && ($user['can_manage_any'] || (int)$qz['created_by'] === (int)$user['id']);
 
       $quizJson = h((string)json_encode([
         'id' => $qid,
@@ -273,6 +280,9 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         'can_set_primary' => $canManagePrimary,
         'can_manage_collaborators' => $user['can_manage_any'],
         'can_manage_quizzes' => $user['can_manage_quizzes'],
+        'can_delete' => $canDelete,
+        'visual_theme' => $visualThemeLabel,
+        'visual_theme_source' => $visualThemeSource,
         'questions' => (int)$qz['question_count'],
         'answers' => $ansTotal,
         'badzero' => $badZero,
@@ -289,7 +299,10 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       <td class="qz-row-body qz-question-cell" data-label="Quiz">
         <div class="qz-row-title"><?= h($qz['title']) ?></div>
         <div class="qz-row-sub">
-          <span><?= h($ownerLine) ?></span>
+          <span class="qz-row-owner"><?= h($ownerLine) ?></span>
+          <span class="qz-row-theme" data-theme="<?= h($visualTheme) ?>" title="<?= h($visualThemeLabel . ' visual theme, ' . strtolower($visualThemeSource)) ?>">
+            <i aria-hidden="true"></i><span><?= h($visualThemeLabel) ?></span><small><?= h($visualThemeSource) ?></small>
+          </span>
           <?php if ($publicUrl !== ''): ?><span class="sep">&bull;</span><a href="<?= h($publicUrl) ?>" target="_blank" rel="noopener"><?= h($publicUrl) ?></a><?php endif; ?>
           <?php if (!empty($qz['description'])): ?>
             <span class="sep">&bull;</span>
@@ -297,13 +310,17 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
           <?php endif; ?>
         </div>
       </td>
-      <td data-label="Questions">
-        <strong><?= (int)$qz['question_count'] ?></strong>
-        <?php if ($missingAns): ?><span class="badge mini badge--bad" title="<?= $badZero ?> Questions have no Active Answers"><?= $badZero ?> need Answers</span><?php endif; ?>
+      <td class="qz-quiz-questions-cell" data-label="Questions">
+        <div class="qz-table-cell-stack qz-table-cell-stack--questions">
+          <strong><?= (int)$qz['question_count'] ?></strong>
+          <?php if ($missingAns): ?><span class="badge mini badge--bad" title="<?= $badZero ?> Questions have no Active Answers"><?= $badZero ?> need Answers</span><?php endif; ?>
+        </div>
       </td>
-      <td data-label="Status">
-        <span class="badge <?= $isActive ? 'badge--ok' : 'badge--muted' ?>"><?= $isActive ? 'Active' : 'Inactive' ?></span>
-        <?php if ($isPrimary): ?><span class="badge badge--primary">PRIMARY QUIZ</span><?php endif; ?>
+      <td class="qz-quiz-status-cell" data-label="Status">
+        <div class="qz-table-cell-stack qz-table-cell-stack--status">
+          <span class="badge <?= $isActive ? 'badge--ok' : 'badge--muted' ?>"><?= $isActive ? 'Active' : 'Inactive' ?></span>
+          <?php if ($isPrimary): ?><span class="badge badge--primary">PRIMARY QUIZ</span><?php endif; ?>
+        </div>
       </td>
       <td class="qz-row-action qz-row-actions qz-question-actions" data-label="Actions">
         <button type="button" class="qz-detail-btn" data-quiz='<?= $quizJson ?>' aria-label="View details for Quiz <?= h($qz['title']) ?>">Details</button>

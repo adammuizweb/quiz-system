@@ -415,41 +415,42 @@ $pageUrl = static function (int $target) use ($base, $pluginPage, $quiz_id, $sea
     'p' => $target,
   ], static fn(mixed $value): bool => $value !== ''));
 };
+$hasFilters = $search !== '' || $typeFilter !== '' || $statusFilter !== '' || $categoryFilter > 0 || $passageFilter > 0 || $authorFilter > 0;
 ?>
-<section class="qz-card qz-question-page">
+<section class="adam-card qz-card qz-shell qz-question-page" data-column-scope>
   <?php qz_admin_breadcrumb([['label'=>'Master Builder','url'=>$base.'/?page=admin/quiz/master'],['label'=>(string)$quiz['title'],'url'=>$masterUrl],['label'=>'Soal']]); ?>
-  <div class="qz-head">
-    <div>
-      <div class="qz-kicker">Bank soal</div>
-      <h2 style="margin:0"><?=h($quiz['title'])?></h2>
-      <div class="qz-meta">Kelola soal, jawaban, status, dan contributor<span class="dot">•</span>Quiz ID: <b><?=$quiz_id?></b><span class="dot">•</span><?=$ownerLine?></div>
+  <header class="qz-head qz-page-head">
+    <div class="qz-page-head__copy">
+      <div class="qz-kicker qz-eyebrow">Bank soal</div>
+      <h1 class="qz-page-title"><?=h($quiz['title'])?></h1>
+      <p class="qz-meta qz-page-description">Kelola soal, jawaban, status, dan contributor <span class="dot">•</span> <strong>Quiz ID: <?=$quiz_id?></strong> <span class="dot">•</span> <?=$ownerLine?></p>
     </div>
-    <div class="qz-toolbar">
-      <a class="adam-button" href="<?=h($masterUrl)?>">Buka Master Builder</a>
-      <a class="adam-button ghost" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=add&quiz_id=<?=$quiz_id?>">+ Tambah Soal</a>
+    <div class="qz-toolbar qz-page-actions">
+      <a class="adam-button" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=add&quiz_id=<?=$quiz_id?>">+ Tambah Soal</a>
+      <a class="adam-button ghost" href="<?=h($masterUrl)?>">Buka Master Builder</a>
       <a class="adam-button ghost" href="<?=h($base)?>/?page=admin/quiz/quizzes">Daftar Quiz</a>
     </div>
+  </header>
+
+  <div class="qz-stats qz-metric-grid" aria-label="Ringkasan bank soal">
+    <div class="qz-stat qz-metric"><span>Total Soal</span><strong><?=(int)($stats['total']??0)?></strong></div>
+    <div class="qz-stat qz-metric"><span>Aktif</span><strong><?=(int)($stats['active_count']??0)?></strong></div>
+    <div class="qz-stat qz-metric"><span>Nonaktif</span><strong><?=(int)($stats['inactive_count']??0)?></strong></div>
+    <div class="qz-stat qz-stat--result qz-metric"><span>Hasil Filter</span><strong><?=$totalFiltered?></strong></div>
   </div>
   <?php if ($messages): ?><div class="adam-alert success"><?php foreach($messages as $m):?><div><?=h($m)?></div><?php endforeach;?></div><?php endif; ?>
   <?php if ($errors): ?><div class="adam-alert error"><?php foreach($errors as $e):?><div><?=h($e)?></div><?php endforeach;?></div><?php endif; ?>
 
-  <div class="qz-stats" aria-label="Ringkasan bank soal">
-    <div class="qz-stat"><span>Total Soal</span><strong><?=(int)($stats['total']??0)?></strong></div>
-    <div class="qz-stat"><span>Aktif</span><strong><?=(int)($stats['active_count']??0)?></strong></div>
-    <div class="qz-stat"><span>Nonaktif</span><strong><?=(int)($stats['inactive_count']??0)?></strong></div>
-    <div class="qz-stat qz-stat--result"><span>Hasil Filter</span><strong><?=$totalFiltered?></strong></div>
-  </div>
-
-  <form class="qz-filterbar" method="get" action="<?=h($base)?>/">
+  <form class="qz-filterbar qz-question-filterbar qz-command-bar" method="get" action="<?=h($base)?>/" role="search" aria-label="Filter bank soal">
     <input type="hidden" name="page" value="<?=$pluginPage?>">
     <input type="hidden" name="quiz_id" value="<?=$quiz_id?>">
-    <label class="qz-filterbar__search"><span>Cari soal</span><input class="adam-input" type="search" name="q" value="<?=h($search)?>" placeholder="Ketik isi atau kata kunci soal..."></label>
-    <label><span>Kategori</span><select class="adam-input" name="category_id" data-question-category-filter><option value="">Semua kategori</option><?php foreach($filterCategories as $category):?><option value="<?=(int)$category['id']?>" <?=$categoryFilter===(int)$category['id']?'selected':''?>><?=h((string)$category['name'])?></option><?php endforeach;?></select></label>
-    <label><span>Passage</span><select class="adam-input" name="passage_id" data-question-passage-filter data-quiz-id="<?=$quiz_id?>" data-passages-url="<?=h($base)?>/?page=admin/quiz/master/api/filter_passages&amp;action=quiz_api"><option value=""><?=$categoryFilter>0?'Semua passage kategori ini':'Semua passage tanpa kategori'?></option><?php foreach($filterPassages as $passage):?><option value="<?=(int)$passage['id']?>" <?=$passageFilter===(int)$passage['id']?'selected':''?>><?=h(trim((string)$passage['title'])!==''?(string)$passage['title']:'Passage #'.(int)$passage['id'])?></option><?php endforeach;?></select></label>
-    <?php if($canFilterAuthor):?><label><span>Author / Contributor</span><select class="adam-input" name="author_id"><option value="">Semua author</option><?php foreach($filterAuthors as $author):?><option value="<?=(int)$author['id']?>" <?=$authorFilter===(int)$author['id']?'selected':''?>><?=h((string)$author['label'])?></option><?php endforeach;?></select></label><?php endif;?>
-    <label><span>Tipe</span><select class="adam-input" name="type"><option value="">Semua tipe</option><?php foreach($typeLabels as $value=>$label):?><option value="<?=h($value)?>" <?=$typeFilter===$value?'selected':''?>><?=h($label)?></option><?php endforeach;?></select></label>
-    <label><span>Status</span><select class="adam-input" name="status"><option value="">Semua status</option><option value="active" <?=$statusFilter==='active'?'selected':''?>>Aktif</option><option value="inactive" <?=$statusFilter==='inactive'?'selected':''?>>Nonaktif</option></select></label>
-    <div class="qz-filterbar__actions"><button class="adam-button" type="submit">Terapkan</button><?php if($search!==''||$typeFilter!==''||$statusFilter!==''||$categoryFilter>0||$passageFilter>0||$authorFilter>0):?><a class="adam-button ghost" href="<?=h($listUrl)?>">Reset</a><?php endif;?></div>
+    <label class="qz-filterbar__search qz-field"><span>Cari soal</span><input class="adam-input" type="search" name="q" value="<?=h($search)?>" placeholder="Ketik isi atau kata kunci soal..."></label>
+    <label class="qz-field"><span>Kategori</span><select class="adam-input" name="category_id" data-question-category-filter><option value="">Semua kategori</option><?php foreach($filterCategories as $category):?><option value="<?=(int)$category['id']?>" <?=$categoryFilter===(int)$category['id']?'selected':''?>><?=h((string)$category['name'])?></option><?php endforeach;?></select></label>
+    <label class="qz-field"><span>Passage</span><select class="adam-input" name="passage_id" data-question-passage-filter data-quiz-id="<?=$quiz_id?>" data-passages-url="<?=h($base)?>/?page=admin/quiz/master/api/filter_passages&amp;action=quiz_api"><option value=""><?=$categoryFilter>0?'Semua passage kategori ini':'Semua passage tanpa kategori'?></option><?php foreach($filterPassages as $passage):?><option value="<?=(int)$passage['id']?>" <?=$passageFilter===(int)$passage['id']?'selected':''?>><?=h(trim((string)$passage['title'])!==''?(string)$passage['title']:'Passage #'.(int)$passage['id'])?></option><?php endforeach;?></select></label>
+    <?php if($canFilterAuthor):?><label class="qz-field"><span>Author / Contributor</span><select class="adam-input" name="author_id"><option value="">Semua author</option><?php foreach($filterAuthors as $author):?><option value="<?=(int)$author['id']?>" <?=$authorFilter===(int)$author['id']?'selected':''?>><?=h((string)$author['label'])?></option><?php endforeach;?></select></label><?php endif;?>
+    <label class="qz-field"><span>Tipe</span><select class="adam-input" name="type"><option value="">Semua tipe</option><?php foreach($typeLabels as $value=>$label):?><option value="<?=h($value)?>" <?=$typeFilter===$value?'selected':''?>><?=h($label)?></option><?php endforeach;?></select></label>
+    <label class="qz-field"><span>Status</span><select class="adam-input" name="status"><option value="">Semua status</option><option value="active" <?=$statusFilter==='active'?'selected':''?>>Aktif</option><option value="inactive" <?=$statusFilter==='inactive'?'selected':''?>>Nonaktif</option></select></label>
+    <div class="qz-filterbar__actions qz-form-actions"><button class="adam-button" type="submit">Terapkan</button><?php if($hasFilters):?><a class="adam-button ghost" href="<?=h($listUrl)?>">Reset</a><?php endif;?></div>
   </form>
 
   <form id="question-bulk-form" class="qz-bulkbar qz-question-bulkbar" method="post" action="<?=h($base)?>/?page=admin/quiz/questions/bulk" data-question-bulk-form>
@@ -463,7 +464,7 @@ $pageUrl = static function (int $target) use ($base, $pluginPage, $quiz_id, $sea
     <input type="hidden" name="author_id" value="<?=$authorFilter?:''?>">
     <input type="hidden" name="p" value="<?=$currentPage?>">
     <label class="qz-bulkbar__all"><input type="checkbox" data-question-bulk-all> Pilih halaman ini</label>
-    <span data-question-bulk-count>0 dipilih</span>
+    <span data-question-bulk-count data-bulk-count role="status" aria-live="polite">0 dipilih</span>
     <select class="adam-input" name="bulk_action" data-question-bulk-action>
       <option value="">Bulk action...</option>
       <option value="activate">Aktifkan</option>
@@ -473,58 +474,60 @@ $pageUrl = static function (int $target) use ($base, $pluginPage, $quiz_id, $sea
     <button class="adam-button" type="submit" data-question-bulk-submit disabled>Terapkan</button>
   </form>
 
-  <div class="qz-resultbar">
-    <span>Menampilkan <b><?=$totalFiltered>0?$offset+1:0?></b>-<b><?=min($offset+$perPage,$totalFiltered)?></b> dari <b><?=$totalFiltered?></b> soal</span>
-    <div class="qz-view-controls"><span>Urutan global diatur melalui Master Builder</span><details class="qz-column-picker" data-question-column-picker data-storage-key="quiz-question-columns-v1"><summary>Kolom</summary><div class="qz-column-picker__panel"><div class="qz-column-picker__title">Kolom yang ditampilkan</div><label><input type="checkbox" checked disabled> Pilih <small>Wajib</small></label><label><input type="checkbox" checked disabled> Soal <small>Wajib</small></label><label><input type="checkbox" data-question-column="type"> Tipe</label><label><input type="checkbox" data-question-column="answers" checked> Jawaban</label><label><input type="checkbox" data-question-column="status" checked> Status</label><label><input type="checkbox" checked disabled> Aksi <small>Wajib</small></label></div></details></div>
+  <section class="qz-section qz-question-results" aria-labelledby="question-results-title">
+  <div class="qz-resultbar qz-section__head">
+    <span id="question-results-title">Menampilkan <b><?=$totalFiltered>0?$offset+1:0?></b>-<b><?=min($offset+$perPage,$totalFiltered)?></b> dari <b><?=$totalFiltered?></b> soal</span>
+    <div class="qz-view-controls"><span>Urutan global diatur melalui Master Builder</span><details class="qz-column-picker" data-question-column-picker data-storage-key="quiz-question-columns-v1"><summary>Atur kolom</summary><div class="qz-column-picker__panel"><div class="qz-column-picker__title">Kolom yang ditampilkan</div><label><input type="checkbox" checked disabled> Pilih <small>Wajib</small></label><label><input type="checkbox" checked disabled> Soal <small>Wajib</small></label><label><input type="checkbox" data-question-column="type" checked> Tipe</label><label><input type="checkbox" data-question-column="answers" checked> Jawaban</label><label><input type="checkbox" data-question-column="status" checked> Status</label><label><input type="checkbox" checked disabled> Aksi <small>Wajib</small></label></div></details></div>
   </div>
 
-  <table class="qz-table qz-question-table" data-question-column-table>
+  <div class="table-scroll qz-section__body" role="region" aria-label="Daftar soal" tabindex="0">
+  <table class="qz-table qz-data-table qz-question-table" data-question-column-table>
     <thead><tr>
       <th width="54"><span class="visually-hidden">Pilih</span></th>
       <th>Soal</th>
-      <th width="140" data-column="type" hidden>Tipe</th>
+      <th width="140" data-column="type">Tipe</th>
       <th width="90" data-column="answers">Jawaban</th>
       <th width="120" data-column="status">Status</th>
-      <th width="80">Aksi</th>
+      <th width="64">Aksi</th>
     </tr></thead>
     <tbody>
-    <?php if (!$questions): ?><tr><td colspan="6" class="qz-empty-cell"><?=$totalFiltered===0&&($search!==''||$typeFilter!==''||$statusFilter!=='')?'Tidak ada soal yang cocok dengan filter.':'Belum ada soal.'?></td></tr>
+    <?php if (!$questions): ?><tr><td colspan="6" class="qz-empty-cell"><div class="qz-empty-state"><strong><?=$hasFilters?'Tidak ada soal yang cocok':'Belum ada soal'?></strong><div><?=$hasFilters?'Ubah atau reset filter untuk melihat soal lainnya.':'Tambahkan soal pertama untuk mulai menyusun bank soal quiz ini.'?></div><a class="adam-button <?=$hasFilters?'ghost':''?>" href="<?=h($hasFilters?$listUrl:$base.'/?page='.$pluginPage.'&do=add&quiz_id='.$quiz_id)?>"><?=$hasFilters?'Reset filter':'Tambah Soal'?></a></div></td></tr>
     <?php else: foreach ($questions as $qq):
       $canMutate = qz_can_mutate_resource($pdo, (int)$user['id'], $quiz, $qq);
       $canShowContext = $canViewAllContentMetadata || $canMutate;
       $excerpt = qz_plain_excerpt((string)($qq['question_text']??''),200);
-      $chips = [];
-      if ($canShowContext && !empty($qq['category_name'])) $chips[] = '<span class="chip" title="Kategori">🏷 '.h($qq['category_name']).'</span>';
-      if ($canShowContext && !empty($qq['passage_title'])) $chips[] = '<span class="chip" title="Passage">📄 '.h($qq['passage_title']).'</span>';
+      $metadata = [];
+      if ($canShowContext && !empty($qq['category_name'])) $metadata[] = '<span class="qz-question-meta__item"><small>Kategori</small><span>'.h($qq['category_name']).'</span></span>';
+      if ($canShowContext && !empty($qq['passage_title'])) $metadata[] = '<span class="qz-question-meta__item"><small>Passage</small><span>'.h($qq['passage_title']).'</span></span>';
       $contributor = trim((string)($qq['contributor_name']??''));
       if ($contributor === '') $contributor = trim((string)($qq['contributor_email']??''));
       if ($contributor === '') $contributor = 'User #'.(int)($qq['created_by']??0);
-      $chips[] = '<span class="chip muted" title="Contributor">'.h($contributor).'</span>';
-      $chips[] = '<span class="chip muted" title="Urutan global">'.(($qq['sort_order']??null)!==null?'#'.(int)$qq['sort_order']:'Akhir').'</span>';
+      $metadata[] = '<span class="qz-question-meta__item"><small>Contributor</small><span>'.h($contributor).'</span></span>';
+      $metadata[] = '<span class="qz-question-meta__item"><small>Urutan</small><span>'.(($qq['sort_order']??null)!==null?'#'.(int)$qq['sort_order']:'Akhir').'</span></span>';
       $isActive = (int)($qq['is_active']??0)===1;
     ?>
       <tr>
         <td class="qz-question-select" data-label="Pilih"><?php if($canMutate):?><input type="checkbox" name="ids[]" value="<?=(int)$qq['id']?>" form="question-bulk-form" data-question-bulk-item aria-label="Pilih soal oleh <?=h($contributor)?>"><?php else:?><span class="muted" title="Soal ini read-only">—</span><?php endif;?></td>
         <td class="qz-question-cell" data-label="Soal">
-          <div class="qtext"><?=h($excerpt)?></div>
-          <div class="qsub"><?=implode(' ',$chips)?></div>
+          <div class="qtext qz-row-title"><?=h($excerpt)?></div>
+          <div class="qsub qz-question-meta"><?=implode('',$metadata)?></div>
         </td>
-        <td data-label="Tipe" data-column="type" hidden><span class="badge"><?=h($typeLabels[(string)$qq['question_type']]??(string)$qq['question_type'])?></span></td>
-        <td data-label="Jawaban" data-column="answers"><span class="badge count"><?=(int)$qq['answer_count']?></span></td>
+        <td data-label="Tipe" data-column="type"><span class="badge qz-question-type"><?=h($typeLabels[(string)$qq['question_type']]??(string)$qq['question_type'])?></span></td>
+        <td class="qz-question-count" data-label="Jawaban" data-column="answers"><strong><?=(int)$qq['answer_count']?></strong></td>
         <td data-label="Status" data-column="status"><?php if($isActive):?><span class="badge ok">Aktif</span><?php else:?><span class="badge muted">Nonaktif</span><?php endif;?></td>
         <td class="qz-row-actions qz-question-actions" data-label="Aksi">
-          <div class="qz-action-menu qz-action-menu--compact">
-            <button type="button" class="qz-action-menu__toggle" id="question-actions-toggle-<?=(int)$qq['id']?>" aria-expanded="false" aria-controls="question-actions-<?=(int)$qq['id']?>" aria-label="Aksi soal #<?=(int)$qq['id']?>">
-              <span class="qz-action-menu__dots" aria-hidden="true">&#8942;</span>
+          <div class="user-actions" data-qz-action-menu>
+            <button type="button" class="user-actions-toggle" id="question-actions-toggle-<?=(int)$qq['id']?>" data-qz-action-toggle aria-haspopup="menu" aria-expanded="false" aria-controls="question-actions-<?=(int)$qq['id']?>" aria-label="Aksi soal #<?=(int)$qq['id']?>">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
             </button>
-            <div class="qz-action-menu__panel" id="question-actions-<?=(int)$qq['id']?>" role="group" aria-labelledby="question-actions-toggle-<?=(int)$qq['id']?>" hidden>
-              <a class="qz-action-menu__item" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=edit&id=<?=(int)$qq['id']?>&quiz_id=<?=$quiz_id?>"><?=$canMutate?'Edit':'Lihat'?></a>
+            <div class="user-actions-menu" id="question-actions-<?=(int)$qq['id']?>" data-qz-action-panel role="menu" aria-labelledby="question-actions-toggle-<?=(int)$qq['id']?>" hidden>
+              <a role="menuitem" data-qz-action-item href="<?=h($base)?>/?page=<?=$pluginPage?>&do=edit&id=<?=(int)$qq['id']?>&quiz_id=<?=$quiz_id?>"><?=$canMutate?svg_ico('pen'):svg_ico('eye')?> <span><?=$canMutate?'Edit Soal':'Lihat Soal'?></span></a>
               <?php if($canMutate):?>
               <form method="post" action="<?=h($base)?>/?page=<?=$pluginPage?>&quiz_id=<?=$quiz_id?>" class="qz-action-menu__form">
                 <input type="hidden" name="do" value="delete">
                 <input type="hidden" name="id" value="<?=(int)$qq['id']?>">
                 <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
-                <button type="submit" class="qz-action-menu__item qz-action-menu__item--danger" data-confirm="Hapus soal ini?" data-confirm-variant="danger">Hapus</button>
+                <button type="submit" role="menuitem" class="is-danger" data-qz-action-item data-confirm="Hapus soal ini?" data-confirm-variant="danger"><?=svg_ico('trash-2')?> <span>Hapus Soal</span></button>
               </form>
               <?php endif;?>
             </div>
@@ -534,6 +537,7 @@ $pageUrl = static function (int $target) use ($base, $pluginPage, $quiz_id, $sea
     <?php endforeach; endif; ?>
     </tbody>
   </table>
+  </div>
 
   <?php if($totalPages>1):?>
   <nav class="qz-pagination" aria-label="Navigasi halaman soal">
@@ -547,5 +551,6 @@ $pageUrl = static function (int $target) use ($base, $pluginPage, $quiz_id, $sea
     <?php if($currentPage<$totalPages):?><a href="<?=h($pageUrl($currentPage+1))?>">Berikutnya</a><?php else:?><span class="disabled">Berikutnya</span><?php endif;?>
   </nav>
   <?php endif;?>
+  </section>
 </section>
 <?php

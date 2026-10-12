@@ -866,6 +866,21 @@ function quiz_attempt_package_is_complete(PDO $pdo, int $attemptId): bool {
   return true;
 }
 
+/** Corrections require every immutable snapshot to have existed before submission. */
+function quiz_attempt_snapshots_predate_submission(PDO $pdo, int $attemptId, string $submittedAt): bool {
+  if ($attemptId <= 0 || trim($submittedAt) === '') return false;
+  $stmt = $pdo->prepare('SELECT COUNT(*) AS question_count,
+      COALESCE(SUM(CASE WHEN snapshot_at IS NULL OR options_snapshotted_at IS NULL
+        OR delivery_snapshotted_at IS NULL
+        OR GREATEST(snapshot_at, options_snapshotted_at, delivery_snapshotted_at)>=:submitted_at
+        THEN 1 ELSE 0 END),0) AS ineligible_count
+    FROM attempt_questions WHERE attempt_id=:attempt_id');
+  $stmt->execute([':submitted_at' => $submittedAt, ':attempt_id' => $attemptId]);
+  $result = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+  return (int)($result['question_count'] ?? 0) > 0
+    && (int)($result['ineligible_count'] ?? 0) === 0;
+}
+
 /** Capture immutable denominator, category, option, and delivery metadata once. */
 function quiz_snapshot_attempt_questions(PDO $pdo, int $attemptId): void {
   if (!$pdo->inTransaction()) throw new RuntimeException('Attempt question snapshots require a transaction.');
@@ -1105,6 +1120,93 @@ function quiz_revalidate_delivery_snapshot_assets(PDO $pdo, array $snapshot): ar
   return $snapshot;
 }
 
+/** Normalize and score a response exclusively from immutable option snapshots. */
+function quiz_normalize_attempt_response(PDO $pdo, int $attemptQuestionId, int $questionId,
+    string $questionType, array $input): array {
+  if (!$pdo->inTransaction()) throw new RuntimeException('Response normalization requires a transaction.');
+  if ($attemptQuestionId <= 0 || $questionId <= 0) throw new InvalidArgumentException('Invalid question.');
+
+  $optionStmt = $pdo->prepare('SELECT source_answer_id, answer_text, score FROM attempt_question_options
+    WHERE attempt_question_id=:attempt_question_id AND question_id=:question_id
+    ORDER BY delivery_seq ASC, id ASC FOR UPDATE');
+  $optionStmt->execute([':attempt_question_id' => $attemptQuestionId, ':question_id' => $questionId]);
+  $optionRows = $optionStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+  $options = [];
+  $optionsById = [];
+  foreach ($optionRows as $row) {
+    $id = (int)$row['source_answer_id'];
+    $option = ['id' => $id, 'label' => (string)$row['answer_text'], 'score' => (int)$row['score']];
+    $options[] = $option;
+    $optionsById[$id] = $option;
+  }
+
+  $selectedAnswerId = null;
+  $answerText = null;
+  $computedScore = 0;
+  if (in_array($questionType, ['single_choice', 'yesno'], true)) {
+    $rawSelectedSourceId = $input['selected_answer_id'] ?? null;
+    if (!(is_int($rawSelectedSourceId)
+        || is_string($rawSelectedSourceId) && ctype_digit($rawSelectedSourceId))) {
+      throw new InvalidArgumentException('Invalid answer option');
+    }
+    $selectedSourceId = (int)$rawSelectedSourceId;
+    if ($selectedSourceId <= 0) throw new InvalidArgumentException('No answer selected');
+    if (!isset($optionsById[$selectedSourceId])) throw new InvalidArgumentException('Invalid answer option');
+    $computedScore = (int)$optionsById[$selectedSourceId]['score'];
+
+    $liveOption = $pdo->prepare('SELECT id FROM question_answers
+      WHERE id=:id AND question_id=:question_id LIMIT 1 FOR UPDATE');
+    $liveOption->execute([':id' => $selectedSourceId, ':question_id' => $questionId]);
+    if ($liveOption->fetchColumn() !== false) {
+      $selectedAnswerId = $selectedSourceId;
+    } else {
+      // Retain the snapshotted source ID without violating the legacy live-answer FK.
+      $answerText = (string)$selectedSourceId;
+    }
+  } elseif ($questionType === 'multiple_choice') {
+    $rawIds = $input['selected_answer_ids'] ?? null;
+    if (!is_array($rawIds) || !array_is_list($rawIds)) {
+      throw new InvalidArgumentException('selected_answer_ids required');
+    }
+    $ids = [];
+    foreach ($rawIds as $rawId) {
+      if (!(is_int($rawId) || is_string($rawId) && ctype_digit($rawId))) {
+        throw new InvalidArgumentException('Invalid answer option');
+      }
+      $id = (int)$rawId;
+      if ($id <= 0) throw new InvalidArgumentException('Invalid answer option');
+      $ids[$id] = $id;
+    }
+    $ids = array_values($ids);
+    sort($ids, SORT_NUMERIC);
+    if (count($ids) > 100) throw new InvalidArgumentException('Too many answer options');
+    foreach ($ids as $id) {
+      if (!isset($optionsById[$id])) throw new InvalidArgumentException('Invalid answer option');
+      $computedScore += (int)$optionsById[$id]['score'];
+    }
+    $answerText = json_encode($ids, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+  } elseif (in_array($questionType, ['text', 'number'], true)) {
+    if (!array_key_exists('answer_text', $input) || !is_string($input['answer_text'])) {
+      throw new InvalidArgumentException('answer_text required');
+    }
+    $answerText = trim($input['answer_text']);
+    if (strlen($answerText) > 20000) throw new InvalidArgumentException('answer_text too large', 413);
+    if ($questionType === 'number' && $answerText !== ''
+        && preg_match('/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/D', $answerText) !== 1) {
+      throw new InvalidArgumentException('Invalid number response');
+    }
+  } else {
+    throw new InvalidArgumentException('Invalid question type');
+  }
+
+  return [
+    'selected_answer_id' => $selectedAnswerId,
+    'answer_text' => $answerText,
+    'computed_score' => $computedScore,
+    'options' => $options,
+  ];
+}
+
 /** Results are public only when the immutable denominator and aggregates agree. */
 function quiz_attempt_result_is_ready(PDO $pdo, int $attemptId): bool {
   $stmt = $pdo->prepare("SELECT a.status, a.submitted_at, a.total_score, COUNT(aq.id) AS question_count,
@@ -1155,26 +1257,14 @@ function quiz_participant_submit_payload(int $attemptId, int $total, int $answer
   return $data;
 }
 
-/** Finalize an attempt under a row lock; safe to call repeatedly in a transaction. */
-function quiz_finalize_attempt(PDO $pdo, int $attemptId): array {
-  if (!$pdo->inTransaction()) throw new RuntimeException('Attempt finalization requires a transaction.');
+/** Rebuild score/category aggregates from immutable assignments and current answers. */
+function quiz_rebuild_attempt_aggregates(PDO $pdo, int $attemptId, int $quizId): array {
+  if (!$pdo->inTransaction()) throw new RuntimeException('Attempt aggregate rebuild requires a transaction.');
+  if ($attemptId <= 0 || $quizId <= 0) throw new InvalidArgumentException('Invalid attempt aggregate scope.');
 
-  $lock = $pdo->prepare('SELECT id, quiz_id, status, started_at, submitted_at, total_score, elapsed_seconds FROM quiz_attempts WHERE id=:id LIMIT 1 FOR UPDATE');
-  $lock->execute([':id' => $attemptId]);
-  $attempt = $lock->fetch(PDO::FETCH_ASSOC);
-  if (!$attempt) throw new RuntimeException('Attempt not found for finalization.');
-
-  if (!quiz_attempt_package_is_complete($pdo, $attemptId)) {
-    throw new RuntimeException('Attempt package preparation is required.');
-  }
-
-  if ((string)$attempt['status'] === 'submitted') {
-    return [
-      'attempt_id' => $attemptId,
-      'quiz_id' => (int)$attempt['quiz_id'],
-      'finalized' => false,
-    ];
-  }
+  $attemptStmt = $pdo->prepare('SELECT quiz_id FROM quiz_attempts WHERE id=:id LIMIT 1 FOR UPDATE');
+  $attemptStmt->execute([':id' => $attemptId]);
+  if ((int)$attemptStmt->fetchColumn() !== $quizId) throw new RuntimeException('Attempt not found for aggregate rebuild.');
 
   $rowsStmt = $pdo->prepare("SELECT aq.question_id, aq.available_score_snapshot,
       aq.category_key_snapshot, aq.category_id_snapshot, aq.category_name_snapshot, aq.snapshot_at,
@@ -1196,11 +1286,12 @@ function quiz_finalize_attempt(PDO $pdo, int $attemptId): array {
     $placeholders = implode(',', array_fill(0, count($snapshotCategoryIds), '?'));
     $categoryStmt = $pdo->prepare("SELECT id FROM question_categories
       WHERE quiz_id=? AND id IN ($placeholders) FOR UPDATE");
-    $categoryStmt->execute([(int)$attempt['quiz_id'], ...array_values($snapshotCategoryIds)]);
+    $categoryStmt->execute([$quizId, ...array_values($snapshotCategoryIds)]);
     $validCategoryIds = array_fill_keys(array_map('intval', $categoryStmt->fetchAll(PDO::FETCH_COLUMN) ?: []), true);
   }
 
   $totalScore = 0;
+  $answeredCount = 0;
   $categories = [];
   foreach ($rows as $row) {
     $key = trim((string)($row['category_key_snapshot'] ?? ''));
@@ -1214,6 +1305,7 @@ function quiz_finalize_attempt(PDO $pdo, int $attemptId): array {
       || (trim((string)($row['answer_text'] ?? '')) !== '' && trim((string)$row['answer_text']) !== '[]');
     $score = (int)($row['computed_score'] ?? 0);
     $totalScore += $score;
+    if ($answered) $answeredCount++;
     if (!isset($categories[$key])) {
       $categories[$key] = ['category_id' => $categoryId ?: null, 'category_name' => $categoryName,
         'question_count' => 0, 'answered_count' => 0, 'correct_count' => 0, 'earned_score' => 0, 'available_score' => 0];
@@ -1241,11 +1333,40 @@ function quiz_finalize_attempt(PDO $pdo, int $attemptId): array {
     ]);
   }
 
-  $update = $pdo->prepare("UPDATE quiz_attempts SET total_score=:score, status='submitted',
+  $update = $pdo->prepare('UPDATE quiz_attempts SET total_score=:score WHERE id=:id AND quiz_id=:quiz_id LIMIT 1');
+  $update->execute([':score' => $totalScore, ':id' => $attemptId, ':quiz_id' => $quizId]);
+
+  return ['total_score' => $totalScore, 'answered_count' => $answeredCount, 'question_count' => count($rows)];
+}
+
+/** Finalize an attempt under a row lock; safe to call repeatedly in a transaction. */
+function quiz_finalize_attempt(PDO $pdo, int $attemptId): array {
+  if (!$pdo->inTransaction()) throw new RuntimeException('Attempt finalization requires a transaction.');
+
+  $lock = $pdo->prepare('SELECT id, quiz_id, status, started_at, submitted_at, total_score, elapsed_seconds FROM quiz_attempts WHERE id=:id LIMIT 1 FOR UPDATE');
+  $lock->execute([':id' => $attemptId]);
+  $attempt = $lock->fetch(PDO::FETCH_ASSOC);
+  if (!$attempt) throw new RuntimeException('Attempt not found for finalization.');
+
+  if (!quiz_attempt_package_is_complete($pdo, $attemptId)) {
+    throw new RuntimeException('Attempt package preparation is required.');
+  }
+
+  if ((string)$attempt['status'] === 'submitted') {
+    return [
+      'attempt_id' => $attemptId,
+      'quiz_id' => (int)$attempt['quiz_id'],
+      'finalized' => false,
+    ];
+  }
+
+  quiz_rebuild_attempt_aggregates($pdo, $attemptId, (int)$attempt['quiz_id']);
+
+  $update = $pdo->prepare("UPDATE quiz_attempts SET status='submitted',
       submitted_at=COALESCE(submitted_at,NOW()),
       elapsed_seconds=CASE WHEN started_at IS NULL THEN NULL ELSE GREATEST(0,TIMESTAMPDIFF(SECOND,started_at,COALESCE(submitted_at,NOW()))) END,
       last_activity_at=NOW() WHERE id=:id AND status<>'submitted' LIMIT 1");
-  $update->execute([':score' => $totalScore, ':id' => $attemptId]);
+  $update->execute([':id' => $attemptId]);
 
   return ['attempt_id' => $attemptId, 'quiz_id' => (int)$attempt['quiz_id'], 'finalized' => $update->rowCount() === 1];
 }

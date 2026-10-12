@@ -190,7 +190,24 @@ $formatDate = static function (mixed $value): string {
         <td data-label="Attempts" data-column="attempts"><span class="badge count"><?=(int)$r['attempt_count']?></span></td>
         <td data-label="Submitted" data-column="submitted"><span class="badge <?=((int)$r['submitted_count']>0)?'ok':'muted'?>"><?=(int)$r['submitted_count']?></span></td>
         <td data-label="Last activity" data-column="activity"><span class="qz-student-activity"><?=$formatDate($r['last_activity_at']??null)?></span></td>
-        <td class="qz-row-actions qz-student-actions" data-label="Actions"><div class="qz-action-menu qz-action-menu--compact"><button type="button" class="qz-action-menu__toggle" id="student-actions-toggle-<?=$sid?>" aria-expanded="false" aria-controls="student-actions-<?=$sid?>" aria-label="Actions for <?=h((string)$r['name'])?>"><span class="qz-action-menu__dots" aria-hidden="true">&#8942;</span></button><div class="qz-action-menu__panel" id="student-actions-<?=$sid?>" role="group" aria-labelledby="student-actions-toggle-<?=$sid?>" hidden><a class="qz-action-menu__item" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=edit&id=<?=$sid?>">Edit Student</a><a class="qz-action-menu__item" href="<?=h($base)?>/?page=admin/quiz/attempts&student_id=<?=$sid?>">View Attempts</a><?php if ($lastAttemptUrl): ?><a class="qz-action-menu__item" href="<?=h($lastAttemptUrl)?>">Latest Attempt</a><?php endif; ?><form method="post" action="<?=h($base)?>/?page=<?=$pluginPage?>" class="qz-action-menu__form"><input type="hidden" name="do" value="delete"><input type="hidden" name="id" value="<?=$sid?>"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><button type="submit" class="qz-action-menu__item qz-action-menu__item--danger" data-confirm="Delete this Student?\n\nName: <?=h($r['name'])?>\nAttempts: <?=(int)$r['attempt_count']?> (Submitted: <?=(int)$r['submitted_count']?>)\n\nAll of this Student's Attempts, Answers, Question sets, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger">Delete Student</button></form></div></div></td>
+        <td class="qz-row-actions qz-student-actions" data-label="Actions">
+          <div class="user-actions" data-qz-action-menu>
+            <button type="button" class="user-actions-toggle" id="student-actions-toggle-<?=$sid?>" data-qz-action-toggle aria-haspopup="menu" aria-expanded="false" aria-controls="student-actions-<?=$sid?>" aria-label="Actions for <?=h((string)$r['name'])?>">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+            </button>
+            <div class="user-actions-menu" id="student-actions-<?=$sid?>" data-qz-action-panel role="menu" aria-labelledby="student-actions-toggle-<?=$sid?>" hidden>
+              <a role="menuitem" data-qz-action-item href="<?=h($base)?>/?page=<?=$pluginPage?>&do=edit&id=<?=$sid?>"><?=svg_ico('pen')?> <span>Edit Student</span></a>
+              <a role="menuitem" data-qz-action-item href="<?=h($base)?>/?page=admin/quiz/attempts&student_id=<?=$sid?>"><?=svg_ico('clipboard-list')?> <span>View Attempts</span></a>
+              <?php if ($lastAttemptUrl): ?><a role="menuitem" data-qz-action-item href="<?=h($lastAttemptUrl)?>"><?=svg_ico('eye')?> <span>Latest Attempt</span></a><?php endif; ?>
+              <form method="post" action="<?=h($base)?>/?page=<?=$pluginPage?>">
+                <input type="hidden" name="do" value="delete">
+                <input type="hidden" name="id" value="<?=$sid?>">
+                <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
+                <button type="submit" role="menuitem" class="is-danger" data-qz-action-item data-confirm="Delete this Student?\n\nName: <?=h($r['name'])?>\nAttempts: <?=(int)$r['attempt_count']?> (Submitted: <?=(int)$r['submitted_count']?>)\n\nAll of this Student's Attempts, Answers, Question sets, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger"><?=svg_ico('trash-2')?> <span>Delete Student</span></button>
+              </form>
+            </div>
+          </div>
+        </td>
       </tr>
     <?php endforeach; endif; ?>
     </tbody>

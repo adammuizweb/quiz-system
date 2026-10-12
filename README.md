@@ -2,7 +2,13 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.8.3`.
+Current release: `1.9.0`.
+
+Quiz `1.9.0` adds audited corrections for submitted responses, including an
+immutable answer-key snapshot, required reason, revision conflict protection,
+retained prior versions, and transactional score/category recalculation. It also
+refreshes the Questions, Students, Attempts, and Attempt Detail administration
+surfaces with responsive tables, Core action menus, and improved mobile layouts.
 
 Quiz `1.8.3` adds a validated Global Title setting, defaulting to `Quiz`, so
 sites can use a participant-facing label such as `Exam` or `Test` throughout the

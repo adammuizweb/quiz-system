@@ -90,6 +90,12 @@ $nomorTest = trim((string)($A['nomor_test'] ?? ''));
 $deliveryMode = in_array((string)($A['delivery_mode'] ?? ''), ['online', 'onsite'], true)
   ? (string)$A['delivery_mode']
   : '';
+$canCorrectResponses = $user['can_view_attempt_responses']
+  && $user['can_correct_attempt_responses']
+  && (string)($A['status'] ?? '') === 'submitted'
+  && !empty($A['submitted_at'])
+  && quiz_attempt_package_is_complete($pdo, $attempt_id)
+  && quiz_attempt_snapshots_predate_submission($pdo, $attempt_id, (string)$A['submitted_at']);
 
 // totals
 $stmt = $pdo->prepare("SELECT COUNT(*) FROM attempt_questions WHERE attempt_id=:id");
@@ -108,12 +114,14 @@ $totalScore = (int)$stmt->fetchColumn();
 $items = [];
 $revisionsByAnswer = [];
 $optionLabels = [];
+$snapshotOptions = [];
 $legacyOptionLabels = [];
 if ($user['can_view_attempt_responses']) {
   $stmt = $pdo->prepare("
     SELECT
       aq.seq,
       aq.delivery_snapshot_json,
+      aq.options_snapshotted_at,
       q.id AS question_id,
       q.question_text,
       q.question_type,
@@ -122,6 +130,7 @@ if ($user['can_view_attempt_responses']) {
       aa.revision_count,
       aa.answer_text,
       aa.computed_score,
+      aa.answered_at,
       qa.answer_text AS selected_answer_text
     FROM attempt_questions aq
     JOIN questions q ON q.id = aq.question_id
@@ -142,11 +151,19 @@ if ($user['can_view_attempt_responses']) {
     }
   }
   unset($item);
-  $optionStmt = $pdo->prepare('SELECT question_id, source_answer_id, answer_text FROM attempt_question_options
+  $optionStmt = $pdo->prepare('SELECT question_id, source_answer_id, answer_text, score, delivery_seq FROM attempt_question_options
     WHERE attempt_id=:id ORDER BY attempt_question_id ASC, delivery_seq ASC');
   $optionStmt->execute([':id' => $attempt_id]);
   foreach ($optionStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $option) {
-    $optionLabels[(int)$option['question_id']][(int)$option['source_answer_id']] = (string)$option['answer_text'];
+    $questionId = (int)$option['question_id'];
+    $sourceAnswerId = (int)$option['source_answer_id'];
+    $optionLabels[$questionId][$sourceAnswerId] = (string)$option['answer_text'];
+    $snapshotOptions[$questionId][] = [
+      'id' => $sourceAnswerId,
+      'label' => (string)$option['answer_text'],
+      'score' => (int)$option['score'],
+      'delivery_order' => (int)$option['delivery_seq'],
+    ];
   }
   $legacyOptionStmt = $pdo->prepare('SELECT qa.question_id, qa.id, qa.answer_text FROM question_answers qa
     JOIN attempt_questions aq ON aq.question_id=qa.question_id AND aq.attempt_id=:id ORDER BY qa.id ASC');
@@ -156,9 +173,12 @@ if ($user['can_view_attempt_responses']) {
   }
   $revisionStmt = $pdo->prepare("SELECT r.attempt_answer_id, r.question_id, r.revision_number,
       r.selected_answer_id, r.answer_text, r.computed_score,
-      r.created_at, qa.answer_text AS selected_answer_text
+      r.change_source, r.change_reason, r.answered_at, r.created_at,
+      u.name AS changed_by_name, u.email AS changed_by_email,
+      qa.answer_text AS selected_answer_text
     FROM attempt_answer_revisions r
     LEFT JOIN question_answers qa ON qa.id=r.selected_answer_id
+    LEFT JOIN users u ON u.id=r.changed_by_user_id
     WHERE r.attempt_id=:id ORDER BY r.attempt_answer_id ASC, r.revision_number ASC");
   $revisionStmt->execute([':id' => $attempt_id]);
   foreach ($revisionStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $revision) {
@@ -195,9 +215,52 @@ $formatQuestionType = static fn(string $type): string => match ($type) {
   'single_choice' => 'Single choice',
   'multiple_choice' => 'Multiple choice',
   'yesno' => 'Yes/No',
-  'essay' => 'Essay',
+  'text' => 'Text',
+  'number' => 'Number',
   default => ucfirst(str_replace('_', ' ', $type)),
 };
+
+$correctionPayload = ['attempt_id' => $attempt_id, 'total_questions' => $totalQ, 'questions' => []];
+if ($canCorrectResponses) {
+  foreach ($items as $item) {
+    $questionId = (int)$item['question_id'];
+    $type = (string)$item['question_type'];
+    $selectedAnswerId = (int)($item['selected_answer_id'] ?? 0);
+    if ($selectedAnswerId <= 0 && in_array($type, ['single_choice', 'yesno'], true)) {
+      $storedId = filter_var(trim((string)($item['answer_text'] ?? '')), FILTER_VALIDATE_INT);
+      if ($storedId !== false && $storedId > 0) $selectedAnswerId = (int)$storedId;
+    }
+    $selectedAnswerIds = [];
+    if ($type === 'multiple_choice') {
+      $storedIds = json_decode((string)($item['answer_text'] ?? ''), true);
+      if (is_array($storedIds)) {
+        foreach ($storedIds as $storedId) {
+          $storedId = (int)$storedId;
+          if ($storedId > 0 && !in_array($storedId, $selectedAnswerIds, true)) $selectedAnswerIds[] = $storedId;
+        }
+      }
+    }
+    $answerLabel = $formatAttemptResponse($questionId, $type, $item['selected_answer_id'], $item['answer_text'], $item['selected_answer_text']);
+    $correctionPayload['questions'][(string)$questionId] = [
+      'question_id' => $questionId,
+      'question_text' => (string)$item['question_text'],
+      'question_type' => $type,
+      'correction_eligible' => !empty($item['options_snapshotted_at'])
+        && (string)$item['options_snapshotted_at'] < (string)$A['submitted_at'],
+      'attempt_answer_id' => (int)($item['attempt_answer_id'] ?? 0),
+      'revision_count' => (int)($item['revision_count'] ?? 0),
+      'current_response' => [
+        'selected_answer_id' => $selectedAnswerId > 0 ? $selectedAnswerId : null,
+        'selected_answer_ids' => $selectedAnswerIds,
+        'answer_text' => in_array($type, ['text', 'number'], true) ? (string)($item['answer_text'] ?? '') : null,
+        'answer_label' => $answerLabel,
+        'computed_score' => (int)($item['computed_score'] ?? 0),
+        'answered_at' => $item['answered_at'] === null ? null : (string)$item['answered_at'],
+      ],
+      'options' => $snapshotOptions[$questionId] ?? [],
+    ];
+  }
+}
 
 function status_badge($st){
   $st = (string)$st;
@@ -281,8 +344,8 @@ $showAttemptOperations = $user['can_operate_attempts'] || $user['can_delete_atte
   <?php endif; ?>
 
   <div class="qz-stats qz-metric-grid" aria-label="Attempt summary">
-    <div class="qz-stat qz-metric"><span>Answers provided</span><strong><?= (int)$answered ?>/<?= (int)$totalQ ?></strong></div>
-    <div class="qz-stat qz-metric"><span>Total score</span><strong><?= (int)$totalScore ?></strong></div>
+    <div class="qz-stat qz-metric"><span>Answers provided</span><strong data-qz-answered-count data-total-questions="<?= (int)$totalQ ?>"><?= (int)$answered ?>/<?= (int)$totalQ ?></strong></div>
+    <div class="qz-stat qz-metric"><span>Total score</span><strong data-qz-total-score><?= (int)$totalScore ?></strong></div>
     <div class="qz-stat qz-metric"><span>Reset count</span><strong><?= (int)$A['reset_count'] ?></strong></div>
     <div class="qz-stat qz-metric"><span>Mode</span><strong><?= $deliveryMode !== '' ? h(ucfirst($deliveryMode)) : '-' ?></strong></div>
   </div>
@@ -333,52 +396,13 @@ $showAttemptOperations = $user['can_operate_attempts'] || $user['can_delete_atte
         </div>
         <div class="qz-field qz-section__body">
           <label for="attemptLink">Attempt details link</label>
-          <input id="attemptLink" type="text" value="<?= h($adminAttemptUrl) ?>" readonly>
+          <div class="qz-support-link-row">
+            <input id="attemptLink" type="text" value="<?= h($adminAttemptUrl) ?>" readonly>
+            <button class="smallbtn" type="button" id="btnCopyLink" data-qz-copy-target="attemptLink" data-qz-copy-label="Link copied">Copy link</button>
+          </div>
         </div>
-        <div class="row qz-form-actions"><button class="smallbtn" type="button" id="btnCopyLink" data-qz-copy-target="attemptLink" data-qz-copy-label="Link copied">Copy link</button></div>
       </section>
 
-      <?php if ($user['can_view_attempt_responses']): ?>
-      <section class="qz-section" aria-labelledby="attempt-responses-title">
-        <div class="qz-editor-section__head qz-section__head">
-          <div><h2 id="attempt-responses-title">Student Answers</h2><p>Answers are read-only. Revision history is available if the Student changed an Answer.</p></div>
-        </div>
-        <div class="table-scroll qz-section__body" role="region" aria-label="Student Answers" tabindex="0">
-          <table class="table qz-data-table qz-response-table">
-            <thead><tr><th>No.</th><th>Question and Answer</th><th>Score</th></tr></thead>
-            <tbody>
-            <?php if (!$items): ?>
-              <tr><td colspan="3" class="qz-empty-cell"><div class="qz-empty-state"><strong>No Question set</strong><div>A Question set has not been generated for this Attempt.</div></div></td></tr>
-            <?php else: foreach ($items as $it): ?>
-              <?php
-                $ans = $formatAttemptResponse((int)$it['question_id'], (string)$it['question_type'],
-                  $it['selected_answer_id'], $it['answer_text'], $it['selected_answer_text']);
-              ?>
-              <tr>
-                <td data-label="No."><?= (int)$it['seq'] ?></td>
-                <td data-label="Question and Answer">
-                  <div class="qz-response-question"><strong><?= nl2br(h($it['question_text'])) ?></strong></div>
-                  <div class="qz-response-answer"><strong>Answer:</strong> <?= nl2br(h($ans)) ?></div>
-                  <div class="muted">Type: <?= h($formatQuestionType((string)$it['question_type'])) ?></div>
-                  <?php if ((int)($it['revision_count'] ?? 0) > 0): ?>
-                    <details class="muted qz-response-revisions">
-                      <summary><?= (int)$it['revision_count'] ?> revisions</summary>
-                      <?php foreach ($revisionsByAnswer[(int)($it['attempt_answer_id'] ?? 0)] ?? [] as $revision): ?>
-                        <?php $revisionAnswer = $formatAttemptResponse((int)$revision['question_id'], (string)$it['question_type'],
-                          $revision['selected_answer_id'], $revision['answer_text'], $revision['selected_answer_text']); ?>
-                        <div class="qz-response-revision">#<?= (int)$revision['revision_number'] ?> / <?= h((string)$revision['created_at']) ?> / <?= nl2br(h((string)$revisionAnswer)) ?> / score <?= (int)$revision['computed_score'] ?></div>
-                      <?php endforeach; ?>
-                    </details>
-                  <?php endif; ?>
-                </td>
-                <td data-label="Score"><strong><?= (int)$it['computed_score'] ?></strong></td>
-              </tr>
-            <?php endforeach; endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <?php endif; ?>
     </main>
 
     <?php if ($showAttemptOperations): ?>
@@ -389,7 +413,7 @@ $showAttemptOperations = $user['can_operate_attempts'] || $user['can_delete_atte
 
       <div class="qz-form-actions qz-attempt-action-stack">
       <?php if ($user['can_operate_attempts']): ?>
-        <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_update_delivery_mode" class="helpbox qz-section">
+        <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_update_delivery_mode" class="helpbox qz-section qz-delivery-mode-form">
           <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
           <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
           <div class="title">Delivery mode</div>
@@ -463,14 +487,14 @@ $showAttemptOperations = $user['can_operate_attempts'] || $user['can_delete_atte
 
         <section class="qz-danger-zone" aria-labelledby="attempt-reset-title">
           <div class="qz-section__head"><div><h3 id="attempt-reset-title">Reset Attempt</h3><p class="muted">Answers and the Question set will be deleted. The Student must start again with a new OTP.</p></div></div>
-          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_reset" class="qz-form-grid">
+          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_reset" class="qz-form-grid qz-attempt-reset-form">
             <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
             <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
             <div class="qz-field">
               <label for="attempt-reset-reason">Reset reason</label>
               <input class="adam-input" id="attempt-reset-reason" type="text" name="reset_reason" placeholder="Example: wrong device or email not received" required>
             </div>
-            <button class="adam-button btn-danger" type="submit" data-confirm="Reset this Attempt? The Answers and Question set will be deleted, and a new OTP will be generated." data-confirm-variant="danger">Reset Attempt</button>
+            <button class="adam-button btn-danger qz-danger-action" type="submit" data-confirm="Reset this Attempt? The Answers and Question set will be deleted, and a new OTP will be generated." data-confirm-variant="danger">Reset Attempt</button>
           </form>
         </section>
       <?php endif; ?>
@@ -478,16 +502,145 @@ $showAttemptOperations = $user['can_operate_attempts'] || $user['can_delete_atte
       <?php if ($user['can_delete_attempts']): ?>
         <section class="qz-danger-zone" aria-labelledby="attempt-delete-title">
           <div class="qz-section__head"><div><h3 id="attempt-delete-title">Permanently delete</h3><p class="muted">The Question set, Answers, and related monitoring logs will also be deleted. This action cannot be undone.</p></div></div>
-          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_delete" class="qz-form-actions">
+          <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_delete" class="qz-form-actions qz-attempt-delete-form">
             <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
             <input type="hidden" name="attempt_id" value="<?= (int)$attempt_id ?>">
             <input type="hidden" name="redirect" value="<?= h($base) ?>/?page=admin/quiz/attempts">
-            <button class="adam-button btn-danger" type="submit" data-confirm="Delete Attempt <?= h($attemptLabel) ?>?\n\nThe Question set, Answers, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger">Delete Attempt</button>
+            <button class="adam-button btn-danger qz-danger-action" type="submit" data-confirm="Delete Attempt <?= h($attemptLabel) ?>?\n\nThe Question set, Answers, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger">Delete Attempt</button>
           </form>
         </section>
       <?php endif; ?>
       </div>
     </aside>
     <?php endif; ?>
+
+    <?php if ($user['can_view_attempt_responses']): ?>
+    <section class="qz-section qz-attempt-responses" aria-labelledby="attempt-responses-title">
+      <div class="qz-editor-section__head qz-section__head">
+        <div>
+          <h2 id="attempt-responses-title">Student Answers</h2>
+          <?php if ($canCorrectResponses): ?>
+            <p>Responses are shown as submitted. Prior saved versions are retained, and authorized corrections are audited.</p>
+          <?php else: ?>
+            <p>Responses are shown with any retained prior saved versions.</p>
+          <?php endif; ?>
+        </div>
+      </div>
+      <div class="table-scroll qz-section__body" role="region" aria-label="Student Answers" tabindex="0">
+        <table class="table qz-data-table qz-response-table">
+          <thead><tr><th>No.</th><th>Question and Answer</th><th>Score</th></tr></thead>
+          <tbody>
+          <?php if (!$items): ?>
+            <tr><td colspan="3" class="qz-empty-cell"><div class="qz-empty-state"><strong>No Question set</strong><div>A Question set has not been generated for this Attempt.</div></div></td></tr>
+          <?php else: foreach ($items as $it): ?>
+            <?php
+              $ans = $formatAttemptResponse((int)$it['question_id'], (string)$it['question_type'],
+                $it['selected_answer_id'], $it['answer_text'], $it['selected_answer_text']);
+              $revisionCount = (int)($it['revision_count'] ?? 0);
+              $correctionEligible = $canCorrectResponses && !empty($it['options_snapshotted_at'])
+                && (string)$it['options_snapshotted_at'] < (string)$A['submitted_at'];
+            ?>
+            <tr data-qz-response-row data-question-id="<?= (int)$it['question_id'] ?>">
+              <td data-label="No."><?= (int)$it['seq'] ?></td>
+              <td data-label="Question and Answer">
+                <div class="qz-response-question"><strong><?= nl2br(h($it['question_text'])) ?></strong></div>
+                <div class="qz-response-answer"><strong>Answer:</strong> <span data-qz-response-answer><?= nl2br(h($ans)) ?></span></div>
+                <div class="qz-response-meta">
+                  <span class="muted">Type: <?= h($formatQuestionType((string)$it['question_type'])) ?></span>
+                  <?php if ($correctionEligible): ?>
+                    <button class="smallbtn qz-response-correct" type="button" data-qz-correction-open data-question-id="<?= (int)$it['question_id'] ?>">Correct response</button>
+                  <?php elseif ($canCorrectResponses): ?>
+                    <span class="muted" title="The answer-key snapshot was captured after submission.">Correction unavailable</span>
+                  <?php endif; ?>
+                </div>
+                <details class="muted qz-response-revisions" data-qz-response-history<?= $revisionCount > 0 ? '' : ' hidden' ?>>
+                  <summary><span data-qz-history-summary>Prior saved versions (<?= $revisionCount ?>)</span></summary>
+                  <div class="qz-response-revision-list" data-qz-history-list>
+                    <?php foreach ($revisionsByAnswer[(int)($it['attempt_answer_id'] ?? 0)] ?? [] as $revision): ?>
+                      <?php
+                        $revisionAnswer = $formatAttemptResponse((int)$revision['question_id'], (string)$it['question_type'],
+                          $revision['selected_answer_id'], $revision['answer_text'], $revision['selected_answer_text']);
+                        $isAdminRevision = (string)($revision['change_source'] ?? 'participant') === 'admin';
+                        $actorName = trim((string)($revision['changed_by_name'] ?? ''));
+                        $actorEmail = trim((string)($revision['changed_by_email'] ?? ''));
+                        $actorLabel = $actorName !== '' ? $actorName . ($actorEmail !== '' ? ' (' . $actorEmail . ')' : '') : $actorEmail;
+                      ?>
+                      <div class="qz-response-revision" data-qz-history-entry>
+                        <div class="qz-response-revision__head">
+                          <strong><?= $isAdminRevision ? 'Before administrative correction' : 'Before participant change' ?></strong>
+                          <span>Version <?= (int)$revision['revision_number'] + 1 ?></span>
+                        </div>
+                        <div class="qz-response-revision__answer"><?= nl2br(h($revisionAnswer)) ?></div>
+                        <div class="qz-response-revision__meta">
+                          <span>Score <?= (int)$revision['computed_score'] ?></span>
+                          <span>Changed at <?= h((string)$revision['created_at']) ?></span>
+                          <span>Answered <?= h((string)($revision['answered_at'] ?: '-')) ?></span>
+                          <?php if ($actorLabel !== ''): ?><span>By <?= h($actorLabel) ?></span><?php endif; ?>
+                        </div>
+                        <?php if ($isAdminRevision && trim((string)($revision['change_reason'] ?? '')) !== ''): ?>
+                          <div class="qz-response-revision__reason"><strong>Reason:</strong> <?= nl2br(h((string)$revision['change_reason'])) ?></div>
+                        <?php endif; ?>
+                      </div>
+                    <?php endforeach; ?>
+                  </div>
+                </details>
+              </td>
+              <td data-label="Score"><strong data-qz-response-score><?= (int)$it['computed_score'] ?></strong></td>
+            </tr>
+          <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <?php endif; ?>
   </div>
+
+  <?php if ($canCorrectResponses): ?>
+    <div id="qz-response-correction-modal" class="qz-correction-modal" role="dialog" aria-modal="true" aria-labelledby="qz-correction-title" aria-describedby="qz-correction-description" aria-hidden="true" hidden>
+      <div class="qz-correction-modal__dialog" data-qz-correction-dialog tabindex="-1">
+        <form class="qz-correction-form" data-qz-correction-form data-endpoint="<?= h($base) ?>/?page=admin/quiz/attempts/api/response_correct&amp;action=quiz_api" novalidate>
+          <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+          <header class="qz-correction-modal__head">
+            <div>
+              <div class="qz-kicker">Audited change</div>
+              <h2 id="qz-correction-title">Correct submitted response</h2>
+              <p id="qz-correction-description">Select the intended response and record why this administrative correction is required.</p>
+            </div>
+            <button type="button" class="qz-correction-modal__close" data-qz-correction-close aria-label="Close correction dialog">&times;</button>
+          </header>
+          <div class="qz-correction-modal__body">
+            <section class="qz-correction-context" aria-labelledby="qz-correction-question-label">
+              <h3 id="qz-correction-question-label">Question</h3>
+              <div data-qz-correction-question></div>
+            </section>
+            <div class="qz-correction-review-grid">
+              <section class="qz-correction-panel" aria-labelledby="qz-correction-current-label">
+                <h3 id="qz-correction-current-label">Current response</h3>
+                <div data-qz-correction-current></div>
+              </section>
+              <section class="qz-correction-panel qz-correction-key" aria-labelledby="qz-correction-key-label">
+                <h3 id="qz-correction-key-label">Answer key from attempt snapshot</h3>
+                <div data-qz-correction-key></div>
+              </section>
+            </div>
+            <fieldset class="qz-correction-controls" data-qz-correction-controls>
+              <legend>Corrected response</legend>
+            </fieldset>
+            <div class="qz-field qz-correction-reason">
+              <label for="qz-correction-reason">Correction reason</label>
+              <textarea class="adam-input" id="qz-correction-reason" name="reason" minlength="5" maxlength="500" required aria-describedby="qz-correction-reason-help qz-correction-error"></textarea>
+              <p class="qz-field-help" id="qz-correction-reason-help">Required, 5 to 500 characters. This note is retained in the audit history.</p>
+            </div>
+            <div class="qz-correction-message" id="qz-correction-error" data-qz-correction-message role="alert" hidden></div>
+            <div class="qz-correction-status" data-qz-correction-status role="status" aria-live="polite"></div>
+          </div>
+          <footer class="qz-correction-modal__foot">
+            <button type="button" class="adam-button ghost" data-qz-correction-close>Cancel</button>
+            <button type="submit" class="adam-button" data-qz-correction-submit>Apply correction</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+    <script type="application/json" id="qz-response-correction-data"><?= json_encode($correctionPayload, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?></script>
+  <?php endif; ?>
 </section>

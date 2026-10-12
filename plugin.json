@@ -1,6 +1,6 @@
 {
   "name": "quiz",
-  "version": "1.8.3",
+  "version": "1.9.0",
   "title": "Quiz",
   "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
@@ -160,6 +160,16 @@
         ],
         "hidden": true,
         "permission": "plugin.quiz.attempts.delete"
+      },
+      {
+        "route": "admin/quiz/attempts/api/response_correct",
+        "file": "admin/student/attempts/api/response_correct.php",
+        "title": "Correct Quiz Attempt Response",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.attempt-responses.correct"
       },
       {
         "route": "admin/quiz/master",
@@ -600,6 +610,15 @@
     {
       "key": "plugin.quiz.attempt-responses.view",
       "label": "View Quiz Attempt Questions and Responses",
+      "supports_scope": false,
+      "default_roles": [
+        "admin"
+      ],
+      "delegable": false
+    },
+    {
+      "key": "plugin.quiz.attempt-responses.correct",
+      "label": "Correct Submitted Quiz Attempt Responses",
       "supports_scope": false,
       "default_roles": [
         "admin"

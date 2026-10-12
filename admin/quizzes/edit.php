@@ -195,7 +195,7 @@ $ownerLine = ($owner !== '' || $oemail !== '')
   ? (($owner !== '' ? $owner : 'User#'.(int)$quiz['created_by']) . ($oemail !== '' ? " · {$oemail}" : ''))
   : ('User#'.(int)$quiz['created_by']);
 ?>
-<section class="adam-card qz-card qz-shell qz-editor-page">
+<section class="adam-card qz-card qz-shell qz-editor-page qz-quiz-editor">
   <?php qz_admin_breadcrumb([['label'=>'Quiz','url'=>$base.'/?page=admin/quiz/quizzes'],['label'=>(string)$quiz['title']]]); ?>
   <header class="qz-page-head qz-head">
     <div class="qz-page-head__copy">

@@ -172,6 +172,11 @@
   });
 
   /* ===== Accessible row-action disclosures ===== */
+  var actionToggleSelector = '.qz-action-menu__toggle, [data-qz-action-toggle]';
+  var actionPanelSelector = '.qz-action-menu__panel, [data-qz-action-panel]';
+  var actionItemSelector = '.qz-action-menu__item, [data-qz-action-item]';
+  var actionMenuSelector = '.qz-action-menu, [data-qz-action-menu]';
+
   function actionPanel(toggle){
     var id = toggle.getAttribute('aria-controls');
     return id ? document.getElementById(id) : null;
@@ -193,7 +198,8 @@
     var rect = toggle.getBoundingClientRect();
     var gutter = 8;
     var gap = 6;
-    var width = Math.min(Math.max(180, rect.width), window.innerWidth - (gutter * 2));
+    panel.style.width = '';
+    var width = Math.min(Math.max(panel.offsetWidth, rect.width), window.innerWidth - (gutter * 2));
     panel.style.width = width + 'px';
     panel.style.left = Math.max(gutter, Math.min(rect.right - width, window.innerWidth - width - gutter)) + 'px';
 
@@ -227,13 +233,13 @@
   }
 
   function closeActionMenus(except){
-    document.querySelectorAll('.qz-action-menu__toggle[aria-expanded="true"]').forEach(function(toggle){
+    document.querySelectorAll('.qz-action-menu__toggle[aria-expanded="true"], [data-qz-action-toggle][aria-expanded="true"]').forEach(function(toggle){
       if (toggle !== except) setActionMenu(toggle, false, false);
     });
   }
 
   document.addEventListener('click', function(e){
-    var toggle = e.target.closest('.qz-action-menu__toggle');
+    var toggle = e.target.closest(actionToggleSelector);
     if (toggle) {
       var opening = toggle.getAttribute('aria-expanded') !== 'true';
       closeActionMenus(toggle);
@@ -246,18 +252,18 @@
       return;
     }
     if (e.target.closest('.newnotif-confirm')) return;
-    var panel = e.target.closest('.qz-action-menu__panel');
+    var panel = e.target.closest(actionPanelSelector);
     if (panel) {
       var owner = document.getElementById(panel.getAttribute('aria-labelledby') || '');
-      if (owner && e.target.closest('.qz-action-menu__item')) setActionMenu(owner, false, false);
+      if (owner && e.target.closest(actionItemSelector)) setActionMenu(owner, false, false);
       return;
     }
-    if (!e.target.closest('.qz-action-menu')) closeActionMenus(null);
+    if (!e.target.closest(actionMenuSelector)) closeActionMenus(null);
   });
 
   document.addEventListener('keydown', function(e){
     if (e.defaultPrevented) return;
-    var toggle = e.target.closest('.qz-action-menu__toggle');
+    var toggle = e.target.closest(actionToggleSelector);
     if (e.key === 'ArrowDown' && toggle) {
       e.preventDefault();
       closeActionMenus(toggle);
@@ -268,12 +274,12 @@
       return;
     }
     if (e.key !== 'Escape') return;
-    var openPanel = e.target.closest('.qz-action-menu__panel');
-    var menu = e.target.closest('.qz-action-menu');
+    var openPanel = e.target.closest(actionPanelSelector);
+    var menu = e.target.closest(actionMenuSelector);
     if (!openPanel && !menu) return;
     toggle = openPanel
       ? document.getElementById(openPanel.getAttribute('aria-labelledby') || '')
-      : menu.querySelector('.qz-action-menu__toggle');
+      : menu.querySelector(actionToggleSelector);
     if (toggle && toggle.getAttribute('aria-expanded') === 'true') {
       e.preventDefault();
       setActionMenu(toggle, false, true);
@@ -921,6 +927,427 @@
     });
   });
 
+  /* ===== Submitted response correction ===== */
+  var correctionModalSelector = '#qz-response-correction-modal';
+
+  function correctionPayload(){
+    var script = document.getElementById('qz-response-correction-data');
+    if (!script) return null;
+    if (script._qzCorrectionPayload) return script._qzCorrectionPayload;
+    try {
+      var parsed = JSON.parse(script.textContent || '');
+      if (!parsed || typeof parsed !== 'object' || !parsed.questions || typeof parsed.questions !== 'object') return null;
+      script._qzCorrectionPayload = parsed;
+      return parsed;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function correctionMessage(modal, message){
+    var error = modal.querySelector('[data-qz-correction-message]');
+    if (!error) return;
+    error.textContent = message || '';
+    error.hidden = !message;
+    if (message) error.setAttribute('tabindex', '-1');
+    else error.removeAttribute('tabindex');
+  }
+
+  function correctionElement(tag, className, text){
+    var element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = String(text);
+    return element;
+  }
+
+  function renderCorrectionKey(container, question){
+    container.replaceChildren();
+    if (question.question_type === 'text' || question.question_type === 'number') {
+      container.appendChild(correctionElement(
+        'p',
+        'qz-correction-key__note',
+        'No objective answer key is stored for this response type. Its computed score remains zero.'
+      ));
+      return;
+    }
+    var list = correctionElement('ul', 'qz-correction-key__list');
+    (Array.isArray(question.options) ? question.options : []).forEach(function(option){
+      var item = correctionElement('li', 'qz-correction-key__item' + (Number(option.score) > 0 ? ' is-positive' : ''));
+      var label = correctionElement('span', 'qz-correction-key__label', option.label || ('Option #' + option.id));
+      var score = Number(option.score) || 0;
+      var badge = correctionElement(
+        'strong',
+        'qz-correction-key__score',
+        score > 0 ? 'Answer key · +' + score + (score === 1 ? ' point' : ' points') : '0 points'
+      );
+      item.appendChild(label);
+      item.appendChild(badge);
+      list.appendChild(item);
+    });
+    if (!list.children.length) list.appendChild(correctionElement('li', 'qz-correction-key__note', 'No snapshotted options are available.'));
+    container.appendChild(list);
+  }
+
+  function renderCorrectionControls(fieldset, question){
+    var legend = correctionElement('legend', '', 'Corrected response');
+    fieldset.replaceChildren(legend);
+    var current = question.current_response || {};
+    var type = question.question_type;
+    if (type === 'single_choice' || type === 'yesno' || type === 'multiple_choice') {
+      var options = correctionElement('div', 'qz-correction-options');
+      (Array.isArray(question.options) ? question.options : []).forEach(function(option, index){
+        var label = correctionElement('label', 'qz-correction-option');
+        var input = document.createElement('input');
+        input.type = type === 'multiple_choice' ? 'checkbox' : 'radio';
+        input.name = type === 'multiple_choice' ? 'selected_answer_ids' : 'selected_answer_id';
+        input.value = String(option.id);
+        if (type === 'multiple_choice') {
+          input.checked = Array.isArray(current.selected_answer_ids)
+            && current.selected_answer_ids.map(Number).indexOf(Number(option.id)) !== -1;
+        } else {
+          input.checked = Number(current.selected_answer_id) === Number(option.id);
+        }
+        if (index === 0 && type !== 'multiple_choice') input.required = true;
+        var copy = correctionElement('span', 'qz-correction-option__copy');
+        copy.appendChild(correctionElement('strong', '', option.label || ('Option #' + option.id)));
+        copy.appendChild(correctionElement('small', '', (Number(option.score) || 0) + ' points'));
+        label.appendChild(input);
+        label.appendChild(copy);
+        options.appendChild(label);
+      });
+      fieldset.appendChild(options);
+      return;
+    }
+    var input;
+    if (type === 'text') {
+      input = document.createElement('textarea');
+      input.rows = 4;
+    } else {
+      input = document.createElement('input');
+      input.type = 'number';
+      input.step = 'any';
+      input.inputMode = 'decimal';
+    }
+    input.className = 'adam-input qz-correction-text';
+    input.name = 'answer_text';
+    input.value = current.answer_text == null ? '' : String(current.answer_text);
+    if (type === 'text') input.maxLength = 20000;
+    fieldset.appendChild(input);
+  }
+
+  function unlockCorrectionScroll(modal){
+    if (!modal || !modal._qzScrollState) return;
+    document.documentElement.style.overflow = modal._qzScrollState.html;
+    document.body.style.overflow = modal._qzScrollState.body;
+    modal._qzScrollState = null;
+    if (modal._qzRemovalObserver) modal._qzRemovalObserver.disconnect();
+    modal._qzRemovalObserver = null;
+  }
+
+  function closeCorrectionModal(modal, restoreFocus){
+    if (!modal || modal.getAttribute('aria-hidden') === 'true') return;
+    if (modal.getAttribute('aria-busy') === 'true') return;
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+    modal.hidden = true;
+    unlockCorrectionScroll(modal);
+    var trigger = modal._qzCorrectionTrigger;
+    modal._qzCorrectionTrigger = null;
+    modal._qzCorrectionQuestion = null;
+    if (restoreFocus && trigger && trigger.isConnected && typeof trigger.focus === 'function') trigger.focus();
+  }
+
+  function openCorrectionModal(button){
+    var modal = document.querySelector(correctionModalSelector);
+    var payload = correctionPayload();
+    var questionId = String(button.getAttribute('data-question-id') || '');
+    var question = payload && payload.questions ? payload.questions[questionId] : null;
+    if (!modal || !question) return;
+    if (question.correction_eligible !== true) {
+      if (window.NewNotifToast && typeof window.NewNotifToast.show === 'function') {
+        window.NewNotifToast.show({type:'warning', title:'Correction unavailable', message:'This historical Attempt does not have an answer-key snapshot captured before submission.'});
+      }
+      return;
+    }
+
+    var form = modal.querySelector('[data-qz-correction-form]');
+    var questionBox = modal.querySelector('[data-qz-correction-question]');
+    var currentBox = modal.querySelector('[data-qz-correction-current]');
+    var keyBox = modal.querySelector('[data-qz-correction-key]');
+    var controls = modal.querySelector('[data-qz-correction-controls]');
+    var reason = form && form.elements.reason;
+    if (!form || !questionBox || !currentBox || !keyBox || !controls || !reason) return;
+
+    questionBox.textContent = String(question.question_text || '');
+    currentBox.textContent = String((question.current_response || {}).answer_label || '—');
+    renderCorrectionKey(keyBox, question);
+    renderCorrectionControls(controls, question);
+    reason.value = '';
+    reason.removeAttribute('aria-invalid');
+    correctionMessage(modal, '');
+    var status = modal.querySelector('[data-qz-correction-status]');
+    if (status) status.textContent = '';
+
+    modal._qzCorrectionTrigger = button;
+    modal._qzCorrectionQuestion = question;
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    modal.classList.add('is-open');
+    modal._qzScrollState = {
+      html: document.documentElement.style.overflow,
+      body: document.body.style.overflow
+    };
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    if (window.MutationObserver) {
+      modal._qzRemovalObserver = new MutationObserver(function(){
+        if (!modal.isConnected) unlockCorrectionScroll(modal);
+      });
+      modal._qzRemovalObserver.observe(document.documentElement, { childList:true, subtree:true });
+    }
+    var dialog = modal.querySelector('[data-qz-correction-dialog]');
+    if (dialog) dialog.focus();
+  }
+
+  function setCorrectionLoading(modal, loading){
+    var form = modal.querySelector('[data-qz-correction-form]');
+    modal.setAttribute('aria-busy', loading ? 'true' : 'false');
+    modal.classList.toggle('is-loading', loading);
+    if (!form) return;
+    form.querySelectorAll('button, input, textarea').forEach(function(control){
+      if (loading) {
+        control._qzWasDisabled = control.disabled;
+        control.disabled = true;
+      } else {
+        control.disabled = !!control._qzWasDisabled;
+        delete control._qzWasDisabled;
+      }
+    });
+    var status = modal.querySelector('[data-qz-correction-status]');
+    if (status) status.textContent = loading ? 'Applying correction…' : '';
+  }
+
+  function correctionErrorMessage(status, data){
+    var supplied = data && (data.message || (typeof data.error === 'string' ? data.error : data.error && data.error.message));
+    if (supplied) return String(supplied);
+    if (status === 400) return 'Check the corrected response and reason, then try again.';
+    if (status === 409) return 'This response changed after the dialog was opened. Refresh the page before correcting it.';
+    if (status === 419) return 'Your session expired. Refresh the page and try again.';
+    if (status >= 500) return 'The correction could not be saved because of a server error.';
+    return 'The correction could not be saved.';
+  }
+
+  function appendCorrectionHistory(row, history, answeredAt){
+    if (!row || !history) return;
+    var details = row.querySelector('[data-qz-response-history]');
+    var list = details && details.querySelector('[data-qz-history-list]');
+    if (!details || !list) return;
+    var entry = correctionElement('div', 'qz-response-revision');
+    entry.setAttribute('data-qz-history-entry', '');
+    var head = correctionElement('div', 'qz-response-revision__head');
+    head.appendChild(correctionElement('strong', '', history.change_source === 'admin' ? 'Before administrative correction' : 'Before participant change'));
+    head.appendChild(correctionElement('span', '', 'Version ' + (Number(history.revision_number || 0) + 1)));
+    entry.appendChild(head);
+    entry.appendChild(correctionElement('div', 'qz-response-revision__answer', history.answer_label || '—'));
+    var meta = correctionElement('div', 'qz-response-revision__meta');
+    meta.appendChild(correctionElement('span', '', 'Score ' + Number(history.computed_score || 0)));
+    meta.appendChild(correctionElement('span', '', 'Changed at ' + String(history.created_at || '-')));
+    meta.appendChild(correctionElement('span', '', 'Answered ' + String(answeredAt || '-')));
+    if (history.changed_by_label) meta.appendChild(correctionElement('span', '', 'By ' + history.changed_by_label));
+    entry.appendChild(meta);
+    if (history.change_source === 'admin' && history.change_reason) {
+      var reason = correctionElement('div', 'qz-response-revision__reason');
+      reason.appendChild(correctionElement('strong', '', 'Reason: '));
+      reason.appendChild(document.createTextNode(String(history.change_reason)));
+      entry.appendChild(reason);
+    }
+    list.appendChild(entry);
+    details.hidden = false;
+  }
+
+  function updateCorrectionView(payload, question, submitted, data){
+    var row = document.querySelector('[data-qz-response-row][data-question-id="' + String(question.question_id) + '"]');
+    if (row) {
+      var answer = row.querySelector('[data-qz-response-answer]');
+      var score = row.querySelector('[data-qz-response-score]');
+      if (answer) answer.textContent = String(data.answer_label || '—');
+      if (score) score.textContent = String(Number(data.computed_score || 0));
+      appendCorrectionHistory(row, data.history, (question.current_response || {}).answered_at);
+      var summary = row.querySelector('[data-qz-history-summary]');
+      if (summary) summary.textContent = 'Prior saved versions (' + Number(data.revision_count || 0) + ')';
+    }
+    var total = document.querySelector('[data-qz-total-score]');
+    if (total) total.textContent = String(Number(data.total_score || 0));
+    var answered = document.querySelector('[data-qz-answered-count]');
+    if (answered) {
+      var totalQuestions = Number(answered.getAttribute('data-total-questions') || payload.total_questions || 0);
+      answered.textContent = Number(data.answered_count || 0) + '/' + totalQuestions;
+    }
+
+    question.attempt_answer_id = Number(data.attempt_answer_id || 0);
+    question.revision_count = Number(data.revision_count || 0);
+    question.current_response = question.current_response || {};
+    question.current_response.answer_label = String(data.answer_label || '—');
+    question.current_response.computed_score = Number(data.computed_score || 0);
+    if (question.question_type === 'multiple_choice') {
+      question.current_response.selected_answer_ids = submitted.selected_answer_ids.slice();
+      question.current_response.selected_answer_id = null;
+      question.current_response.answer_text = null;
+    } else if (question.question_type === 'single_choice' || question.question_type === 'yesno') {
+      question.current_response.selected_answer_id = submitted.selected_answer_id;
+      question.current_response.selected_answer_ids = [];
+      question.current_response.answer_text = null;
+    } else {
+      question.current_response.answer_text = submitted.answer_text;
+      question.current_response.selected_answer_id = null;
+      question.current_response.selected_answer_ids = [];
+    }
+  }
+
+  function submitCorrection(form){
+    var modal = form.closest(correctionModalSelector);
+    var payload = correctionPayload();
+    var question = modal && modal._qzCorrectionQuestion;
+    if (!modal || !payload || !question || modal.getAttribute('aria-busy') === 'true') return;
+    var reason = String(form.elements.reason ? form.elements.reason.value : '').trim();
+    if (reason.length < 5 || reason.length > 500) {
+      form.elements.reason.setAttribute('aria-invalid', 'true');
+      correctionMessage(modal, 'Enter a correction reason between 5 and 500 characters.');
+      form.elements.reason.focus();
+      return;
+    }
+    form.elements.reason.removeAttribute('aria-invalid');
+    var request = {
+      csrf_token: String(form.elements.csrf_token ? form.elements.csrf_token.value : ''),
+      attempt_id: Number(payload.attempt_id || 0),
+      question_id: Number(question.question_id || 0),
+      attempt_answer_id: Number(question.attempt_answer_id || 0),
+      expected_revision_count: Number(question.revision_count || 0),
+      reason: reason
+    };
+    if (question.question_type === 'multiple_choice') {
+      request.selected_answer_ids = Array.prototype.slice.call(form.querySelectorAll('input[name="selected_answer_ids"]:checked'))
+        .map(function(input){ return Number(input.value); });
+    } else if (question.question_type === 'single_choice' || question.question_type === 'yesno') {
+      var selected = form.querySelector('input[name="selected_answer_id"]:checked');
+      if (!selected) {
+        correctionMessage(modal, 'Select a corrected response.');
+        var firstOption = form.querySelector('input[name="selected_answer_id"]');
+        if (firstOption) firstOption.focus();
+        return;
+      }
+      request.selected_answer_id = Number(selected.value);
+    } else {
+      request.answer_text = String(form.elements.answer_text ? form.elements.answer_text.value : '').trim();
+    }
+    correctionMessage(modal, '');
+
+    var confirmation = window.NewNotifConfirm && typeof window.NewNotifConfirm.warning === 'function'
+      ? window.NewNotifConfirm.warning({
+          title: 'Apply administrative correction?',
+          message: 'The submitted response will change. Its prior value and this reason will be retained in the audit history.',
+          confirmText: 'Apply correction',
+          cancelText: 'Cancel',
+          variant: 'warning'
+        })
+      : Promise.resolve(true);
+    Promise.resolve(confirmation).then(function(confirmed){
+      if (!confirmed || !modal.isConnected) return;
+      setCorrectionLoading(modal, true);
+      return fetch(form.getAttribute('data-endpoint') || '', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(request)
+      }).then(function(response){
+        return response.text().then(function(text){
+          var result = null;
+          try { result = JSON.parse(text); } catch (error) {}
+          if (!response.ok || !result || result.ok !== true || !result.data) {
+            var failure = new Error(correctionErrorMessage(response.status, result));
+            failure.status = response.status;
+            throw failure;
+          }
+          return result.data;
+        });
+      }).then(function(data){
+        if (!data) return;
+        updateCorrectionView(payload, question, request, data);
+        setCorrectionLoading(modal, false);
+        closeCorrectionModal(modal, true);
+        var toastMessage = data.changed === false ? 'The submitted response already matches this value.' : 'Response correction saved.';
+        if (window.NewNotifToast && typeof window.NewNotifToast.show === 'function') {
+          window.NewNotifToast.show({type:'success', title:data.changed === false ? 'No change needed' : 'Correction saved', message:toastMessage});
+        } else if (typeof window.showToast === 'function') {
+          window.showToast(toastMessage, 'success');
+        }
+      }).catch(function(error){
+        if (!modal.isConnected) return;
+        setCorrectionLoading(modal, false);
+        correctionMessage(modal, error && error.message ? error.message : 'The correction could not be saved.');
+        var errorBox = modal.querySelector('[data-qz-correction-message]');
+        if (errorBox) errorBox.focus();
+      });
+    }).catch(function(){
+      correctionMessage(modal, 'The confirmation dialog could not be opened.');
+    });
+  }
+
+  document.addEventListener('click', function(event){
+    var open = event.target.closest('[data-qz-correction-open]');
+    if (open) {
+      event.preventDefault();
+      openCorrectionModal(open);
+      return;
+    }
+    var close = event.target.closest(correctionModalSelector + ' [data-qz-correction-close]');
+    if (close) {
+      event.preventDefault();
+      closeCorrectionModal(close.closest(correctionModalSelector), true);
+      return;
+    }
+    if (event.target.matches(correctionModalSelector)) closeCorrectionModal(event.target, true);
+  });
+
+  document.addEventListener('submit', function(event){
+    var form = event.target.closest('[data-qz-correction-form]');
+    if (!form) return;
+    event.preventDefault();
+    submitCorrection(form);
+  });
+
+  document.addEventListener('keydown', function(event){
+    var modal = document.querySelector(correctionModalSelector + '.is-open');
+    if (!modal || document.querySelector('.newnotif-confirm.is-open')) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeCorrectionModal(modal, true);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    var focusable = Array.prototype.slice.call(modal.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(function(element){ return element.offsetParent !== null; });
+    if (!focusable.length) {
+      event.preventDefault();
+      modal.querySelector('[data-qz-correction-dialog]').focus();
+      return;
+    }
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+
   /* ===== Quiz Detail Modal ===== */
   var baseUrl = window.ADMIN_PATH || '/adiwira';
 
@@ -931,7 +1358,12 @@
   var quizDetailTrigger = null;
 
   function openQuizDetail(btn){
-    var d = JSON.parse(btn.getAttribute('data-quiz'));
+    var d;
+    try {
+      d = JSON.parse(btn.getAttribute('data-quiz'));
+    } catch (error) {
+      return;
+    }
     var modal = document.getElementById('quizDetailModal');
     if (!modal) return;
 
@@ -958,8 +1390,9 @@
       '<div class="qdm-grid">' +
         '<div class="qdm-section">' +
           '<div class="qdm-field"><span class="qdm-label">ID</span><span>#' + d.id + '</span></div>' +
-          '<div class="qdm-field"><span class="qdm-label">Status</span><span>' + statusBadge + '</span></div>' +
+          '<div class="qdm-field"><span class="qdm-label">Status</span><span class="qdm-badge-stack">' + statusBadge + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Owner</span><span>' + escHtml(d.owner) + '</span></div>' +
+          '<div class="qdm-field"><span class="qdm-label">Visual theme</span><span>' + escHtml(d.visual_theme) + ' <small class="qdm-source">' + escHtml(d.visual_theme_source) + '</small></span></div>' +
           (d.public_url ? '<div class="qdm-field"><span class="qdm-label">Public URL</span><span><a href="' + escHtml(d.public_url) + '" target="_blank" rel="noopener">' + escHtml(d.public_url) + '</a></span></div>' : '') +
           (d.description ? '<div class="qdm-field qdm-desc"><span class="qdm-label">Description</span><span>' + escHtml(d.description) + '</span></div>' : '') +
           schedHtml +
@@ -978,9 +1411,9 @@
     var csrfEl = document.querySelector('input[name="csrf_token"], input[name="_csrf"]');
     var csrf = csrfEl ? csrfEl.value : '';
 
-    var primaryLink = '';
+    var primaryAction = '';
     if (d.can_set_primary) {
-      primaryLink = d.is_primary
+      primaryAction = d.is_primary
         ? '<span class="btn-soft disabled" aria-disabled="true">Primary Quiz</span>'
         : '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/set_primary" class="qdm-inline-form">' +
             '<input type="hidden" name="id" value="' + d.id + '">' +
@@ -994,29 +1427,41 @@
     var publicLink = d.public_url
       ? '<a class="btn-soft" href="' + escHtml(d.public_url) + '" target="_blank" rel="noopener">Open Registration</a>'
       : '';
-    var quizManageActions = d.can_manage_quizzes
-      ? '<a class="adam-button" href="' + baseUrl + '/?page=admin/quiz/quizzes/edit&id=' + d.id + '">Edit</a>' +
+    var quizManageActions = '';
+    if (d.can_manage_quizzes) {
+      quizManageActions = '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/quizzes/edit&id=' + d.id + '">Edit settings</a>' +
         '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/duplicate" class="qdm-inline-form">' +
           '<input type="hidden" name="id" value="' + d.id + '">' +
           '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
           '<button type="submit" class="btn-soft" data-confirm="Duplicate this Quiz? All Categories, Passages, Questions, and Answers will be copied. Attempts are not included.">Duplicate</button>' +
-        '</form>' +
-        '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/delete" class="qdm-inline-form">' +
+        '</form>';
+    }
+    if (d.can_delete) {
+      quizManageActions += '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/delete" class="qdm-inline-form">' +
           '<input type="hidden" name="id" value="' + d.id + '">' +
           '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
           '<button type="submit" class="btn-danger" data-confirm="Delete this Quiz? Its Questions and Answers will also be deleted." data-confirm-variant="danger">Delete</button>' +
-        '</form>'
-      : '';
+        '</form>';
+    }
+
+    var contentActions =
+      '<a class="adam-button qdm-action-primary" href="' + baseUrl + '/?page=admin/quiz/master&quiz_id=' + d.id + '">Master Builder</a>' +
+      '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/questions&quiz_id=' + d.id + '">Question List</a>' +
+      '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/dump&quiz_id=' + d.id + '">Quality Check</a>';
+    var accessActions = publicLink + collaboratorsLink + primaryAction;
+    var actionGroup = function(label, description, actions, modifier){
+      if (!actions) return '';
+      return '<section class="qdm-action-group ' + modifier + '">' +
+        '<div class="qdm-action-group__head"><strong>' + label + '</strong><span>' + description + '</span></div>' +
+        '<div class="qdm-action-list">' + actions + '</div>' +
+      '</section>';
+    };
 
     document.getElementById('qdm-foot').innerHTML =
       '<div class="qdm-actions">' +
-        quizManageActions +
-        publicLink +
-        '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/master&quiz_id=' + d.id + '">Master Builder</a>' +
-        '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/questions&quiz_id=' + d.id + '">Question List</a>' +
-        '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/dump&quiz_id=' + d.id + '">Quality Check</a>' +
-        collaboratorsLink +
-        primaryLink +
+        actionGroup('Content', 'Build and review Quiz material.', contentActions, 'qdm-action-group--content') +
+        actionGroup('Access', 'Open participant and ownership controls.', accessActions, 'qdm-action-group--access') +
+        actionGroup('Quiz management', 'Change, copy, or remove this Quiz.', quizManageActions, 'qdm-action-group--manage') +
       '</div>';
 
     quizDetailTrigger = btn;

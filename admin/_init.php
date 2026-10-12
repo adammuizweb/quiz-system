@@ -37,6 +37,7 @@ if (!function_exists('qz_route_permission')) {
             'admin/quiz/attempts/action_verify_manual' => 'plugin.quiz.attempts.operate',
             'admin/quiz/attempts/action_reset' => 'plugin.quiz.attempts.operate',
             'admin/quiz/attempts/action_delete' => 'plugin.quiz.attempts.delete',
+            'admin/quiz/attempts/api/response_correct' => 'plugin.quiz.attempt-responses.correct',
             'admin/quiz/quizzes' => 'plugin.quiz.workspace.access',
             'admin/quiz/questions' => 'plugin.quiz.workspace.access',
             'admin/quiz/questions/bulk' => 'plugin.quiz.workspace.access',
@@ -381,7 +382,7 @@ if (!function_exists('qz_append_sort_order')) {
 if (!function_exists('qz_lock_attempt_for_mutation')) {
     function qz_lock_attempt_for_mutation(PDO $pdo, int $attemptId, int $userId, string $permission): array {
         if (!$pdo->inTransaction()) throw new RuntimeException('Attempt mutation authorization requires a transaction.');
-        if (!in_array($permission, ['plugin.quiz.attempts.operate', 'plugin.quiz.attempts.delete'], true)
+        if (!in_array($permission, ['plugin.quiz.attempts.operate', 'plugin.quiz.attempts.delete', 'plugin.quiz.attempt-responses.correct'], true)
             || !qz_user_can($pdo, $userId, $permission)) {
             throw new RuntimeException('Quiz attempt authorization is no longer valid.');
         }
@@ -410,6 +411,7 @@ if (!function_exists('qz_admin_user')) {
             'can_export_attempts' => qz_user_can($pdo, $id, 'plugin.quiz.attempts.export'),
             'can_view_attempt_otp' => qz_user_can($pdo, $id, 'plugin.quiz.attempt-otp.view'),
             'can_view_attempt_responses' => qz_user_can($pdo, $id, 'plugin.quiz.attempt-responses.view'),
+            'can_correct_attempt_responses' => qz_user_can($pdo, $id, 'plugin.quiz.attempt-responses.correct'),
             'can_operate_attempts' => qz_user_can($pdo, $id, 'plugin.quiz.attempts.operate'),
             'can_delete_attempts' => qz_user_can($pdo, $id, 'plugin.quiz.attempts.delete'),
         ];

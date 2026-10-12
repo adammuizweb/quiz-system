@@ -65,6 +65,14 @@ function quiz_upgrade_schema(\PDO $pdo): void {
         $stmt->execute([':table_name' => $table, ':index_name' => $index]);
         return (int)$stmt->fetchColumn() > 0;
     };
+    $constraintExists = static function (string $table, string $constraint) use ($pdo): bool {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS '
+            . 'WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=:table_name AND CONSTRAINT_NAME=:constraint_name'
+        );
+        $stmt->execute([':table_name' => $table, ':constraint_name' => $constraint]);
+        return (int)$stmt->fetchColumn() > 0;
+    };
 
     $addColumn = static function (string $table, string $column, string $definition) use ($pdo, $columnExists): void {
         if (!$columnExists($table, $column)) {
@@ -174,15 +182,32 @@ function quiz_upgrade_schema(\PDO $pdo): void {
       selected_answer_id INT UNSIGNED NULL,
       answer_text LONGTEXT NULL,
       computed_score INT NOT NULL DEFAULT 0,
+      change_source ENUM('participant','admin') NOT NULL DEFAULT 'participant',
+      changed_by_user_id INT UNSIGNED NULL,
+      change_reason VARCHAR(500) NULL,
+      answered_at DATETIME NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uq_attempt_answer_revision (attempt_answer_id, revision_number),
       KEY idx_attempt_answer_revisions_attempt (attempt_id, question_id),
       KEY idx_attempt_answer_revisions_selected (selected_answer_id),
+      KEY idx_attempt_answer_revisions_actor (changed_by_user_id),
       CONSTRAINT fk_attempt_answer_revisions_answer FOREIGN KEY (attempt_answer_id) REFERENCES attempt_answers (id) ON DELETE CASCADE,
       CONSTRAINT fk_attempt_answer_revisions_attempt FOREIGN KEY (attempt_id) REFERENCES quiz_attempts (id) ON DELETE CASCADE,
       CONSTRAINT fk_attempt_answer_revisions_question FOREIGN KEY (question_id) REFERENCES questions (id) ON DELETE CASCADE,
-      CONSTRAINT fk_attempt_answer_revisions_selected FOREIGN KEY (selected_answer_id) REFERENCES question_answers (id) ON DELETE SET NULL
+      CONSTRAINT fk_attempt_answer_revisions_selected FOREIGN KEY (selected_answer_id) REFERENCES question_answers (id) ON DELETE SET NULL,
+      CONSTRAINT fk_attempt_answer_revisions_actor FOREIGN KEY (changed_by_user_id) REFERENCES users (id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $addColumn('attempt_answer_revisions', 'change_source', "ENUM('participant','admin') NOT NULL DEFAULT 'participant' AFTER computed_score");
+    $addColumn('attempt_answer_revisions', 'changed_by_user_id', 'INT UNSIGNED NULL AFTER change_source');
+    $addColumn('attempt_answer_revisions', 'change_reason', 'VARCHAR(500) NULL AFTER changed_by_user_id');
+    $addColumn('attempt_answer_revisions', 'answered_at', 'DATETIME NULL AFTER change_reason');
+    if (!$indexExists('attempt_answer_revisions', 'idx_attempt_answer_revisions_actor')) {
+        $pdo->exec('ALTER TABLE attempt_answer_revisions ADD KEY idx_attempt_answer_revisions_actor (changed_by_user_id)');
+    }
+    if (!$constraintExists('attempt_answer_revisions', 'fk_attempt_answer_revisions_actor')) {
+        $pdo->exec('ALTER TABLE attempt_answer_revisions ADD CONSTRAINT fk_attempt_answer_revisions_actor FOREIGN KEY (changed_by_user_id) REFERENCES users (id) ON DELETE SET NULL');
+    }
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS attempt_question_options (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -293,7 +318,7 @@ function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshot
 // --- Idempotent schema installation on Quiz requests ---
 function quiz_install_schema(\PDO $pdo): bool {
     try {
-        $schemaRevision = '20261012-visual-theme';
+        $schemaRevision = '20261012-answer-corrections';
         $manifest = plugin_manifest('quiz');
         $version = is_array($manifest) && is_string($manifest['version'] ?? null)
             ? $manifest['version']
@@ -339,7 +364,7 @@ function quiz_schema_is_ready(\PDO $pdo): bool {
     $version = is_array($manifest) ? (string)($manifest['version'] ?? '') : '';
     return $version !== ''
         && settings_get($pdo, 'quiz_test_version', '') === $version
-        && settings_get($pdo, 'quiz_schema_revision', '') === '20261012-visual-theme';
+        && settings_get($pdo, 'quiz_schema_revision', '') === '20261012-answer-corrections';
 }
 
 // Shared helpers are required before public routes are registered.
@@ -494,8 +519,8 @@ add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
     $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
     $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
-    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.8.3';
-    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.8.3';
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.9.0';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.9.0';
     echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
     echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });

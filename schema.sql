@@ -241,14 +241,20 @@ CREATE TABLE IF NOT EXISTS `attempt_answer_revisions` (
   `selected_answer_id` INT UNSIGNED NULL,
   `answer_text` LONGTEXT NULL,
   `computed_score` INT NOT NULL DEFAULT 0,
+  `change_source` ENUM('participant','admin') NOT NULL DEFAULT 'participant',
+  `changed_by_user_id` INT UNSIGNED NULL,
+  `change_reason` VARCHAR(500) NULL,
+  `answered_at` DATETIME NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY `uq_attempt_answer_revision` (`attempt_answer_id`, `revision_number`),
   KEY `idx_attempt_answer_revisions_attempt` (`attempt_id`, `question_id`),
   KEY `idx_attempt_answer_revisions_selected` (`selected_answer_id`),
+  KEY `idx_attempt_answer_revisions_actor` (`changed_by_user_id`),
   CONSTRAINT `fk_attempt_answer_revisions_answer` FOREIGN KEY (`attempt_answer_id`) REFERENCES `attempt_answers` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_attempt_answer_revisions_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `quiz_attempts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_attempt_answer_revisions_question` FOREIGN KEY (`question_id`) REFERENCES `questions` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_attempt_answer_revisions_selected` FOREIGN KEY (`selected_answer_id`) REFERENCES `question_answers` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_attempt_answer_revisions_selected` FOREIGN KEY (`selected_answer_id`) REFERENCES `question_answers` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_attempt_answer_revisions_actor` FOREIGN KEY (`changed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `attempt_category_scores` (

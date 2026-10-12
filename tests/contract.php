@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.8.3', 'plugin version must be 1.8.3');
+$check(($manifest['version'] ?? null) === '1.9.0', 'plugin version must be 1.9.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -88,6 +88,7 @@ $permissionPolicies = [
     'plugin.quiz.attempts.export' => [['admin'], true],
     'plugin.quiz.attempt-otp.view' => [['admin'], true],
     'plugin.quiz.attempt-responses.view' => [['admin'], false],
+    'plugin.quiz.attempt-responses.correct' => [['admin'], false],
     'plugin.quiz.attempts.operate' => [['admin'], true],
     'plugin.quiz.attempts.delete' => [['admin'], false],
     'plugin.quiz.settings.manage' => [['admin'], false],
@@ -140,6 +141,7 @@ $routePermissions += [
     'admin/quiz/attempts/action_verify_manual' => 'plugin.quiz.attempts.operate',
     'admin/quiz/attempts/action_reset' => 'plugin.quiz.attempts.operate',
     'admin/quiz/attempts/action_delete' => 'plugin.quiz.attempts.delete',
+    'admin/quiz/attempts/api/response_correct' => 'plugin.quiz.attempt-responses.correct',
 ];
 $manifestRoutePermissions = [];
 foreach (is_array($pages) ? $pages : [] as $page) {
@@ -184,6 +186,12 @@ $check(($bulkRoute['hidden'] ?? null) === true, 'bulk quiz status must be hidden
 $modeRoute = $pagesByRoute['admin/quiz/attempts/action_update_delivery_mode'] ?? [];
 $check(($modeRoute['roles'] ?? null) === ['admin'], 'delivery mode mutation must use the attempts.operate admin default');
 $check(($modeRoute['hidden'] ?? null) === true, 'delivery mode mutation must be hidden from navigation');
+$correctionRoute = $pagesByRoute['admin/quiz/attempts/api/response_correct'] ?? [];
+$check(($correctionRoute['file'] ?? null) === 'admin/student/attempts/api/response_correct.php'
+    && ($correctionRoute['roles'] ?? null) === ['admin']
+    && ($correctionRoute['hidden'] ?? null) === true
+    && ($correctionRoute['permission'] ?? null) === 'plugin.quiz.attempt-responses.correct',
+    'response correction must use its exact in-plugin file, admin role default, hidden route, and nondelegable permission');
 
 $copies = $manifest['static']['copy'] ?? [];
 $check(is_array($copies) && $copies !== [], 'manifest must declare static copies');
@@ -262,6 +270,17 @@ $check(str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_answer_r
     && str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `attempt_question_options`')
     && str_contains($schemaSource, '`source_answer_id` INT UNSIGNED NOT NULL')
     && str_contains($schemaSource, '`delivery_seq` INT UNSIGNED NOT NULL'), 'attempt audit, option snapshot, and aggregate tables must be idempotent on new installs');
+preg_match('/CREATE TABLE IF NOT EXISTS `attempt_answer_revisions` \((.*?)\n\) ENGINE=/s', $schemaSource, $revisionTableMatch);
+$revisionTableSchema = (string)($revisionTableMatch[1] ?? '');
+$check(str_contains($revisionTableSchema, "`change_source` ENUM('participant','admin') NOT NULL DEFAULT 'participant'")
+    && str_contains($revisionTableSchema, '`changed_by_user_id` INT UNSIGNED NULL')
+    && str_contains($revisionTableSchema, '`change_reason` VARCHAR(500) NULL')
+    && str_contains($revisionTableSchema, '`answered_at` DATETIME NULL'),
+    'fresh installs must retain response revision source, actor, reason, and original answered-at audit fields');
+$check(str_contains($revisionTableSchema, 'KEY `idx_attempt_answer_revisions_actor` (`changed_by_user_id`)')
+    && str_contains($revisionTableSchema, 'CONSTRAINT `fk_attempt_answer_revisions_actor`')
+    && str_contains($revisionTableSchema, 'REFERENCES `users` (`id`) ON DELETE SET NULL'),
+    'fresh installs must index revision actors and retain the nullable user audit foreign key');
 
 $pluginSource = (string)file_get_contents($pluginRoot . '/plugin.php');
 $extensionSource = (string)file_get_contents($pluginRoot . '/includes/extensions.php');
@@ -829,7 +848,9 @@ $check(str_contains($extensionSource, 'function quiz_extension_subscribe')
 $check(str_contains($pluginSource, "require_once \$extensionFile")
     && !str_contains($pluginSource, "do_action('quiz_loaded'")
     && !str_contains($pluginSource, "do_action_isolated('quiz_loaded'"), 'Quiz publishes a load-order-safe callable extension API');
-$check(str_contains($pluginSource, "\$schemaRevision = '20261012-visual-theme'"), 'the visual-theme schema revision must retain the migration gate');
+$check(str_contains($pluginSource, "\$schemaRevision = '20261012-answer-corrections'")
+    && str_contains($pluginSource, "settings_get(\$pdo, 'quiz_schema_revision', '') === '20261012-answer-corrections'"),
+    'the answer-corrections schema revision must gate both migration and frontend readiness');
 $check(str_contains($pluginSource, "'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title'")
     && str_contains($pluginSource, 'ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)'), 'existing installs must add and uniquely index the optional public prefix');
 $check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid && str_contains($pluginSource, "'{$column}', 'TINYINT(1) NULL"), true),
@@ -841,6 +862,17 @@ $check(str_contains($pluginSource, "'shuffle_answers', 'TINYINT(1) NOT NULL DEFA
     && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_answer_revisions') === 1
     && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_category_scores') === 1
     && substr_count($pluginSource, 'CREATE TABLE IF NOT EXISTS attempt_question_options') === 1, 'MySQL upgrade source must be additive and idempotent');
+$check(str_contains($pluginSource, "\$addColumn('attempt_answer_revisions', 'change_source'")
+    && str_contains($pluginSource, "\$addColumn('attempt_answer_revisions', 'changed_by_user_id'")
+    && str_contains($pluginSource, "\$addColumn('attempt_answer_revisions', 'change_reason'")
+    && str_contains($pluginSource, "\$addColumn('attempt_answer_revisions', 'answered_at'"),
+    'existing installs must add every response-correction audit field idempotently');
+$check(str_contains($pluginSource, 'information_schema.TABLE_CONSTRAINTS')
+    && str_contains($pluginSource, "if (!\$indexExists('attempt_answer_revisions', 'idx_attempt_answer_revisions_actor'))")
+    && str_contains($pluginSource, 'ADD KEY idx_attempt_answer_revisions_actor (changed_by_user_id)')
+    && str_contains($pluginSource, "if (!\$constraintExists('attempt_answer_revisions', 'fk_attempt_answer_revisions_actor'))")
+    && str_contains($pluginSource, 'ADD CONSTRAINT fk_attempt_answer_revisions_actor FOREIGN KEY (changed_by_user_id) REFERENCES users (id) ON DELETE SET NULL'),
+    'response-correction upgrade must independently check and add the actor index and foreign key');
 $check(str_contains($pluginSource, "'question_categories' => 'idx_question_categories_owner'")
     && str_contains($pluginSource, "'question_passages' => 'idx_question_passages_owner'")
     && str_contains($pluginSource, "'questions' => 'idx_questions_owner'"), 'migration must cover every owned question-bank table');
@@ -1013,7 +1045,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1063,7 +1095,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1083,14 +1115,14 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.3'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.9.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
 if ($pdo->executions !== 2) exit(23);
 unset($GLOBALS['contract_settings']['quiz_schema_revision']);
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
+if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions !== 2) exit(24);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1107,7 +1139,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1199,7 +1231,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.3']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1227,8 +1259,8 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.3'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-visual-theme'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.9.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationGateScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1365,6 +1397,7 @@ $timerHelper = (string)file_get_contents($pluginRoot . '/public/api/_timer_helpe
 $saveAnswerSource = (string)file_get_contents($pluginRoot . '/public/api/save_answer.php');
 $submitSource = (string)file_get_contents($pluginRoot . '/public/api/submit.php');
 $reviewSource = (string)file_get_contents($pluginRoot . '/public/api/set_review.php');
+$responseCorrectionSource = (string)file_get_contents($pluginRoot . '/admin/student/attempts/api/response_correct.php');
 $resultSource = (string)file_get_contents($pluginRoot . '/public/result/index.php');
 $publicLayoutSource = (string)file_get_contents($pluginRoot . '/public/layout.php');
 $publicStyleSource = (string)file_get_contents($pluginRoot . '/public/style.css');
@@ -1477,18 +1510,38 @@ $check(str_contains($saveAnswerSource, '$pdo->beginTransaction()') && str_contai
     && str_contains($saveAnswerSource, 'attempt_answer_revisions') && str_contains($saveAnswerSource, 'if (!$same)'), 'answer saves must lock, revise material changes, and ignore identical retries');
 $check(str_contains($submitSource, 'quiz_finalize_attempt($pdo, $attempt_id)')
     && str_contains($timerHelper, 'quiz_finalize_attempt($pdo, $attempt_id)'), 'explicit and timer submission must share one finalizer');
-$finalizerSource = substr($helperSource, (int)strpos($helperSource, 'function quiz_finalize_attempt'));
+$normalizerStart = (int)strpos($helperSource, 'function quiz_normalize_attempt_response');
+$normalizerEnd = (int)strpos($helperSource, 'function quiz_attempt_result_is_ready', $normalizerStart);
+$responseNormalizerSource = substr($helperSource, $normalizerStart, $normalizerEnd - $normalizerStart);
+$check(str_contains($responseNormalizerSource, 'is_int($rawSelectedSourceId)')
+    && str_contains($responseNormalizerSource, 'is_string($rawSelectedSourceId) && ctype_digit($rawSelectedSourceId)')
+    && str_contains($responseNormalizerSource, 'is_int($rawId) || is_string($rawId) && ctype_digit($rawId)')
+    && str_contains($responseNormalizerSource, '!array_is_list($rawIds)')
+    && str_contains($responseNormalizerSource, "!is_string(\$input['answer_text'])")
+    && str_contains($responseNormalizerSource, "\$questionType === 'number'")
+    && str_contains($responseNormalizerSource, "InvalidArgumentException('Invalid number response')"),
+    'response normalization must reject malformed JSON types and nonnumeric number responses instead of coercing them');
+$aggregateStart = (int)strpos($helperSource, 'function quiz_rebuild_attempt_aggregates');
+$aggregateEnd = (int)strpos($helperSource, 'function quiz_finalize_attempt', $aggregateStart);
+$aggregateSource = substr($helperSource, $aggregateStart, $aggregateEnd - $aggregateStart);
+$finalizerStart = $aggregateEnd;
+$finalizerEnd = (int)strpos($helperSource, 'function quiz_available_quizzes', $finalizerStart);
+$finalizerSource = substr($helperSource, $finalizerStart, $finalizerEnd - $finalizerStart);
 $check(str_contains($helperSource, 'function quiz_snapshot_attempt_questions')
-    && str_contains($finalizerSource, 'available_score_snapshot')
-    && !str_contains($finalizerSource, 'FROM question_answers'), 'finalization denominator and category grouping must use immutable assignment snapshots, not the mutable answer bank');
-$categoryValidationPosition = strpos($finalizerSource, 'SELECT id FROM question_categories');
-$categoryInsertPosition = strpos($finalizerSource, 'INSERT INTO attempt_category_scores');
+    && str_contains($aggregateSource, 'available_score_snapshot')
+    && str_contains($aggregateSource, 'category_key_snapshot')
+    && str_contains($aggregateSource, 'category_name_snapshot')
+    && !str_contains($aggregateSource, 'FROM question_answers'),
+    'aggregate rebuilding must derive immutable category grouping and denominator values from assignment snapshots');
+$categoryValidationPosition = strpos($aggregateSource, 'SELECT id FROM question_categories');
+$categoryInsertPosition = strpos($aggregateSource, 'INSERT INTO attempt_category_scores');
 $check($categoryValidationPosition !== false && $categoryInsertPosition !== false
     && $categoryValidationPosition < $categoryInsertPosition
-    && str_contains($finalizerSource, 'WHERE quiz_id=? AND id IN ($placeholders) FOR UPDATE')
-    && str_contains($finalizerSource, '$categoryId = isset($validCategoryIds[$categoryId]) ? $categoryId : 0;')
-    && str_contains($finalizerSource, "\$key = trim((string)(\$row['category_key_snapshot']")
-    && str_contains($finalizerSource, "\$categoryName = trim((string)(\$row['category_name_snapshot']"), 'finalization must bulk-check snapshot category IDs in the attempt quiz, null stale IDs, and retain immutable key/name aggregation');
+    && str_contains($aggregateSource, 'WHERE quiz_id=? AND id IN ($placeholders) FOR UPDATE')
+    && str_contains($aggregateSource, '$categoryId = isset($validCategoryIds[$categoryId]) ? $categoryId : 0;')
+    && str_contains($aggregateSource, "\$key = trim((string)(\$row['category_key_snapshot']")
+    && str_contains($aggregateSource, "\$categoryName = trim((string)(\$row['category_name_snapshot']"),
+    'aggregate rebuilding must validate snapshot category foreign keys while retaining immutable category keys and names');
 $getQuestionSource = (string)file_get_contents($pluginRoot . '/public/api/get_question.php');
 $check(str_contains($helperSource, 'INSERT INTO attempt_question_options')
     && str_contains($helperSource, 'source_answer_id')
@@ -1511,10 +1564,12 @@ $check(!preg_match('/UPDATE\s+(?:quiz_attempts|attempt_answers|questions|quizzes
     && !str_contains($snapshotHelperSource, 'SET seq='), 'snapshot capture must not change attempt state, scores, answers, assignment order, bank content, settings, or identity');
 $check(str_contains($getQuestionSource, 'FROM attempt_question_options')
     && !str_contains($getQuestionSource, 'FROM question_answers')
-    && substr_count($saveAnswerSource, 'attempt_question_options') >= 2
-    && str_contains($saveAnswerSource, 'SELECT score FROM attempt_question_options')
+    && str_contains($responseNormalizerSource, 'SELECT source_answer_id, answer_text, score FROM attempt_question_options')
+    && str_contains($responseNormalizerSource, 'ORDER BY delivery_seq ASC, id ASC FOR UPDATE')
     && !str_contains($saveAnswerSource, 'SELECT score FROM question_answers'), 'participant rendering, validation, and scoring must use snapshotted options exclusively');
-$check(str_contains($saveAnswerSource, '$answerText = (string)$selectedSourceId')
+$check(str_contains($responseNormalizerSource, 'SELECT id FROM question_answers')
+    && str_contains($responseNormalizerSource, 'if ($liveOption->fetchColumn() !== false)')
+    && str_contains($responseNormalizerSource, '$answerText = (string)$selectedSourceId')
     && str_contains($getQuestionSource, 'FILTER_VALIDATE_INT')
     && str_contains($attemptViewSource, 'FILTER_VALIDATE_INT'), 'deleted but snapshotted single-choice options must remain selectable and readable without violating legacy foreign keys');
 $check(str_contains($getQuestionSource, "\$deliverySnapshot = json_decode")
@@ -1598,11 +1653,11 @@ $check(str_contains($pickerSource, 'sort_order ASC') && str_contains($pickerSour
     && str_contains($takePreparationSource, "DELETE FROM attempt_questions WHERE attempt_id = :aid"),
     'new and unsnapshotted packages must rebuild through category order and strict category caps');
 $finalizerReadinessPosition = strpos($finalizerSource, 'quiz_attempt_package_is_complete($pdo, $attemptId)');
-$finalizerRowsPosition = strpos($finalizerSource, 'FROM attempt_questions aq');
-$check($finalizerReadinessPosition !== false && $finalizerRowsPosition !== false
-    && $finalizerReadinessPosition < $finalizerRowsPosition
+$finalizerRebuildPosition = strpos($finalizerSource, 'quiz_rebuild_attempt_aggregates($pdo, $attemptId');
+$check($finalizerReadinessPosition !== false && $finalizerRebuildPosition !== false
+    && $finalizerReadinessPosition < $finalizerRebuildPosition
     && !str_contains($finalizerSource, 'quiz_snapshot_attempt_questions('),
-    'attempt finalization must require a complete package and never create its first snapshot implicitly');
+    'attempt finalization must require a complete package, then rebuild aggregates without creating snapshots');
 foreach ([
     'get question' => [$getQuestionSource, 'qz_timer_enforce('],
     'save answer' => [$saveAnswerSource, 'qz_timer_enforce('],
@@ -1653,13 +1708,14 @@ $attemptLockPosition = strpos($saveAnswerSource, '$attemptStmt');
 $packageCheckPosition = strpos($saveAnswerSource, 'quiz_attempt_package_is_complete(');
 $assignedLockPosition = strpos($saveAnswerSource, '$questionStmt');
 $deliveryReadPosition = strpos($saveAnswerSource, '$delivery = json_decode');
-$optionLockPosition = strpos($saveAnswerSource, 'FROM attempt_question_options');
+$normalizerCallPosition = strpos($saveAnswerSource, 'quiz_normalize_attempt_response(');
 $check($attemptLockPosition !== false && $packageCheckPosition !== false && $assignedLockPosition !== false
-    && $deliveryReadPosition !== false && $optionLockPosition !== false
+    && $deliveryReadPosition !== false && $normalizerCallPosition !== false
     && $attemptLockPosition < $packageCheckPosition && $packageCheckPosition < $assignedLockPosition
-    && $assignedLockPosition < $deliveryReadPosition && $deliveryReadPosition < $optionLockPosition
+    && $assignedLockPosition < $deliveryReadPosition && $deliveryReadPosition < $normalizerCallPosition
     && !str_contains($saveAnswerSource, '$questionDefinitionStmt')
-    && substr_count($saveAnswerSource, 'FOR UPDATE') >= 4, 'answer save must lock auth, require package readiness, then use locked delivery and option snapshots in order');
+    && substr_count($saveAnswerSource, 'quiz_normalize_attempt_response(') === 1,
+    'answer save must lock the attempt, require its package, lock the assignment, read delivery, then call the shared normalizer once');
 $check(str_contains($submitSource, 'quiz_participant_submit_payload')
     && !str_contains($submitSource, "'total_score' =>")
     && !str_contains($submitSource, "'elapsed_seconds' =>"), 'submit endpoint must not serialize score or elapsed fields directly');
@@ -1687,6 +1743,7 @@ $check(str_contains($readmeSource, 'Delivery Snapshots')
 
 $adminCss = (string)file_get_contents($pluginRoot . '/assets/admin.css');
 $adminJs = (string)file_get_contents($pluginRoot . '/assets/admin.js');
+$coreDashboardCss = (string)file_get_contents($coreRoot . '/public/static/dashboard/css/style.css');
 $check(!preg_match('/(^|})\s*\.adam-button\s*\{/m', $adminCss), 'Quiz CSS must not override the Core adam-button component');
 $check(!preg_match('/(^|})\s*\.adam-card(?:\s|\{|,)/m', $adminCss), 'Quiz CSS must not globally override the Core adam-card component');
 $check(!preg_match('/(^|})\s*\.adam-input(?:\s|\{|:)/m', $adminCss), 'Quiz CSS must not globally override the Core adam-input component');
@@ -1736,16 +1793,28 @@ $check(str_contains($attemptIndex, 'qz-resultbar')
     && str_contains($attemptIndex, 'qz-attempt-table')
     && str_contains($attemptIndex, 'class="qz-pagination"')
     && str_contains($adminCss, '.qz-attempt-table [data-column][hidden]'), 'Attempt column controls must use the shared result, table, and pagination presentation');
+$check(str_contains($adminCss, '.qz-attempt-table tbody tr:hover td:last-child:not(.qz-empty-cell)')
+    && str_contains($adminCss, 'background:color-mix(in srgb,var(--qz-panel) 95.5%,#5b5df0)'),
+    'sticky mobile action cells must retain the same hover tint as the rest of their row');
 $check(str_contains($attemptIndex, 'title="The participant selects the delivery mode."')
     && str_contains($attemptIndex, 'title="The method recorded after the Attempt is Verified. This does not prove that an OTP was sent or received."'), 'Attempt Mode and Verification headers must explain the limits of participant-provided metadata');
 $check(str_contains($attemptIndex, 'class="qz-attempt-student-cell"')
     && str_contains($attemptIndex, 'class="qz-attempt-student__contact"')
     && str_contains($attemptIndex, 'class="qz-attempt-student__ids"')
     && str_contains($adminCss, '.qz-attempt-student__ids span:first-child code'), 'Attempt identity must separate contact details and emphasize the test number');
-$check(str_contains($attemptIndex, 'class="adam-button ghost qz-attempt-detail"')
-    && str_contains($attemptIndex, 'class="qz-action-menu qz-action-menu--compact"')
-    && str_contains($attemptIndex, 'qz-action-menu__item--danger')
-    && str_contains($attemptIndex, 'data-confirm-variant="danger"'), 'Attempt detail must stay visible while destructive deletion uses the accessible overflow menu');
+$check(str_contains($attemptIndex, 'class="user-actions" data-qz-action-menu')
+    && str_contains($attemptIndex, 'class="user-actions-toggle"')
+    && str_contains($attemptIndex, 'data-qz-action-toggle aria-haspopup="menu"')
+    && str_contains($attemptIndex, 'class="user-actions-menu"')
+    && str_contains($attemptIndex, 'data-qz-action-panel role="menu"')
+    && str_contains($attemptIndex, 'role="menuitem" data-qz-action-item')
+    && str_contains($attemptIndex, '>View Details</span></a>')
+    && str_contains($attemptIndex, "svg_ico('eye')")
+    && str_contains($attemptIndex, "svg_ico('trash-2')")
+    && str_contains($attemptIndex, 'role="menuitem" class="is-danger" data-qz-action-item')
+    && str_contains($attemptIndex, 'data-confirm-variant="danger"')
+    && !str_contains($attemptIndex, 'class="adam-button ghost qz-attempt-detail"'),
+    'Attempt detail and permission-gated deletion must share the accessible Core overflow menu');
 $check(str_contains($attemptMonitoring, "'started_at' => 'a.started_at'")
     && str_contains($attemptMonitoring, "'submitted_at' => 'a.submitted_at'")
     && str_contains($attemptIndex, "\$todayUrl('started_at')")
@@ -1817,9 +1886,100 @@ foreach (['selected_answer_id', 'answer_text', 'question_text', 'computed_score'
     $check(!str_contains($attemptExport, $responseColumn) && !str_contains($attemptExportHelper, $responseColumn), "attempt exports must exclude response field {$responseColumn}");
 }
 $check(str_contains($attemptView, "if (\$user['can_view_attempt_responses'])")
+    && str_contains($attemptView, "\$user['can_correct_attempt_responses']")
     && str_contains($attemptView, "\$user['can_view_attempt_otp']")
     && str_contains($attemptView, "\$user['can_operate_attempts']")
-    && str_contains($attemptView, "\$user['can_delete_attempts']"), 'attempt detail must independently gate responses, OTP, operations, and deletion');
+    && str_contains($attemptView, "\$user['can_delete_attempts']"),
+    'attempt detail must independently gate response viewing, response correction, OTP, operations, and deletion');
+$check(str_contains($attemptView, 'class="qz-support-link-row"')
+    && str_contains($attemptView, 'qz-section qz-delivery-mode-form')
+    && str_contains($attemptView, 'qz-form-grid qz-attempt-reset-form')
+    && str_contains($attemptView, 'qz-form-actions qz-attempt-delete-form')
+    && substr_count($attemptView, 'btn-danger qz-danger-action') === 2
+    && str_contains($adminCss, '.qz-shell .qz-detail-note{margin:0 22px 22px}')
+    && str_contains($adminCss, '.qz-shell .qz-attempt-timeline{padding:14px 22px 18px 50px}')
+    && str_contains($adminCss, '.qz-shell .qz-support-link-row{display:grid;grid-template-columns:minmax(0,1fr) auto;')
+    && str_contains($adminCss, '.qz-shell .qz-delivery-mode-form{display:grid;gap:12px}')
+    && str_contains($adminCss, '.qz-shell .qz-attempt-reset-form>.qz-danger-action{justify-self:end}')
+    && str_contains($adminCss, '.qz-shell .qz-attempt-delete-form{justify-content:center}'),
+    'attempt detail must keep content spacing, compact destructive actions, and an efficient inline support-link control');
+$check(str_contains($attemptView, 'class="qz-section qz-attempt-responses"')
+    && strpos($attemptView, 'class="panel qz-section qz-attempt-operations"') < strpos($attemptView, 'class="qz-section qz-attempt-responses"')
+    && str_contains($adminCss, '.qz-shell .qz-detail-layout>.qz-attempt-responses{grid-column:1;grid-row:2;')
+    && str_contains($adminCss, '.qz-shell .qz-attempt-timeline.qz-section__body{padding:14px 18px 18px 46px}')
+    && str_contains($adminCss, '.qz-attempt-detail-page .qz-attempt-action-stack{width:100%;min-width:0;max-width:100%;box-sizing:border-box}'),
+    'attempt detail mobile layout must contain every panel, keep timeline markers inset, and place Admin actions before Student Answers');
+$check(str_contains($attemptView, "\$canCorrectResponses = \$user['can_view_attempt_responses']")
+    && str_contains($attemptView, "&& \$user['can_correct_attempt_responses']")
+    && str_contains($attemptView, "if (\$user['can_view_attempt_responses'])")
+    && substr_count($attemptView, 'if ($canCorrectResponses)') >= 2,
+    'submitted response correction UI and payloads must require both response-view and response-correct capabilities');
+$correctionPayloadStart = (int)strpos($attemptView, '$correctionPayload =');
+$correctionPayloadEnd = (int)strpos($attemptView, 'function status_badge', $correctionPayloadStart);
+$correctionPayloadSource = substr($attemptView, $correctionPayloadStart, $correctionPayloadEnd - $correctionPayloadStart);
+$check(str_contains($attemptView, 'FROM attempt_question_options')
+    && str_contains($correctionPayloadSource, 'if ($canCorrectResponses)')
+    && str_contains($correctionPayloadSource, "'options' => \$snapshotOptions[\$questionId] ?? []")
+    && substr_count($attemptView, "'score' => (int)\$option['score']") === 1
+    && preg_match('/<\?php if \(\$canCorrectResponses\): \?>\s*<div id="qz-response-correction-modal"/s', $attemptView) === 1
+    && str_contains($attemptView, 'json_encode($correctionPayload, JSON_HEX_TAG'),
+    'immutable option scores must appear only in the correction payload rendered for fully authorized staff');
+$check(str_contains($attemptView, 'Prior saved versions')
+    && str_contains($attemptView, "\$isAdminRevision ? 'Before administrative correction' : 'Before participant change'")
+    && str_contains($attemptView, "(string)(\$revision['change_source'] ?? 'participant') === 'admin'")
+    && str_contains($attemptView, "if (\$isAdminRevision && trim((string)(\$revision['change_reason'] ?? '')) !== '')")
+    && str_contains($attemptView, '<strong>Reason:</strong>'),
+    'response history must use neutral prior-version wording and accurately identify source, actor, and administrative reason');
+$check(str_contains($attemptView, 'role="dialog" aria-modal="true"')
+    && str_contains($attemptView, 'aria-labelledby="qz-correction-title"')
+    && str_contains($attemptView, 'aria-describedby="qz-correction-description"')
+    && str_contains($attemptView, 'data-qz-correction-dialog tabindex="-1"')
+    && str_contains($attemptView, 'data-qz-correction-message role="alert"')
+    && str_contains($attemptView, 'data-qz-correction-status role="status" aria-live="polite"'),
+    'response correction modal must expose complete dialog, error, and live-status ARIA semantics');
+$correctionJsStart = (int)strpos($adminJs, '/* ===== Submitted response correction ===== */');
+$correctionJsEnd = (int)strpos($adminJs, '/* ===== Quiz Detail Modal ===== */', $correctionJsStart);
+$correctionJsSource = substr($adminJs, $correctionJsStart, $correctionJsEnd - $correctionJsStart);
+$check(str_contains($attemptView, 'Answer key from attempt snapshot')
+    && str_contains($correctionJsSource, 'function renderCorrectionKey(')
+    && str_contains($correctionJsSource, "var score = Number(option.score) || 0;")
+    && str_contains($correctionJsSource, "score > 0 ? 'Answer key")
+    && str_contains($correctionJsSource, "'No objective answer key is stored for this response type."),
+    'correction review must render the immutable objective answer key and an accurate neutral state for free responses');
+$check(str_contains($attemptView, 'page=admin/quiz/attempts/api/response_correct&amp;action=quiz_api')
+    && str_contains($correctionJsSource, "fetch(form.getAttribute('data-endpoint') || '', {")
+    && str_contains($correctionJsSource, "method: 'POST'")
+    && str_contains($correctionJsSource, 'function updateCorrectionView(')
+    && str_contains($correctionJsSource, "row.querySelector('[data-qz-response-answer]')")
+    && str_contains($correctionJsSource, "row.querySelector('[data-qz-response-score]')")
+    && str_contains($correctionJsSource, "document.querySelector('[data-qz-total-score]')")
+    && str_contains($correctionJsSource, "document.querySelector('[data-qz-answered-count]')")
+    && str_contains($correctionJsSource, 'appendCorrectionHistory(')
+    && str_contains($correctionJsSource, 'question.revision_count = Number(data.revision_count')
+    && !str_contains($correctionJsSource, 'location.reload'),
+    'correction AJAX must update answer, score, totals, answered count, and revision history without reloading');
+$check(str_contains($correctionJsSource, "if (event.key === 'Escape')")
+    && str_contains($correctionJsSource, "if (event.key !== 'Tab') return;")
+    && str_contains($correctionJsSource, 'document.documentElement.style.overflow =')
+    && str_contains($correctionJsSource, "document.body.style.overflow = 'hidden'")
+    && str_contains($correctionJsSource, 'unlockCorrectionScroll(modal)')
+    && str_contains($correctionJsSource, 'modal._qzCorrectionTrigger = button')
+    && str_contains($correctionJsSource, 'trigger.focus()')
+    && str_contains($correctionJsSource, 'last.focus()')
+    && str_contains($correctionJsSource, 'first.focus()'),
+    'correction modal must trap focus, close on Escape, lock and restore scrolling, and restore trigger focus');
+$check(str_contains($correctionJsSource, 'window.NewNotifConfirm.warning')
+    && str_contains($correctionJsSource, "title: 'Apply administrative correction?'")
+    && str_contains($correctionJsSource, 'window.NewNotifToast.show')
+    && str_contains($correctionJsSource, "title:data.changed === false ? 'No change needed' : 'Correction saved'"),
+    'response correction must use Core confirmation and toast components for consequential feedback');
+$check(str_contains($adminCss, '#adam-main .qz-correction-modal{')
+    && str_contains($adminCss, '#adam-main .qz-correction-key__item.is-positive{')
+    && str_contains($adminCss, 'html.theme-dark #adam-main .qz-correction-modal__dialog{')
+    && str_contains($adminCss, 'html.theme-dark #adam-main .qz-correction-key__item.is-positive{')
+    && str_contains($adminCss, '@media(max-width:760px)')
+    && str_contains($adminCss, '#adam-main .qz-correction-modal__dialog{width:100%;max-height:calc(100dvh - 12px);'),
+    'response correction styles must stay #adam-main-scoped with responsive and dark-mode treatments');
 
 $dashboardIndex = (string)file_get_contents($pluginRoot . '/admin/index.php');
 $check(str_contains($dashboardIndex, "\$canViewAttempts = \$user['can_view_attempts']"), 'dashboard must evaluate attempts.view independently');
@@ -1830,6 +1990,33 @@ $check(str_contains($dashboardIndex, 'if ($canManageStudents):') && str_contains
 $masterIndex = (string)file_get_contents($pluginRoot . '/admin/master/index.php');
 $quizIndex = (string)file_get_contents($pluginRoot . '/admin/quizzes/index.php');
 $check(str_contains($quizIndex, ' · {$oemail}') && !str_contains($quizIndex, '&middot;'), 'quiz owner separator must render as text instead of an escaped HTML entity');
+$check(str_contains($quizIndex, 'q.visual_theme_override')
+    && str_contains($quizIndex, 'class="qz-row-theme" data-theme=')
+    && str_contains($quizIndex, "'visual_theme_source' => \$visualThemeSource")
+    && str_contains($adminCss, '.qz-quiz-list-page .qz-row-theme[data-theme="navy"]'),
+    'quiz list rows must expose the effective allowlisted visual theme and whether it is global or overridden');
+$check(substr_count($quizIndex, 'qz-table-cell-stack') === 4
+    && str_contains($quizIndex, 'qz-quiz-questions-cell')
+    && str_contains($quizIndex, 'qz-quiz-status-cell')
+    && str_contains($adminCss, '.qz-quiz-list-page .qz-table-cell-stack{display:flex;align-items:center;gap:7px 9px;flex-wrap:wrap}'),
+    'quiz Questions and Status cells must use dedicated wrapping stacks with explicit spacing');
+$check(str_contains($quizIndex, "'can_delete' => \$canDelete")
+    && str_contains($adminJs, 'if (d.can_delete)')
+    && str_contains($adminJs, "actionGroup('Content'")
+    && str_contains($adminJs, "actionGroup('Access'")
+    && str_contains($adminJs, "actionGroup('Quiz management'")
+    && !str_contains($adminJs, 'data-qdm-close')
+    && str_contains($adminCss, '#quizDetailModal .qdm-action-group{'),
+    'Quiz details must group actions by purpose, avoid a redundant footer close, and expose Delete only to owner-or-manage-any actors');
+$check(str_contains($adminCss, '#quizDetailModal{')
+    && str_contains($adminCss, 'align-items:flex-end;')
+    && str_contains($adminCss, 'max-height:calc(100dvh - 12px);')
+    && str_contains($adminCss, 'border-radius:22px 22px 0 0;')
+    && str_contains($adminCss, '.modal-head{')
+    && str_contains($adminCss, 'position:sticky;')
+    && str_contains($adminCss, '.qdm-action-list>*{min-width:0;margin:0}')
+    && str_contains($adminCss, 'white-space:normal;overflow-wrap:anywhere}'),
+    'Quiz detail modal must become one scrollable, safe-area-aware bottom sheet with wrapping actions on mobile');
 foreach (['master selector' => $masterIndex, 'quiz list' => $quizIndex] as $label => $source) {
     $check(str_contains($source, 'SELECT COUNT(*)') && str_contains($source, 'OFFSET {$offset}'), "{$label} must use filtered server pagination");
     $check(str_contains($source, 'data-bulk-form') && str_contains($source, 'data-bulk-item'), "{$label} must expose current-page bulk selection");
@@ -1854,9 +2041,30 @@ $check(str_contains($studentIndex, 'data-student-column-picker')
     && str_contains($adminCss, '.qz-student-table tbody tr'), 'Student columns must persist and collapse into responsive cards');
 $check(str_contains($studentIndex, 'qz-editor-page qz-student-editor')
     && str_contains($studentIndex, 'qz-student-form-grid qz-form-grid'), 'Student add and edit forms must use the shared Quiz editor presentation');
-$check(str_contains($studentIndex, 'qz-action-menu__toggle') && str_contains($studentIndex, 'aria-expanded="false"'), 'student actions must use an accessible disclosure control');
+$check(str_contains($studentIndex, 'class="user-actions" data-qz-action-menu')
+    && str_contains($studentIndex, 'class="user-actions-toggle"')
+    && str_contains($studentIndex, 'data-qz-action-toggle')
+    && str_contains($studentIndex, 'aria-haspopup="menu"')
+    && str_contains($studentIndex, 'aria-expanded="false"')
+    && str_contains($studentIndex, '<circle cx="5" cy="12" r="1.8"/>')
+    && str_contains($studentIndex, 'class="user-actions-menu"')
+    && str_contains($studentIndex, 'data-qz-action-panel role="menu"')
+    && str_contains($studentIndex, 'role="menuitem" data-qz-action-item')
+    && !str_contains($studentIndex, '&#8942;')
+    && str_contains($studentIndex, "svg_ico('pen')")
+    && str_contains($studentIndex, "svg_ico('clipboard-list')")
+    && str_contains($studentIndex, "svg_ico('eye')")
+    && str_contains($studentIndex, "svg_ico('trash-2')")
+    && str_contains($adminJs, "var actionToggleSelector = '.qz-action-menu__toggle, [data-qz-action-toggle]';")
+    && str_contains($adminJs, "var actionPanelSelector = '.qz-action-menu__panel, [data-qz-action-panel]';")
+    && str_contains($adminCss, '.qz-action-layer>.user-actions-menu{pointer-events:auto}')
+    && str_contains($coreDashboardCss, '.user-actions-toggle{')
+    && str_contains($coreDashboardCss, '.user-actions-menu{'),
+    'student actions must reuse the accessible Core Users overflow presentation while retaining Quiz portal and keyboard handling');
 $check(!str_contains($studentIndex, 'class="actions qz-row-actions"'), 'student action cells must not inherit the Core flex actions utility');
-$check(str_contains($studentIndex, 'qz-action-menu__item--danger') && str_contains($studentIndex, 'data-confirm-variant="danger"'), 'student delete must retain the destructive confirmation inside the dropdown');
+$check(str_contains($studentIndex, 'role="menuitem" class="is-danger"')
+    && str_contains($studentIndex, 'data-confirm-variant="danger"'),
+    'student delete must retain the Core destructive menu treatment and confirmation inside the dropdown');
 $check(str_contains($studentIndex, 'admin/quiz/attempts/view&attempt_id='), 'student last-attempt fallback must target the detail route');
 $masterBuilder = (string)file_get_contents($pluginRoot . '/admin/master/main.php');
 $check(str_contains($masterBuilder, "\$_GET['return']") && str_contains($masterBuilder, "admin/quiz/master'"), 'Master Builder return navigation must preserve validated list state');
@@ -1912,8 +2120,9 @@ $check(str_contains($initSource, "\$GLOBALS['_plugin_current_route']") && str_co
 $check(str_contains($initSource, "plugin.quiz.content.manage-any") && !str_contains($initSource, "role === 'admin'"), 'cross-owner elevation uses only the explicit manage-any permission');
 $check(str_contains($initSource, 'qz_require_workspace_mutation_access') && str_contains($initSource, "user_can(\$pdo, \$userId, 'plugin.quiz.workspace.access')"), 'mutation workspace reauthorization must fail closed through Core user_can');
 $check(str_contains($initSource, 'qz_lock_quiz_for_owner_mutation') && str_contains($initSource, 'Only the quiz owner may perform this action.'), 'owner-level destructive actions remain unavailable to collaborators');
-$check(str_contains($initSource, "['plugin.quiz.attempts.operate', 'plugin.quiz.attempts.delete']")
-    && str_contains($initSource, 'qz_user_can($pdo, $userId, $permission)'), 'attempt mutations must reauthorize only operate or delete inside the transaction');
+$check(str_contains($initSource, "['plugin.quiz.attempts.operate', 'plugin.quiz.attempts.delete', 'plugin.quiz.attempt-responses.correct']")
+    && str_contains($initSource, 'qz_user_can($pdo, $userId, $permission)'),
+    'attempt mutations must explicitly allowlist and transactionally reauthorize operate, delete, or response correction');
 $capabilityMap = [
     'can_manage_any' => 'plugin.quiz.content.manage-any',
     'can_manage_quizzes' => 'plugin.quiz.quizzes.manage',
@@ -1921,6 +2130,7 @@ $capabilityMap = [
     'can_export_attempts' => 'plugin.quiz.attempts.export',
     'can_view_attempt_otp' => 'plugin.quiz.attempt-otp.view',
     'can_view_attempt_responses' => 'plugin.quiz.attempt-responses.view',
+    'can_correct_attempt_responses' => 'plugin.quiz.attempt-responses.correct',
     'can_operate_attempts' => 'plugin.quiz.attempts.operate',
     'can_delete_attempts' => 'plugin.quiz.attempts.delete',
 ];
@@ -2028,6 +2238,7 @@ $sensitiveGuards = [
     'admin/student/attempts/action_verify_manual.php' => 'plugin.quiz.attempts.operate',
     'admin/student/attempts/action_reset.php' => 'plugin.quiz.attempts.operate',
     'admin/student/attempts/action_delete.php' => 'plugin.quiz.attempts.delete',
+    'admin/student/attempts/api/response_correct.php' => 'plugin.quiz.attempt-responses.correct',
     'admin/master/api/_init.php' => 'plugin.quiz.workspace.access',
 ];
 foreach ($sensitiveGuards as $relative => $permission) {
@@ -2051,6 +2262,86 @@ foreach ($attemptActionGuards as $file => $permission) {
     $check($transactionPosition !== false && $lockPosition !== false && $permissionPosition !== false
         && $transactionPosition < $lockPosition, "{$file} must lock and reauthorize with exactly {$permission} inside its transaction");
 }
+$correctionTransactionPosition = strpos($responseCorrectionSource, '$pdo->beginTransaction()');
+$correctionLockPosition = strpos($responseCorrectionSource, 'qz_lock_attempt_for_mutation(');
+$correctionPermissionPosition = strpos($responseCorrectionSource, "'plugin.quiz.attempt-responses.correct'", $correctionLockPosition === false ? 0 : $correctionLockPosition);
+$check(str_contains($responseCorrectionSource, "REQUEST_METHOD'] ?? '') !== 'POST'")
+    && str_contains($responseCorrectionSource, "\$contentType !== 'application/json'")
+    && str_contains($responseCorrectionSource, 'JSON_THROW_ON_ERROR')
+    && str_contains($responseCorrectionSource, 'hash_equals(csrf_token(), $csrf)'),
+    'response correction must accept only POST JSON with strict decoding and CSRF validation');
+$check($correctionTransactionPosition !== false && $correctionLockPosition !== false && $correctionPermissionPosition !== false
+    && $correctionTransactionPosition < $correctionLockPosition
+    && $correctionLockPosition < $correctionPermissionPosition,
+    'response correction must start its transaction before locking and reauthorizing with the exact correction permission');
+$check(str_contains($responseCorrectionSource, "(string)(\$attempt['status'] ?? '') !== 'submitted'")
+    && str_contains($responseCorrectionSource, "empty(\$attempt['submitted_at'])")
+    && str_contains($responseCorrectionSource, 'quiz_attempt_package_is_complete($pdo, $attemptId)')
+    && str_contains($helperSource, 'function quiz_attempt_snapshots_predate_submission(')
+    && str_contains($helperSource, 'GREATEST(snapshot_at, options_snapshotted_at, delivery_snapshotted_at)>=:submitted_at')
+    && str_contains($responseCorrectionSource, 'quiz_attempt_snapshots_predate_submission($pdo, $attemptId')
+    && str_contains($responseCorrectionSource, "QuizResponseCorrectionException('Attempt snapshots are not eligible for correction.', 409)"),
+    'response correction must require a complete package whose immutable snapshots all predate submission');
+$check(str_contains($responseCorrectionSource, "(int)(\$delivery['version'] ?? 0) !== 1")
+    && str_contains($responseCorrectionSource, "!is_array(\$delivery['question'] ?? null)")
+    && str_contains($responseCorrectionSource, "empty(\$attemptQuestion['options_snapshotted_at'])")
+    && str_contains($responseCorrectionSource, "(string)\$attemptQuestion['options_snapshotted_at'] >= (string)\$attempt['submitted_at']"),
+    'response correction must require a v1 delivery snapshot and an option snapshot captured before submission');
+$check(str_contains($responseCorrectionSource, 'quiz_normalize_attempt_response(')
+    && substr_count($responseCorrectionSource, 'quiz_normalize_attempt_response(') === 1
+    && !str_contains($responseCorrectionSource, 'SELECT score FROM question_answers'),
+    'response correction must use the shared immutable-snapshot normalizer exactly once');
+$check(str_contains($responseCorrectionSource, "quiz_response_correction_int(\$input, 'attempt_answer_id', true)")
+    && str_contains($responseCorrectionSource, "quiz_response_correction_int(\$input, 'expected_revision_count', true)")
+    && str_contains($responseCorrectionSource, '$currentAnswerId !== $expectedAnswerId || $currentRevisionCount !== $expectedRevisionCount')
+    && str_contains($responseCorrectionSource, "QuizResponseCorrectionException('Response changed. Refresh and try again.', 409)"),
+    'response correction must reject stale answer IDs or revision counts with a 409 conflict');
+$check(str_contains($responseCorrectionSource, 'count($revisionRows) !== $currentRevisionCount')
+    && str_contains($responseCorrectionSource, "(int)\$revisionRow['revision_number'] !== \$index")
+    && substr_count($responseCorrectionSource, "QuizResponseCorrectionException('Response history is inconsistent.', 409)") === 2,
+    'response correction must lock and validate a contiguous zero-based revision history before mutation');
+$check(str_contains($responseCorrectionSource, '$existing === null')
+    && str_contains($responseCorrectionSource, '? !$normalizedAnswered && (int)$normalized[\'computed_score\'] === 0')
+    && str_contains($responseCorrectionSource, "'changed' => false"),
+    'an empty correction for a missing answer must remain an unchanged response instead of creating audit history');
+$check(str_contains($responseCorrectionSource, 'computed_score, change_source, changed_by_user_id, change_reason, answered_at)')
+    && str_contains($responseCorrectionSource, "'admin', :actor_id, :reason, :answered_at")
+    && str_contains($responseCorrectionSource, "':answered_at' => \$existing['answered_at'] === null ? null")
+    && str_contains($responseCorrectionSource, "VALUES (:answer_id, :attempt_id, :question_id, 0, NULL, NULL, 0, 'admin', :actor_id, :reason, NULL)"),
+    'response correction must audit prior values with admin source, actor, reason, original answered-at, and an explicit null revision for previously unanswered questions');
+$auditMetadataStart = (int)strpos($responseCorrectionSource, '$auditMetadata = [');
+$auditMetadataEnd = (int)strpos($responseCorrectionSource, "if (!function_exists('authorization_audit')", $auditMetadataStart);
+$auditMetadataSource = substr($responseCorrectionSource, $auditMetadataStart, $auditMetadataEnd - $auditMetadataStart);
+$auditCallPosition = strpos($responseCorrectionSource, "if (!function_exists('authorization_audit')");
+$changedCommitPosition = strrpos($responseCorrectionSource, '$pdo->commit()');
+$check(str_contains($responseCorrectionSource, 'quiz_rebuild_attempt_aggregates($pdo, $attemptId, $quizId)')
+    && $auditCallPosition !== false && $changedCommitPosition !== false && $auditCallPosition < $changedCommitPosition
+    && str_contains($responseCorrectionSource, "'quiz.attempt_response.corrected'")
+    && str_contains($responseCorrectionSource, "throw new RuntimeException('Correction audit failed.')"),
+    'changed response corrections must rebuild aggregates and require a successful authorization audit before commit');
+$check(str_contains($auditMetadataSource, "'reason' => \$reason")
+    && str_contains($auditMetadataSource, "'before_score'")
+    && str_contains($auditMetadataSource, "'after_score'")
+    && str_contains($auditMetadataSource, "'before_answered'")
+    && str_contains($auditMetadataSource, "'after_answered'")
+    && !str_contains($auditMetadataSource, 'selected_answer_id')
+    && !str_contains($auditMetadataSource, 'answer_text'),
+    'generic authorization audit metadata must describe correction impact without storing raw response content');
+preg_match("/UPDATE attempt_answers\s+SET (.*?)\s+WHERE id=:answer_id LIMIT 1'/s", $responseCorrectionSource, $correctionAnswerUpdateMatch);
+$correctionAnswerUpdate = (string)($correctionAnswerUpdateMatch[1] ?? '');
+$check($correctionAnswerUpdate !== ''
+    && !str_contains($correctionAnswerUpdate, 'answered_at')
+    && !str_contains($correctionAnswerUpdate, 'updated_at')
+    && str_contains($responseCorrectionSource, 'computed_score, revision_count, answered_at)')
+    && str_contains($responseCorrectionSource, ':computed_score, 1, NULL)')
+    && !preg_match('/UPDATE\s+quiz_attempts/i', $responseCorrectionSource)
+    && str_contains($aggregateSource, 'UPDATE quiz_attempts SET total_score=:score WHERE id=:id AND quiz_id=:quiz_id LIMIT 1')
+    && !preg_match('/SET\s+(?:status|submitted_at|last_activity_at)\b/i', $aggregateSource),
+    'correction must preserve answered-at, attempt status, submission time, and activity while rebuilding only score aggregates');
+$check(str_contains($responseCorrectionSource, '$reasonLength < 5')
+    && str_contains($responseCorrectionSource, '$reasonLength > 500')
+    && str_contains($responseCorrectionSource, "quiz_response_correction_fail('The response correction could not be saved.', 500)"),
+    'response correction must bound audit reasons and return a generic 500 response for unexpected failures');
 $menuSource = $pluginSource;
 $check(str_contains($menuSource, 'plugin_route_is_allowed') && !str_contains($menuSource, "SESSION['user_role']"), 'custom Quiz navigation uses target route authorization');
 $menuLabels = ["'label' => 'Dashboard'", "'label' => 'Quiz'", "'label' => 'Master Builder'", "'label' => 'Students'", "'label' => 'Attempts'", "'label' => 'Settings'"];
@@ -2107,6 +2398,11 @@ $check(strpos($quizAddSource, 'beginTransaction()') < strpos($quizAddSource, 'qz
     && str_contains($quizAddSource, "INSERT INTO quizzes (created_by")
     && str_contains($quizAddSource, "':uid' => \$uid"), 'quiz creation must reauthorize workspace access and stamp the actor inside its transaction');
 $check(str_contains($quizEditSource, 'qz_lock_quiz_for_workspace_mutation'), 'quiz edit mutation must authorize owner or collaborator against a locked quiz');
+$check(str_contains($quizAddSource, 'qz-editor-page qz-quiz-editor')
+    && str_contains($quizEditSource, 'qz-editor-page qz-quiz-editor')
+    && str_contains($adminCss, '.adam-card.qz-shell.qz-editor-page.qz-quiz-editor{')
+    && str_contains($adminCss, 'padding:clamp(20px,2.4vw,28px);'),
+    'Quiz add and edit pages must restore a route-scoped desktop gutter without changing the shared dashboard shell');
 $check(str_contains($quizDeleteSource, 'qz_lock_quiz_for_owner_mutation'), 'quiz deletion remains owner-or-manage-any only');
 foreach ([
     'quiz edit' => [$quizEditSource, 'qz_lock_quiz_for_workspace_mutation('],
@@ -2274,7 +2570,7 @@ $legacyQuestions = (string)file_get_contents($pluginRoot . '/admin/questions/ind
 $check(str_contains($legacyQuestions, 'SELECT COUNT(*) FROM questions q WHERE {$whereSql}')
     && str_contains($legacyQuestions, 'LIMIT {$perPage} OFFSET {$offset}')
     && str_contains($legacyQuestions, "\$_GET['p']"), 'legacy question list must use filtered server-side pagination');
-$check(str_contains($legacyQuestions, 'class="qz-filterbar"')
+$check(str_contains($legacyQuestions, 'class="qz-filterbar qz-question-filterbar qz-command-bar"')
     && str_contains($legacyQuestions, 'name="type"')
     && str_contains($legacyQuestions, 'name="status"')
     && str_contains($legacyQuestions, 'name="category_id"')
@@ -2295,14 +2591,28 @@ $check(str_contains($filterPassagesSource, "require_quiz_exists(\$quizId)")
     && str_contains($filterPassagesSource, "category_id=:category_id")
     && str_contains($filterPassagesSource, "created_by=:created_by"), 'passage filter endpoint must scope results by quiz, category branch, and contributor ownership');
 $check(str_contains($legacyQuestions, 'CASE WHEN p.id IS NOT NULL THEN p.category_id ELSE q.category_id END')
-    && !str_contains($legacyQuestions, "title=\"Contributor\">Oleh ")
-    && !str_contains($legacyQuestions, "title=\"Urutan global\">Urutan #"), 'question metadata must show direct or passage categories with compact contributor and position chips');
-$check(str_contains($legacyQuestions, 'class="qz-table qz-question-table"')
-    && str_contains($adminCss, '.qz-question-table tbody tr')
-    && str_contains($adminCss, 'grid-template-columns:1fr 1fr'), 'legacy question list must become responsive cards instead of a wide mobile table');
-$check(str_contains($legacyQuestions, 'qz-action-menu--compact')
+    && str_contains($legacyQuestions, 'class="qz-question-meta__item"><small>Kategori</small>')
+    && str_contains($legacyQuestions, 'class="qz-question-meta__item"><small>Contributor</small>')
+    && !str_contains($legacyQuestions, '🏷')
+    && !str_contains($legacyQuestions, '📄'), 'question metadata must show direct or passage context with quiet labelled text instead of emoji chips');
+$check(str_contains($legacyQuestions, 'class="adam-card qz-card qz-shell qz-question-page" data-column-scope')
+    && str_contains($legacyQuestions, 'class="qz-table qz-data-table qz-question-table"')
+    && str_contains($legacyQuestions, 'class="table-scroll qz-section__body" role="region" aria-label="Daftar soal" tabindex="0"')
+    && str_contains($legacyQuestions, 'class="qz-empty-state"')
+    && str_contains($adminCss, '.qz-question-table{min-width:860px}')
+    && str_contains($adminCss, '.qz-question-table th:last-child')
+    && !str_contains($adminCss, '.qz-question-table{display:block'), 'question list must use the modern semantic data table with horizontal mobile scrolling and a sticky action column');
+$check(str_contains($legacyQuestions, 'class="user-actions" data-qz-action-menu')
+    && str_contains($legacyQuestions, 'class="user-actions-toggle"')
+    && str_contains($legacyQuestions, 'data-qz-action-toggle aria-haspopup="menu"')
+    && str_contains($legacyQuestions, 'class="user-actions-menu"')
+    && str_contains($legacyQuestions, 'data-qz-action-panel role="menu"')
+    && str_contains($legacyQuestions, 'role="menuitem" data-qz-action-item')
     && str_contains($legacyQuestions, 'question-actions-toggle-')
-    && str_contains($legacyQuestions, 'qz-action-menu__item--danger'), 'legacy question actions must use the accessible overflow menu');
+    && str_contains($legacyQuestions, "svg_ico('pen')")
+    && str_contains($legacyQuestions, "svg_ico('eye')")
+    && str_contains($legacyQuestions, "svg_ico('trash-2')")
+    && str_contains($legacyQuestions, 'role="menuitem" class="is-danger"'), 'question actions must reuse the accessible Core overflow presentation');
 $check(str_contains($legacyQuestions, 'data-question-aggregate-editor')
     && str_contains($legacyQuestions, 'data-answer-list')
     && !str_contains($legacyQuestions, 'page=admin/quiz/answers/index'), 'legacy question edit must aggregate answers instead of linking to a separate answer workflow');
@@ -2364,7 +2674,9 @@ $check(str_contains($questionBulk, "count(\$ids) > 100")
     && str_contains($questionBulk, 'qz_lock_question_for_mutation('), 'question bulk mutation must cap, allowlist, and authorize every selected question');
 $check(str_contains($legacyQuestions, 'data-question-column-picker')
     && str_contains($legacyQuestions, 'data-question-column="type"')
-    && str_contains($legacyQuestions, 'data-column="type" hidden'), 'question list must hide Type by default and expose optional column controls');
+    && str_contains($legacyQuestions, 'data-question-column="type" checked')
+    && str_contains($legacyQuestions, '<th width="140" data-column="type">Tipe</th>')
+    && !str_contains($legacyQuestions, 'data-column="type" hidden'), 'question list must show Type by default while retaining optional column controls');
 $check(str_contains($adminJs, 'quiz-question-columns-v1')
     && str_contains($adminJs, 'localStorage.setItem(storageKey')
     && str_contains($adminCss, '[data-column][hidden]'), 'question column preferences must persist while required columns remain server-rendered');
@@ -2479,7 +2791,9 @@ $quizAssignmentLock = strpos($collaboratorSource, 'SELECT id, created_by FROM qu
 $check($selectedUserLock !== false && $quizAssignmentLock !== false && $selectedUserLock < $quizAssignmentLock, 'collaborator assignment locks selected users before the quiz to match mutation lock order');
 $answerSource = (string)file_get_contents($pluginRoot . '/public/api/save_answer.php');
 $proctorSource = (string)file_get_contents($pluginRoot . '/public/api/proctor_event.php');
-$check(str_contains($answerSource, 'strlen($answerText) > 20000') && str_contains($answerSource, 'count($ids) > 100'), 'participant answers and option arrays have hard size limits');
+$check(str_contains($responseNormalizerSource, 'strlen($answerText) > 20000')
+    && str_contains($responseNormalizerSource, 'count($ids) > 100'),
+    'the shared participant/admin response normalizer must cap answer text at 20,000 bytes and option arrays at 100 IDs');
 $check(str_contains($proctorSource, 'INTERVAL 1 MINUTE') && str_contains($proctorSource, '>= 120') && str_contains($proctorSource, 'FOR UPDATE'), 'proctor events are transactionally rate-limited per attempt');
 $check(str_contains($confirmSource, 'quiz_public_require_quiz($quiz_id)')
     && str_contains($verifySource, 'quiz_public_require_quiz($quiz_id)')

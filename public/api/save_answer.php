@@ -79,52 +79,15 @@ try {
     json_fail(403, 'The time limit has expired.', ['time_up' => true, 'timer' => $timer]);
   }
 
-  $selectedAnswerId = null;
-  $answerText = null;
-  $computedScore = 0;
-  if (in_array($questionType, ['single_choice', 'yesno'], true)) {
-    $selectedSourceId = (int)($input['selected_answer_id'] ?? 0);
-    if ($selectedSourceId <= 0) { $pdo->rollBack(); json_fail(400, 'No answer selected'); }
-    $option = $pdo->prepare('SELECT score FROM attempt_question_options
-      WHERE attempt_question_id=:attempt_question_id AND source_answer_id=:source_answer_id LIMIT 1 FOR UPDATE');
-    $option->execute([':attempt_question_id' => $attemptQuestionId, ':source_answer_id' => $selectedSourceId]);
-    $score = $option->fetchColumn();
-    if ($score === false) { $pdo->rollBack(); json_fail(400, 'Invalid answer option'); }
-    $computedScore = (int)$score;
-    $liveOption = $pdo->prepare('SELECT id FROM question_answers WHERE id=:id AND question_id=:question_id LIMIT 1 FOR UPDATE');
-    $liveOption->execute([':id' => $selectedSourceId, ':question_id' => $questionId]);
-    if ($liveOption->fetchColumn() !== false) {
-      $selectedAnswerId = $selectedSourceId;
-    } else {
-      // Keep the snapshotted source ID without violating the retained legacy FK.
-      $answerText = (string)$selectedSourceId;
-    }
-  } elseif ($questionType === 'multiple_choice') {
-    $rawIds = $input['selected_answer_ids'] ?? null;
-    if (!is_array($rawIds)) { $pdo->rollBack(); json_fail(400, 'selected_answer_ids required'); }
-    $ids = [];
-    foreach ($rawIds as $rawId) {
-      $id = (int)$rawId;
-      if ($id > 0) $ids[$id] = $id;
-    }
-    $ids = array_values($ids);
-    sort($ids, SORT_NUMERIC);
-    if (count($ids) > 100) { $pdo->rollBack(); json_fail(400, 'Too many answer options'); }
-    if ($ids !== []) {
-      $placeholders = implode(',', array_fill(0, count($ids), '?'));
-      $options = $pdo->prepare("SELECT source_answer_id AS id, score FROM attempt_question_options
-        WHERE attempt_question_id=? AND source_answer_id IN ({$placeholders}) ORDER BY source_answer_id ASC FOR UPDATE");
-      $options->execute(array_merge([$attemptQuestionId], $ids));
-      $rows = $options->fetchAll(PDO::FETCH_ASSOC) ?: [];
-      if (count($rows) !== count($ids)) { $pdo->rollBack(); json_fail(400, 'Invalid answer option'); }
-      foreach ($rows as $row) $computedScore += (int)$row['score'];
-    }
-    $answerText = json_encode($ids, JSON_UNESCAPED_SLASHES);
-  } else {
-    if (!array_key_exists('answer_text', $input)) { $pdo->rollBack(); json_fail(400, 'answer_text required'); }
-    $answerText = trim((string)$input['answer_text']);
-    if (strlen($answerText) > 20000) { $pdo->rollBack(); json_fail(413, 'answer_text too large'); }
+  try {
+    $normalized = quiz_normalize_attempt_response($pdo, $attemptQuestionId, $questionId, $questionType, $input);
+  } catch (InvalidArgumentException $error) {
+    $pdo->rollBack();
+    json_fail($error->getCode() === 413 ? 413 : 400, $error->getMessage());
   }
+  $selectedAnswerId = $normalized['selected_answer_id'];
+  $answerText = $normalized['answer_text'];
+  $computedScore = (int)$normalized['computed_score'];
 
   $existingStmt = $pdo->prepare('SELECT * FROM attempt_answers WHERE attempt_id=:attempt_id AND question_id=:question_id LIMIT 1 FOR UPDATE');
   $existingStmt->execute([':attempt_id' => (int)$attempt['id'], ':question_id' => $questionId]);
@@ -144,14 +107,17 @@ try {
       && (int)$existing['computed_score'] === $computedScore;
     $revisionCount = (int)($existing['revision_count'] ?? 0);
     if (!$same) {
-      $revision = $pdo->prepare('INSERT INTO attempt_answer_revisions
-        (attempt_answer_id, attempt_id, question_id, revision_number, selected_answer_id, answer_text, computed_score)
-        VALUES (:answer_id, :attempt_id, :question_id, :revision, :selected_answer_id, :answer_text, :computed_score)');
+      $revision = $pdo->prepare("INSERT INTO attempt_answer_revisions
+        (attempt_answer_id, attempt_id, question_id, revision_number, selected_answer_id, answer_text,
+         computed_score, change_source, changed_by_user_id, change_reason, answered_at)
+        VALUES (:answer_id, :attempt_id, :question_id, :revision, :selected_answer_id, :answer_text,
+          :computed_score, 'participant', NULL, NULL, :answered_at)");
       $revision->execute([':answer_id' => (int)$existing['id'], ':attempt_id' => (int)$attempt['id'], ':question_id' => $questionId,
         ':revision' => $revisionCount,
         ':selected_answer_id' => $existing['selected_answer_id'] === null ? null : (int)$existing['selected_answer_id'],
         ':answer_text' => $existing['answer_text'] === null ? null : (string)$existing['answer_text'],
-        ':computed_score' => (int)$existing['computed_score']]);
+        ':computed_score' => (int)$existing['computed_score'],
+        ':answered_at' => $existing['answered_at'] === null ? null : (string)$existing['answered_at']]);
       $revisionCount++;
       $update = $pdo->prepare('UPDATE attempt_answers SET selected_answer_id=:selected_answer_id, answer_text=:answer_text,
         computed_score=:computed_score, revision_count=:revision_count, answered_at=NOW(), updated_at=CURRENT_TIMESTAMP WHERE id=:id LIMIT 1');

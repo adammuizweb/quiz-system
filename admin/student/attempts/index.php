@@ -388,25 +388,22 @@ $todayUrl = static function (string $field, string $status = '') use ($base, $to
             <td class="muted" data-label="Activity" data-column="activity"><?= h($lastFmt) ?></td>
 
             <td class="qz-row-actions qz-attempt-actions" data-label="Actions">
-              <div class="qz-attempt-actions__inner">
-                <a class="adam-button ghost qz-attempt-detail" href="<?= h($base) ?>/?page=admin/quiz/attempts/view&amp;<?= $alias !== '' ? 'a=' . rawurlencode($alias) : 'attempt_id=' . (int)$r['attempt_id'] ?>">Details</a>
-
-                <?php if ($user['can_delete_attempts']): ?>
-                <div class="qz-action-menu qz-action-menu--compact">
-                  <button type="button" class="qz-action-menu__toggle" id="attempt-actions-toggle-<?= (int)$r['attempt_id'] ?>" aria-expanded="false" aria-controls="attempt-actions-<?= (int)$r['attempt_id'] ?>" aria-label="More actions for <?= h((string)$r['display_name']) ?>">
-                    <span class="qz-action-menu__dots" aria-hidden="true">&#8942;</span>
-                  </button>
-                  <div class="qz-action-menu__panel" id="attempt-actions-<?= (int)$r['attempt_id'] ?>" role="group" aria-labelledby="attempt-actions-toggle-<?= (int)$r['attempt_id'] ?>" hidden>
+              <div class="user-actions" data-qz-action-menu>
+                <button type="button" class="user-actions-toggle" id="attempt-actions-toggle-<?= (int)$r['attempt_id'] ?>" data-qz-action-toggle aria-haspopup="menu" aria-expanded="false" aria-controls="attempt-actions-<?= (int)$r['attempt_id'] ?>" aria-label="Actions for <?= h((string)$r['display_name']) ?>">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                </button>
+                <div class="user-actions-menu" id="attempt-actions-<?= (int)$r['attempt_id'] ?>" data-qz-action-panel role="menu" aria-labelledby="attempt-actions-toggle-<?= (int)$r['attempt_id'] ?>" hidden>
+                  <a role="menuitem" data-qz-action-item href="<?= h($base) ?>/?page=admin/quiz/attempts/view&amp;<?= $alias !== '' ? 'a=' . rawurlencode($alias) : 'attempt_id=' . (int)$r['attempt_id'] ?>"><?= svg_ico('eye') ?> <span>View Details</span></a>
+                  <?php if ($user['can_delete_attempts']): ?>
                     <form method="post" action="<?= h($base) ?>/?page=admin/quiz/attempts/action_delete" class="qz-action-menu__form">
                       <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
                       <input type="hidden" name="attempt_id" value="<?= (int)$r['attempt_id'] ?>">
                       <input type="hidden" name="redirect" value="<?= h($redirectBack) ?>">
-                      <button type="submit" class="qz-action-menu__item qz-action-menu__item--danger"
-                         data-confirm="Delete Attempt <?= h($alias !== '' ? $alias : '#' . (int)$r['attempt_id']) ?>?\n\nThe Question set, Answers, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger">Delete Attempt</button>
+                      <button type="submit" role="menuitem" class="is-danger" data-qz-action-item
+                         data-confirm="Delete Attempt <?= h($alias !== '' ? $alias : '#' . (int)$r['attempt_id']) ?>?\n\nThe Question set, Answers, and related monitoring logs will also be deleted.\nThis action cannot be undone." data-confirm-variant="danger"><?= svg_ico('trash-2') ?> <span>Delete Attempt</span></button>
                     </form>
-                  </div>
+                  <?php endif; ?>
                 </div>
-                <?php endif; ?>
               </div>
             </td>
           </tr>
