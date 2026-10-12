@@ -2559,12 +2559,26 @@ html.theme-dark #adam-main .qz-danger-zone{background:rgba(127,29,29,.14);border
 #adam-main #quizDetailModal .qdm-action-list .qdm-inline-form{display:block;width:100%}
 #adam-main #quizDetailModal .qdm-action-list a,
 #adam-main #quizDetailModal .qdm-action-list button,
-#adam-main #quizDetailModal .qdm-action-list .disabled{width:100%;min-height:39px;justify-content:center;text-align:center}
+#adam-main #quizDetailModal .qdm-action-list .disabled{
+  box-sizing:border-box;
+  display:flex;
+  width:100%;
+  min-height:42px;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  font-family:inherit;
+  font-size:12px;
+  line-height:1.35;
+  text-align:center;
+}
+#adam-main #quizDetailModal .qdm-action-list button{appearance:none}
 #adam-main #quizDetailModal .qdm-action-list .qdm-action-primary{border-color:transparent;background:linear-gradient(135deg,#4f46e5,#2563eb);color:#fff;box-shadow:0 8px 18px rgba(37,99,235,.2)}
 
 /* Add/Edit keep a deliberate desktop gutter around the hero and form cards. */
 @media(min-width:761px){
   #adam-main .adam-card.qz-shell.qz-editor-page.qz-quiz-editor{
+    box-sizing:border-box;
     width:min(1128px,100%);
     padding:clamp(20px,2.4vw,28px);
     border:1px solid var(--qz-line);
@@ -2655,6 +2669,10 @@ html.theme-dark #adam-main #quizDetailModal .qdm-action-group--content{backgroun
 }
 @media(max-width:760px){
   #adam-main .adam-card.qz-shell{width:100%;padding:0}
+  #adam-main .adam-card.qz-shell.qz-editor-page.qz-quiz-editor{
+    box-sizing:border-box;
+    padding:0 12px calc(14px + env(safe-area-inset-bottom));
+  }
   #adam-main .qz-shell .qz-breadcrumb{margin-inline:2px}
   #adam-main .qz-shell .qz-page-head{display:grid;min-height:0;gap:22px;padding:26px 22px;border-radius:18px}
   #adam-main .qz-shell .qz-page-head::before{background-size:28px 28px}

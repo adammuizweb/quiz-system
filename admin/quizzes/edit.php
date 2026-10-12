@@ -262,8 +262,8 @@ $ownerLine = ($owner !== '' || $oemail !== '')
           </select>
         </div>
       <?php endforeach; ?>
+        <div class="small-hint qz-student-form-name">Use global/default behavior unless this Quiz needs a specific visual, verification, or proctor policy.</div>
       </div>
-      <div class="small-hint">Use global/default behavior unless this Quiz needs a specific visual, verification, or proctor policy.</div>
     </fieldset>
 
     <fieldset class="qz-section group-box">

@@ -2008,6 +2008,12 @@ $check(str_contains($quizIndex, "'can_delete' => \$canDelete")
     && !str_contains($adminJs, 'data-qdm-close')
     && str_contains($adminCss, '#quizDetailModal .qdm-action-group{'),
     'Quiz details must group actions by purpose, avoid a redundant footer close, and expose Delete only to owner-or-manage-any actors');
+$check(str_contains($adminCss, '#quizDetailModal .qdm-action-list a,')
+    && str_contains($adminCss, 'min-height:42px;')
+    && str_contains($adminCss, 'padding:10px 12px;')
+    && str_contains($adminCss, 'font-family:inherit;')
+    && str_contains($adminCss, '.qdm-action-list button{appearance:none}'),
+    'Quiz detail links and form buttons must share one control geometry and typography');
 $check(str_contains($adminCss, '#quizDetailModal{')
     && str_contains($adminCss, 'align-items:flex-end;')
     && str_contains($adminCss, 'max-height:calc(100dvh - 12px);')
@@ -2401,8 +2407,10 @@ $check(str_contains($quizEditSource, 'qz_lock_quiz_for_workspace_mutation'), 'qu
 $check(str_contains($quizAddSource, 'qz-editor-page qz-quiz-editor')
     && str_contains($quizEditSource, 'qz-editor-page qz-quiz-editor')
     && str_contains($adminCss, '.adam-card.qz-shell.qz-editor-page.qz-quiz-editor{')
-    && str_contains($adminCss, 'padding:clamp(20px,2.4vw,28px);'),
-    'Quiz add and edit pages must restore a route-scoped desktop gutter without changing the shared dashboard shell');
+    && str_contains($adminCss, 'padding:clamp(20px,2.4vw,28px);')
+    && str_contains($adminCss, 'padding:0 12px calc(14px + env(safe-area-inset-bottom));')
+    && str_contains($quizEditSource, 'class="small-hint qz-student-form-name">Use global/default behavior'),
+    'Quiz add and edit pages must retain route-scoped desktop and mobile gutters while section guidance stays inside the padded form grid');
 $check(str_contains($quizDeleteSource, 'qz_lock_quiz_for_owner_mutation'), 'quiz deletion remains owner-or-manage-any only');
 foreach ([
     'quiz edit' => [$quizEditSource, 'qz_lock_quiz_for_workspace_mutation('],
