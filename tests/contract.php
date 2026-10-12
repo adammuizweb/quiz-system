@@ -1346,6 +1346,12 @@ $check($themeResolutionPosition !== false && $submittedGuardPosition !== false &
     && !str_contains($submittedViewSource, 'attempt_category_scores')
     && !str_contains($submittedViewSource, 'elapsed_seconds'),
     'submitted hidden-result attempts must render a themed private completion state without scores, categories, or elapsed result data');
+$check(str_contains($takeView, '.qt-theme-studio .qt-main .qt-card{ box-shadow:10px 10px 0 #10162f; }')
+    && str_contains($takeView, 'box-shadow:6px 6px 0 #10162f;')
+    && str_contains($takeJs, 'box-shadow:10px 10px 0 #10162f;')
+    && str_contains($resultSource, '.qr.qr-theme-studio .qr-hero{ box-shadow:0 24px 70px rgba(16,22,47,.18); }')
+    && str_contains($submittedViewSource, '.qs.qs-theme-studio .qs-result-note{ box-shadow:7px 7px 0 #10162f; }'),
+    'Studio theme must carry Study Interest soft and offset shadow depth across take, result, and submitted surfaces');
 $check(str_contains($takeView, "class=\"qt-sec'.(\$sectionDone?' done':'').'\"")
     && str_contains($takeView, '.qt-sec.done{')
     && str_contains($takeJs, 'function refreshSectionStates()')

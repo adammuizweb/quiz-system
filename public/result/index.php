@@ -96,6 +96,9 @@ $resultStyles = <<<'HTML'
     --qr-on-hero-muted:#cbd1e6;
     --qr-track:#dfe3dc;
   }
+  .qr.qr-theme-studio .qr-hero{ box-shadow:0 24px 70px rgba(16,22,47,.18); }
+  .qr.qr-theme-studio .qr-score-ring{ box-shadow:0 18px 45px rgba(16,22,47,.28); }
+  .qr.qr-theme-studio .qr-button:hover{ transform:translateY(-2px); box-shadow:0 8px 0 rgba(16,22,47,.16); }
   .qr-shell{ width:min(1120px,100%); margin:0 auto; }
   .qr-topbar{ display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:18px; }
   .qr-brand{ display:flex; align-items:center; gap:12px; min-width:0; }
@@ -150,7 +153,7 @@ $resultStyles = <<<'HTML'
 
   .qr-footer{ display:flex; align-items:center; justify-content:space-between; gap:22px; margin-top:28px; padding:22px; border:1px solid var(--qr-line); border-radius:18px; background:color-mix(in srgb,var(--qr-paper) 90%,var(--qr-accent-soft)); }
   .qr-footer p{ max-width:680px; margin:0; color:var(--qr-muted); font-size:.82rem; line-height:1.55; }
-  .qr-button{ min-height:46px; display:inline-flex; align-items:center; justify-content:center; padding:11px 17px; border:1px solid var(--qr-hero); border-radius:12px; background:var(--qr-hero); color:#fff; font-weight:850; text-decoration:none; white-space:nowrap; }
+  .qr-button{ min-height:46px; display:inline-flex; align-items:center; justify-content:center; padding:11px 17px; border:1px solid var(--qr-hero); border-radius:12px; background:var(--qr-hero); color:#fff; font-weight:850; text-decoration:none; white-space:nowrap; transition:transform .18s ease,box-shadow .18s ease,filter .18s ease; }
   .qr-button:hover{ filter:brightness(1.08); }
   .qr-button:focus-visible{ outline:4px solid var(--qr-accent); outline-offset:3px; }
 
@@ -174,6 +177,7 @@ $resultStyles = <<<'HTML'
     .qr-category-grid{ grid-template-columns:1fr; }
     .qr-footer{ align-items:stretch; flex-direction:column; }
     .qr-button{ width:100%; }
+    .qr.qr-theme-studio .qr-hero{ box-shadow:0 18px 44px rgba(16,22,47,.16); }
   }
   @media (max-width:420px){
     .qr-hero{ padding:26px 20px; }

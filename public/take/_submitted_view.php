@@ -58,6 +58,9 @@ ob_start();
     --qs-hero:#10162f;
     --qs-hero-muted:#cbd1e6;
   }
+  .qs.qs-theme-studio .qs-hero{ box-shadow:0 24px 70px rgba(16,22,47,.18); }
+  .qs.qs-theme-studio .qs-result-note{ box-shadow:7px 7px 0 #10162f; }
+  .qs.qs-theme-studio .qs-button:hover{ transform:translateY(-2px); box-shadow:0 8px 0 rgba(16,22,47,.16); }
   .qs-shell{ width:min(960px,100%); margin:0 auto; }
   .qs-topbar{ display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:18px; }
   .qs-brand{ display:flex; align-items:center; gap:11px; min-width:0; }
@@ -87,7 +90,7 @@ ob_start();
   .qs-result-note p{ margin:0; color:var(--qs-muted); font-size:.86rem; line-height:1.6; }
   .qs-actions{ display:flex; align-items:center; justify-content:space-between; gap:20px; margin-top:24px; }
   .qs-actions p{ max-width:620px; margin:0; color:var(--qs-muted); font-size:.79rem; line-height:1.55; }
-  .qs-button{ min-height:48px; display:inline-flex; align-items:center; justify-content:center; padding:12px 18px; border:1px solid var(--qs-hero); border-radius:12px; background:var(--qs-hero); color:#fff; font-weight:850; text-decoration:none; white-space:nowrap; }
+  .qs-button{ min-height:48px; display:inline-flex; align-items:center; justify-content:center; padding:12px 18px; border:1px solid var(--qs-hero); border-radius:12px; background:var(--qs-hero); color:#fff; font-weight:850; text-decoration:none; white-space:nowrap; transition:transform .18s ease,box-shadow .18s ease,filter .18s ease; }
   .qs-button:hover{ filter:brightness(1.08); }
   .qs-button:focus-visible{ outline:4px solid var(--qs-accent); outline-offset:3px; }
   @media (max-width:700px){
@@ -101,6 +104,8 @@ ob_start();
     .qs-metric{ min-height:110px; }
     .qs-actions{ align-items:stretch; flex-direction:column; }
     .qs-button{ width:100%; }
+    .qs.qs-theme-studio .qs-hero{ box-shadow:0 18px 44px rgba(16,22,47,.16); }
+    .qs.qs-theme-studio .qs-result-note{ box-shadow:5px 5px 0 #10162f; }
   }
   @media (max-width:420px){
     .qs-hero{ padding:26px 20px; }

@@ -656,6 +656,7 @@ function makeOptBadge(i){
       background:#fff;
       border-color:#10162f;
       color:#171a24;
+      box-shadow:10px 10px 0 #10162f;
     }
     body.qz-theme-studio #qzProctorBadge{
       background:#d9ff63;
