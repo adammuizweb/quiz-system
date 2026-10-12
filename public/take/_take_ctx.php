@@ -954,15 +954,10 @@ $packageComplete = quiz_attempt_package_is_complete($pdo, $attempt_id);
 $needsPreparation = !$packageComplete || empty($attempt['started_at']);
 
 if ($needsPreparation && !$isBeginRequest) {
-  $csrf = qz_public_csrf_token();
-  $content_html = '<section class="st"><div class="st-wrap"><div class="st-hero">'
-    . '<div class="st-badge">QUIZ</div><h1 class="st-h1">' . h((string)$quiz['title']) . '</h1>'
-    . '<div class="st-desc">Start or resume this quiz when you are ready. The timer begins after confirmation.</div></div>'
-    . '<form class="st-box" method="post" action="' . h(quiz_public_url('take', ['a' => $alias])) . '">'
-    . '<input type="hidden" name="csrf_token" value="' . h($csrf) . '">'
-    . '<button class="st-btn primary" type="submit">Start / Resume Quiz</button></form></div></section>';
-  $ctx = null;
-  return;
+  qz_public_post_redirect(
+    quiz_public_url('take', ['a' => $alias]),
+    ['csrf_token' => qz_public_csrf_token()]
+  );
 }
 $quiz['proctor'] = [
   'requireFullscreen' => $quiz['require_fullscreen_override'] === null ? true : (int)$quiz['require_fullscreen_override'] === 1,

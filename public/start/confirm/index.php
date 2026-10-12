@@ -270,7 +270,7 @@ SELECT
   identity_locked, contact_name, contact_email, contact_phone,
   delivery_mode,
   email_verification_code,
-  created_at
+  started_at, created_at
 FROM quiz_attempts
   WHERE quiz_id = :qid AND student_id = :sid
   ORDER BY id DESC
@@ -386,7 +386,7 @@ if ($attempt) {
 
     if ($alias !== '') set_cookie('quiz_attempt', $alias, 86400*365);
 
-    go(quiz_public_url('take', ['a' => $alias]));
+    qz_public_enter_quiz($alias, $attempt['started_at'] ?? null);
   }
 }
 
@@ -447,7 +447,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->commit();
         $alias = trim((string)($A['attempt_alias'] ?? ''));
         if ($alias !== '') set_cookie('quiz_attempt', $alias, 86400*365);
-        go(quiz_public_url('take', ['a' => $alias]));
+        qz_public_enter_quiz($alias, $A['started_at'] ?? null);
       }
 
       if ($st !== 'registered') {
@@ -543,13 +543,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       set_cookie('quiz_attempt', $alias, 86400*365);
 
       if ($verificationRequired) go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
-      go(quiz_public_url('take', ['a' => $alias]));
+      qz_public_enter_quiz($alias, $A['started_at'] ?? null);
     }
 
     // ===== ENFORCE: hanya 1 attempt AKTIF (verified/in_progress) lintas quiz =====
     try {
       $stAct = $pdo->prepare("
-        SELECT id, quiz_id, attempt_alias, nomor_test, status, token_hash, user_agent_hash
+          SELECT id, quiz_id, attempt_alias, nomor_test, status, token_hash, user_agent_hash, started_at
         FROM quiz_attempts
         WHERE student_id = :sid
           AND status IN ('verified','in_progress')
@@ -591,6 +591,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if ($pdo->inTransaction()) $pdo->commit();
 
           set_cookie('quiz_attempt', $activeAlias, 86400*365);
+          if (trim((string)($active['started_at'] ?? '')) === '') {
+            qz_public_post_redirect(
+              quiz_public_url_for_quiz($pdo, $activeQuizId, 'take', ['a' => $activeAlias]),
+              ['csrf_token' => qz_public_csrf_token()]
+            );
+          }
           go(quiz_public_url_for_quiz($pdo, $activeQuizId, 'take', ['a' => $activeAlias]));
         }
       }
@@ -697,7 +703,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->commit();
         $alias = trim((string)($A['attempt_alias'] ?? ''));
         if ($alias !== '') set_cookie('quiz_attempt', $alias, 86400*365);
-        go(quiz_public_url('take', ['a' => $alias]));
+        qz_public_enter_quiz($alias, $A['started_at'] ?? null);
       }
 
       // registered: issue token baru supaya cookie valid
@@ -730,7 +736,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     set_cookie('quiz_attempt', $attempt_alias, 86400*365);
 
     if ($verificationRequired) go(quiz_public_url('verify', ['quiz' => $quiz_id, 'msg' => 'Enter the OTP code to continue.']));
-    go(quiz_public_url('take', ['a' => $attempt_alias]));
+    qz_public_enter_quiz($attempt_alias);
     }
     }
 

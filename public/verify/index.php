@@ -201,7 +201,7 @@ if ($alreadyVerified || in_array($st_now, ['verified','in_progress','submitted']
       'samesite' => 'Lax',
     ]);
   }
-  go(quiz_public_url('take', ['a' => $attempt_alias]));
+  qz_public_enter_quiz($attempt_alias, $attempt['started_at'] ?? null);
 }
 
 /* =========================
@@ -235,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
 
       // lock row attempt untuk anti double submit / multi tab
       $stmt = $pdo->prepare("
-        SELECT id, status, email_verification_code, email_verified_at, otp_try_count, otp_locked_at, attempt_alias
+        SELECT id, status, email_verification_code, email_verified_at, otp_try_count, otp_locked_at, attempt_alias, started_at
         FROM quiz_attempts
         WHERE id = :id
         FOR UPDATE
@@ -255,7 +255,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
         // kalau sudah verified/in_progress, jangan proses OTP lagi
         if ($verified_db || in_array($status_db, ['verified','in_progress','submitted'], true)) {
           $pdo->commit();
-          go(quiz_public_url('take', ['a' => (string)($row['attempt_alias'] ?? $attempt_alias)]));
+          qz_public_enter_quiz(
+            (string)($row['attempt_alias'] ?? $attempt_alias),
+            $row['started_at'] ?? null
+          );
         }
 
         // lock kalau sudah 10x
@@ -318,7 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
               ]);
             }
 
-            go(quiz_public_url('take', ['a' => $attempt_alias]));
+            qz_public_enter_quiz($attempt_alias);
           }
         }
       }

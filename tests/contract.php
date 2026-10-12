@@ -1291,6 +1291,7 @@ $check(str_contains($settingsSource, 'qz-method-grid') && !str_contains($setting
 $check(str_contains($settingsSource, 'class="qz-settings-form"'), 'Quiz settings must expose a component-specific scope for delegated controls');
 
 $verifySource = (string)file_get_contents($pluginRoot . '/public/verify/index.php');
+$publicSecuritySource = (string)file_get_contents($pluginRoot . '/public/_security.php');
 $check(str_contains($verifySource, "settings_get(\$pdo, 'quiz_otp_email_enabled', '1')") && str_contains($verifySource, "settings_get(\$pdo, 'quiz_otp_whatsapp_enabled', '0')"), 'OTP verification UI must default email on and unconfigured WhatsApp off');
 $check(str_contains($verifySource, 'Request OTP from Admin') && str_contains($verifySource, 'available.includes(saved)'), 'OTP verification UI must support manual-only mode and select only available methods');
 
@@ -1456,7 +1457,7 @@ $check(str_contains($verifySource, "status = 'verified'")
     && !str_contains($verifySource, 'attempt_questions')
     && !str_contains($verifySource, 'ORDER BY RAND()')
     && !str_contains($verifySource, 'quiz_snapshot_attempt_questions')
-    && !str_contains($verifySource, 'started_at'),
+    && !str_contains($verifySource, 'SET started_at'),
     'successful OTP verification must only mark verification and must not assign, randomize, snapshot, or start an attempt');
 $takePreparationSource = substr($takeContext, (int)strpos($takeContext, '$requestMethod ='));
 $takePickPosition = strpos($takePreparationSource, '$ids = qz_pick_attempt_question_ids($pdo, $quiz_id, $limit)');
@@ -2313,8 +2314,17 @@ $check(!str_contains($otpGenerate, "'OTP baru: ' . \$otp")
 $confirmSource = (string)file_get_contents($pluginRoot . '/public/start/confirm/index.php');
 $check(str_contains($confirmSource, 'verification_required_override')
     && str_contains($confirmSource, "verified_via='quiz_override'")
-    && str_contains($confirmSource, "go(quiz_public_url('take', ['a' => \$attempt_alias]))"),
+    && str_contains($confirmSource, 'qz_public_enter_quiz($attempt_alias);'),
     'OTP override must atomically verify new attempts and continue with their exact alias');
+$check(str_contains($publicSecuritySource, 'function qz_public_post_redirect(string $action, array $fields): never')
+    && str_contains($publicSecuritySource, '<form id="qz-auto-start" method="post"')
+    && str_contains($publicSecuritySource, "['csrf_token' => qz_public_csrf_token()]")
+    && str_contains($confirmSource, 'qz_public_enter_quiz(')
+    && str_contains($verifySource, 'qz_public_enter_quiz(')
+    && str_contains($takeContext, 'qz_public_post_redirect(')
+    && str_contains($publicSecuritySource, '>Start Quiz</button>')
+    && !str_contains($takeContext, 'Start / Resume Quiz'),
+    'normal, direct, and fallback first-start flows must auto-POST while retaining a clear no-JavaScript Start Quiz fallback');
 $check(str_contains($confirmSource, "\$btnLabel = \$verificationRequired ? 'Start &amp; Get OTP' : 'Continue';")
     && str_contains($confirmSource, "\$btnLabel = \$verificationRequired ? 'Continue to OTP Verification' : 'Continue';")
     && str_contains($confirmSource, ": '<div class=\"rz-step\">4. Take Quiz</div>';")
