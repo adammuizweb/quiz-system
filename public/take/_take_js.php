@@ -32,6 +32,7 @@ $pauseWhenBlurJson = !empty($quiz['proctor']['pauseWhenBlur']) ? 'true' : 'false
 $blockContextMenuJson = !empty($quiz['proctor']['blockContextMenu']) ? 'true' : 'false';
 $blockShortcutsJson = !empty($quiz['proctor']['blockShortcuts']) ? 'true' : 'false';
 $devtoolsDetectJson = !empty($quiz['proctor']['devtoolsDetect']) ? 'true' : 'false';
+$showExamBadgeJson = !empty($quiz['proctor']['showBadge']) ? 'true' : 'false';
 
 if ($attemptJson === false) $attemptJson = '""';
 if ($answeredMapJson === false) $answeredMapJson = '{}';
@@ -453,7 +454,7 @@ function makeOptBadge(i){
     warnLimit: 8,
     devtoolsDetect: {$devtoolsDetectJson},
     devtoolsThreshold: 160,
-    showBadge: true,
+    showBadge: {$showExamBadgeJson},
   };
 
   const WARN_KEY = "take_warn_" + attempt;

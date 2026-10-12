@@ -144,6 +144,7 @@ function quiz_upgrade_schema(\PDO $pdo): void {
     $addColumn('quizzes', 'block_context_menu_override', 'TINYINT(1) NULL AFTER pause_when_blur_override');
     $addColumn('quizzes', 'block_shortcuts_override', 'TINYINT(1) NULL AFTER block_context_menu_override');
     $addColumn('quizzes', 'devtools_detect_override', 'TINYINT(1) NULL AFTER block_shortcuts_override');
+    $addColumn('quizzes', 'show_exam_badge_override', 'TINYINT(1) NULL AFTER devtools_detect_override');
     if (!$indexExists('quizzes', 'uq_quizzes_public_prefix')) {
         $pdo->exec('ALTER TABLE quizzes ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)');
     }
@@ -291,7 +292,7 @@ function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshot
 // --- Idempotent schema installation on Quiz requests ---
 function quiz_install_schema(\PDO $pdo): bool {
     try {
-        $schemaRevision = '20261010-per-quiz-overrides';
+        $schemaRevision = '20261012-exam-badge-override';
         $manifest = plugin_manifest('quiz');
         $version = is_array($manifest) && is_string($manifest['version'] ?? null)
             ? $manifest['version']
@@ -337,7 +338,7 @@ function quiz_schema_is_ready(\PDO $pdo): bool {
     $version = is_array($manifest) ? (string)($manifest['version'] ?? '') : '';
     return $version !== ''
         && settings_get($pdo, 'quiz_test_version', '') === $version
-        && settings_get($pdo, 'quiz_schema_revision', '') === '20261010-per-quiz-overrides';
+        && settings_get($pdo, 'quiz_schema_revision', '') === '20261012-exam-badge-override';
 }
 
 // Shared helpers are required before public routes are registered.

@@ -52,7 +52,7 @@ $result_visibility = quiz_safe_result_visibility($quiz['result_visibility'] ?? '
 $is_active = (int)($quiz['is_active'] ?? 1);
 $start_at = (string)($quiz['start_at'] ?? '');
 $end_at   = (string)($quiz['end_at'] ?? '');
-$overrideFields = ['verification_required_override','require_fullscreen_override','pause_when_blur_override','block_context_menu_override','block_shortcuts_override','devtools_detect_override'];
+$overrideFields = ['verification_required_override','require_fullscreen_override','pause_when_blur_override','block_context_menu_override','block_shortcuts_override','devtools_detect_override','show_exam_badge_override'];
 $overrides = [];
 foreach ($overrideFields as $field) $overrides[$field] = $quiz[$field] === null ? '' : (string)(int)$quiz[$field];
 
@@ -134,7 +134,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             pause_when_blur_override = :pause_when_blur_override,
             block_context_menu_override = :block_context_menu_override,
             block_shortcuts_override = :block_shortcuts_override,
-            devtools_detect_override = :devtools_detect_override
+            devtools_detect_override = :devtools_detect_override,
+            show_exam_badge_override = :show_exam_badge_override
         WHERE id = :id
         LIMIT 1
       ");
@@ -157,6 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':block_context_menu_override' => $overrides['block_context_menu_override'] === '' ? null : (int)$overrides['block_context_menu_override'],
         ':block_shortcuts_override' => $overrides['block_shortcuts_override'] === '' ? null : (int)$overrides['block_shortcuts_override'],
         ':devtools_detect_override' => $overrides['devtools_detect_override'] === '' ? null : (int)$overrides['devtools_detect_override'],
+        ':show_exam_badge_override' => $overrides['show_exam_badge_override'] === '' ? null : (int)$overrides['show_exam_badge_override'],
         ':id' => $id,
       ];
       $stmt->execute($params);
@@ -229,7 +231,7 @@ $ownerLine = ($owner !== '' || $oemail !== '')
     <fieldset class="qz-section group-box">
       <legend class="qz-section__head"><strong>Per-Quiz Overrides</strong></legend>
       <div class="qz-section__body qz-form-grid qz-student-form-grid">
-      <?php $labels = ['verification_required_override'=>'OTP verification','require_fullscreen_override'=>'Require fullscreen','pause_when_blur_override'=>'Pause when tab/window loses focus','block_context_menu_override'=>'Block right-click','block_shortcuts_override'=>'Block copy, paste, shortcuts','devtools_detect_override'=>'Detect DevTools']; foreach ($labels as $field=>$label): ?>
+      <?php $labels = ['verification_required_override'=>'OTP verification','require_fullscreen_override'=>'Require fullscreen','pause_when_blur_override'=>'Pause when tab/window loses focus','block_context_menu_override'=>'Block right-click','block_shortcuts_override'=>'Block copy, paste, shortcuts','devtools_detect_override'=>'Detect DevTools','show_exam_badge_override'=>'Show exam mode badge']; foreach ($labels as $field=>$label): ?>
         <div class="qz-field">
           <label for="<?= h($field) ?>"><strong><?= h($label) ?></strong></label>
           <select class="adam-input" id="<?= h($field) ?>" name="<?= h($field) ?>">

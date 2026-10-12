@@ -857,7 +857,7 @@ if ($alias !== '') set_cookie('quiz_attempt', $alias);
    ========================= */
 $st = $pdo->prepare("
   SELECT id, title, description, is_active, start_at, end_at, questions_per_attempt, duration_minutes,
-         require_fullscreen_override, pause_when_blur_override, block_context_menu_override, block_shortcuts_override, devtools_detect_override,
+         require_fullscreen_override, pause_when_blur_override, block_context_menu_override, block_shortcuts_override, devtools_detect_override, show_exam_badge_override,
          shuffle_answers, timer_warning_seconds, allow_mark_for_review, result_visibility
   FROM quizzes
   WHERE id = :id
@@ -970,6 +970,7 @@ $quiz['proctor'] = [
   'blockContextMenu' => $quiz['block_context_menu_override'] === null ? true : (int)$quiz['block_context_menu_override'] === 1,
   'blockShortcuts' => $quiz['block_shortcuts_override'] === null ? true : (int)$quiz['block_shortcuts_override'] === 1,
   'devtoolsDetect' => $quiz['devtools_detect_override'] === null ? true : (int)$quiz['devtools_detect_override'] === 1,
+  'showBadge' => $quiz['show_exam_badge_override'] === null ? true : (int)$quiz['show_exam_badge_override'] === 1,
 ];
 if ($isBeginRequest && !qz_public_csrf_check(qz_public_csrf_from_request())) {
   http_response_code(403);

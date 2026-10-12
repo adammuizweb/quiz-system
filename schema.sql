@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS `quizzes` (
   `block_context_menu_override` TINYINT(1) NULL,
   `block_shortcuts_override` TINYINT(1) NULL,
   `devtools_detect_override` TINYINT(1) NULL,
+  `show_exam_badge_override` TINYINT(1) NULL,
   `description` TEXT NULL,
   `created_by` INT UNSIGNED NOT NULL,
   `is_active` TINYINT(1) NOT NULL DEFAULT 1,

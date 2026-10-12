@@ -7,7 +7,8 @@ Current release: `1.8.2`.
 Quiz `1.8.2` keeps confirmation UI aligned with per-Quiz OTP overrides and makes
 an administrator reset release the previous browser/device binding so the
 participant can start again from their current browser. Question navigation now
-also turns a category range green as soon as every question in it is answered.
+also turns a category range green as soon as every question in it is answered,
+and each Quiz can hide the floating exam-mode warning badge independently.
 
 Quiz `1.8.1` fixes participant question loading by rendering public API URLs as
 JSON before composing the take-page JavaScript. PHP tags can no longer leak
