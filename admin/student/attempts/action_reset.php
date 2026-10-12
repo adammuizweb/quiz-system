@@ -42,6 +42,9 @@ try {
         otp_wa_sent_at = NULL,
         otp_try_count = 0,
         otp_locked_at = NULL,
+        token_hash = '',
+        user_agent_hash = '',
+        ip_address = NULL,
         last_activity_at = NOW(),
         reset_count = reset_count + 1,
         reset_at = NOW(),
@@ -67,6 +70,6 @@ try {
 }
 
 $loc = $base . '/?page=admin/quiz/attempts/view&attempt_id=' . $attempt_id;
-qz_flash_set('msg', 'Attempt reset and new OTP generated.');
+qz_flash_set('msg', 'Attempt reset. The participant can continue from a new browser/device.');
 
 qz_redirect($loc);

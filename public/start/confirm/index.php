@@ -778,17 +778,35 @@ $deliveryModeField = '
   </fieldset>';
 
 $attemptInfo = '';
-$btnLabel = 'Start &amp; Get OTP';
+$btnLabel = $verificationRequired ? 'Start &amp; Get OTP' : 'Continue';
 if ($attempt) {
-  $lockedNow = !empty($attempt['otp_locked_at']) || ((int)($attempt['otp_try_count'] ?? 0) >= 10);
+  $lockedNow = $verificationRequired
+    && (!empty($attempt['otp_locked_at']) || ((int)($attempt['otp_try_count'] ?? 0) >= 10));
   $attemptInfo = '
     <div class="st-note" style="margin-top:10px">
       An attempt has been created (status: <b>'.h((string)$attempt['status']).'</b>).
       '.($lockedNow ? '<div style="margin-top:6px;color:#7f1d1d">⚠️ OTP is locked. Contact the admin to reset the attempt.</div>' : '').'
     </div>
   ';
-  $btnLabel = 'Continue to OTP Verification';
+  $btnLabel = $verificationRequired ? 'Continue to OTP Verification' : 'Continue';
 }
+
+$verificationSteps = $verificationRequired
+  ? '<div class="rz-step">4. OTP Verification</div><div class="rz-step">5. Take Quiz</div>'
+  : '<div class="rz-step">4. Take Quiz</div>';
+$proceedInfo = $verificationRequired
+  ? '<div class="st-note" style="margin-top:12px">
+      Once you proceed, the system will:
+      <ul style="margin:8px 0 0 18px;line-height:1.6">
+        <li>create an attempt for this quiz (one-time)</li>
+        <li>generate an OTP and a device token</li>
+        <li>lock the attempt identity (prevents changing email/WhatsApp after start)</li>
+      </ul>
+      <div style="margin-top:8px"><b>Important note:</b> once the status becomes <b>in_progress</b>, you cannot return to the Start/Verify steps to reset the OTP/state.</div>
+    </div>'
+  : '<div class="st-note" style="margin-top:12px">
+      OTP verification is disabled for this quiz. Continue to bind this browser/device and open the quiz directly.
+    </div>';
 
 $alert = '';
 if ($msg !== '') $alert .= '<div class="st-alert ok">'.h($msg).'</div>';
@@ -825,8 +843,7 @@ $content_html = '
         <div class="rz-step">1. Registration</div>
         <div class="rz-step">2. Select Quiz</div>
         <div class="rz-step active">3. Confirmation</div>
-        <div class="rz-step">4. OTP Verification</div>
-        <div class="rz-step">5. Take Quiz</div>
+        '.$verificationSteps.'
       </div>
     </div>
 
@@ -854,17 +871,7 @@ $content_html = '
 
       '.$attemptInfo.'
 
-      <div class="st-note" style="margin-top:12px">
-        Once you proceed, the system will:
-        <ul style="margin:8px 0 0 18px;line-height:1.6">
-          <li>create an attempt for this quiz (one-time)</li>
-          <li>generate an OTP and a device token</li>
-          <li>lock the attempt identity (prevents changing email/WhatsApp after start)</li>
-        </ul>
-        <div style="margin-top:8px">
-          <b>Important note:</b> once the status becomes <b>in_progress</b>, you cannot return to the Start/Verify steps to "reset" the OTP/state.
-        </div>
-      </div>
+      '.$proceedInfo.'
 
       <form method="post" style="margin:14px 0 0">
         '.$csrfField.'

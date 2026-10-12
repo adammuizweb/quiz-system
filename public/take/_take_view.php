@@ -33,7 +33,11 @@ if ($navSections) {
     $nm = h((string)($s['name'] ?? 'Lainnya'));
     $st = (int)($s['start'] ?? 1);
     $en = (int)($s['end'] ?? $st);
-    $sectionsHtml .= '<button type="button" class="qt-sec" data-start="'.$st.'" data-end="'.$en.'" data-seq="'.$st.'">'
+    $sectionDone = true;
+    for ($seq = $st; $seq <= $en; $seq++) {
+      if (empty($ctx['answered_map'][$seq])) { $sectionDone = false; break; }
+    }
+    $sectionsHtml .= '<button type="button" class="qt-sec'.($sectionDone?' done':'').'" data-start="'.$st.'" data-end="'.$en.'" data-seq="'.$st.'">'
       .$nm.' <span class="qt-sec-range">'.$st.'–'.$en.'</span>'
       .'</button>';
   }
@@ -245,6 +249,11 @@ $content_html = <<<HTML
   outline: 3px solid rgba(99,102,241,.18);
   border-color: rgba(99,102,241,.35);
 }
+.qt-sec.done{
+  background: rgba(34,197,94,.18);
+  border-color: rgba(34,197,94,.35);
+}
+.qt-sec.done .qt-sec-range{ opacity:.85; }
 
 .qt-grid{
   margin-top:12px;

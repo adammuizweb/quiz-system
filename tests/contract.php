@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.8.1', 'plugin version must be 1.8.1');
+$check(($manifest['version'] ?? null) === '1.8.2', 'plugin version must be 1.8.2');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -967,7 +967,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1017,7 +1017,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1037,7 +1037,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.1'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.2'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261010-per-quiz-overrides'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1061,7 +1061,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1153,7 +1153,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.8.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.8.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1181,7 +1181,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.1'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.8.2'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261010-per-quiz-overrides'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -1307,6 +1307,13 @@ $check(str_contains($takeContext, '$needsPreparation = !$packageComplete || empt
     && str_contains($timerHelper, 'if (!$startIfMissing && !$finalizeIfExpired)'), 'take-page GET is read-only and preparation requires CSRF-protected POST');
 $check(substr_count($takeJs, 'input.className = "qt-choice-input";') === 2, 'single and multiple choice controls must share aligned input styling');
 $check(str_contains($takeView, '.qt-answers .qt-choice-input{') && str_contains($takeView, 'margin:5px 0 0;'), 'choice controls must align vertically with the 28px answer badge');
+$check(str_contains($takeView, "class=\"qt-sec'.(\$sectionDone?' done':'').'\"")
+    && str_contains($takeView, '.qt-sec.done{')
+    && str_contains($takeJs, 'function refreshSectionStates()')
+    && str_contains($takeJs, 'if (!answeredMap[seq]) done = false;')
+    && substr_count($takeJs, 'answeredMap[answerSeq]') === 3
+    && strpos($takeJs, 'buildSectionsUI();') < strpos($takeJs, 'refreshProgressUI();', strpos($takeJs, 'buildSectionsUI();')),
+    'category navigation must render and live-update its completed state after every question in the range is answered');
 $check(str_contains($pluginSource, "'api/set_review.php' => 'api/set_review.php'")
     && str_contains($pluginSource, "'result' => 'result/index.php'"), 'review and result routes must be explicitly allowlisted');
 $check(str_contains($reviewSource, 'qz_public_csrf_check') && str_contains($reviewSource, 'FOR UPDATE')
@@ -2252,6 +2259,10 @@ $check(str_contains($otpGenerate, "status'] ?? '') !== 'registered'")
     && !str_contains($otpGenerate, 'submitted_at = NULL'), 'OTP rotation must not reopen or rewind a non-registered attempt');
 $check(str_contains($otpGenerate, 'otp_try_count = 0') && str_contains($otpGenerate, 'otp_locked_at = NULL')
     && str_contains($otpReset, 'otp_try_count = 0') && str_contains($otpReset, 'otp_locked_at = NULL'), 'OTP rotation and reset must clear verifier lockout state');
+$check(str_contains($otpReset, "token_hash = ''")
+    && str_contains($otpReset, "user_agent_hash = ''")
+    && str_contains($otpReset, 'ip_address = NULL'),
+    'attempt reset must release the previous participant browser and device binding');
 $check(!str_contains($otpGenerate, "'OTP baru: ' . \$otp")
     && !str_contains($otpReset, "'Attempt di-reset. OTP baru: ' . \$otp"), 'plaintext OTP must not be copied into generic session flash messages');
 
@@ -2260,6 +2271,11 @@ $check(str_contains($confirmSource, 'verification_required_override')
     && str_contains($confirmSource, "verified_via='quiz_override'")
     && str_contains($confirmSource, "go(quiz_public_url('take', ['a' => \$attempt_alias]))"),
     'OTP override must atomically verify new attempts and continue with their exact alias');
+$check(str_contains($confirmSource, "\$btnLabel = \$verificationRequired ? 'Start &amp; Get OTP' : 'Continue';")
+    && str_contains($confirmSource, "\$btnLabel = \$verificationRequired ? 'Continue to OTP Verification' : 'Continue';")
+    && str_contains($confirmSource, ": '<div class=\"rz-step\">4. Take Quiz</div>';")
+    && str_contains($confirmSource, 'OTP verification is disabled for this quiz.'),
+    'confirmation copy and progress steps must omit OTP when the per-Quiz override disables verification');
 $check(str_contains($takeContext, "'requireFullscreen' => \$quiz['require_fullscreen_override'] === null ? true")
     && str_contains($takeContext, "'devtoolsDetect' => \$quiz['devtools_detect_override'] === null ? true")
     && str_contains($takeJs, 'requireFullscreen: {$requireFullscreenJson}')

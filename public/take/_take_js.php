@@ -1079,9 +1079,23 @@ right.textContent =
 
   let submitNudged = false;
 
+  function refreshSectionStates(){
+    if (!navSections) return;
+    navSections.querySelectorAll(".qt-sec").forEach(btn=>{
+      const start = Number(btn.dataset.start || 0);
+      const end = Number(btn.dataset.end || 0);
+      let done = start > 0 && end >= start;
+      for (let seq=start; done && seq<=end; seq++) {
+        if (!answeredMap[seq]) done = false;
+      }
+      btn.classList.toggle("done", done);
+    });
+  }
+
 function refreshProgressUI(){
   const c = countAnswered();
   if (elProgress) elProgress.textContent = c + "/" + total;
+  refreshSectionStates();
 
   if (btnSubmit) {
     const ready = (c === total);
@@ -1234,6 +1248,7 @@ let meta = "Question " + payload.seq + " from " + payload.total +
     if (elAnswers) elAnswers.innerHTML = "";
 
     const qType = payload.question_type;
+    const answerSeq = Number(payload.seq || 0);
     if (!elAnswers) return;
 
     if (qType === "text" || qType === "number") {
@@ -1261,8 +1276,8 @@ let meta = "Question " + payload.seq + " from " + payload.total +
             });
 
             const ok = (String(field.value || "").trim() !== "");
-            answeredMap[currentSeq] = ok ? 1 : 0;
-            setDotState(currentSeq, ok);
+            answeredMap[answerSeq] = ok ? 1 : 0;
+            setDotState(answerSeq, ok);
             refreshProgressUI();
           }catch(e){
             showAlert("error", e.message);
@@ -1311,8 +1326,8 @@ let meta = "Question " + payload.seq + " from " + payload.total +
             });
 
             const ok = nowSelected.length > 0;
-            answeredMap[currentSeq] = ok ? 1 : 0;
-            setDotState(currentSeq, ok);
+            answeredMap[answerSeq] = ok ? 1 : 0;
+            setDotState(answerSeq, ok);
             refreshProgressUI();
           }catch(e){
             showAlert("error", e.message);
@@ -1360,8 +1375,8 @@ let meta = "Question " + payload.seq + " from " + payload.total +
               selected_answer_id: ans.id
             });
 
-            answeredMap[currentSeq] = 1;
-            setDotState(currentSeq, true);
+            answeredMap[answerSeq] = 1;
+            setDotState(answerSeq, true);
             refreshProgressUI();
           }catch(e){
             showAlert("error", e.message);
@@ -1512,8 +1527,8 @@ if (btnSubmit) btnSubmit.addEventListener("click", async ()=>{
     await doSubmit(true);
   }
 
-  refreshProgressUI();
   buildSectionsUI();
+  refreshProgressUI();
   syncTimerFrom({timer: {$timerJson}});
 
   (async function startExam(){
