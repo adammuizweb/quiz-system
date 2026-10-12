@@ -2,7 +2,11 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.8.0`.
+Current release: `1.8.1`.
+
+Quiz `1.8.1` fixes participant question loading by rendering public API URLs as
+JSON before composing the take-page JavaScript. PHP tags can no longer leak
+literally into the browser script and stop execution at the first question.
 
 Quiz `1.8.0` adds nullable per-Quiz overrides for OTP verification and the
 fullscreen, focus, context-menu, shortcut, and DevTools proctor controls. A

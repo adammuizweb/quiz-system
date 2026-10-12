@@ -22,6 +22,11 @@ $csrfTokenJson   = json_encode($csrfToken, $scriptJsonFlags);
 // OPTIONAL (kalau sudah kamu isi di _take_ctx.php)
 $navSectionsJson = json_encode(($ctx['nav_sections'] ?? []), $scriptJsonFlags);
 $navCatMapJson   = json_encode(($ctx['nav_cat_map'] ?? []), $scriptJsonFlags);
+$apiGetJson      = json_encode(quiz_public_url('api/get_question.php'), $scriptJsonFlags);
+$apiSaveJson     = json_encode(quiz_public_url('api/save_answer.php'), $scriptJsonFlags);
+$apiSubmitJson   = json_encode(quiz_public_url('api/submit.php'), $scriptJsonFlags);
+$apiReviewJson   = json_encode(quiz_public_url('api/set_review.php'), $scriptJsonFlags);
+$proctorApiJson  = json_encode(quiz_public_url('api/proctor_event.php'), $scriptJsonFlags);
 $requireFullscreenJson = !empty($quiz['proctor']['requireFullscreen']) ? 'true' : 'false';
 $pauseWhenBlurJson = !empty($quiz['proctor']['pauseWhenBlur']) ? 'true' : 'false';
 $blockContextMenuJson = !empty($quiz['proctor']['blockContextMenu']) ? 'true' : 'false';
@@ -35,6 +40,11 @@ if ($timerJson === false) $timerJson = '{}';
 if ($csrfTokenJson === false) $csrfTokenJson = '""';
 if ($navSectionsJson === false) $navSectionsJson = '[]';
 if ($navCatMapJson === false) $navCatMapJson = '{}';
+if ($apiGetJson === false) $apiGetJson = '""';
+if ($apiSaveJson === false) $apiSaveJson = '""';
+if ($apiSubmitJson === false) $apiSubmitJson = '""';
+if ($apiReviewJson === false) $apiReviewJson = '""';
+if ($proctorApiJson === false) $proctorApiJson = '""';
 
 $take_js_html = <<<HTML
 <script>
@@ -303,11 +313,11 @@ function makeOptBadge(i){
   }
 
   // ===== API PATH =====
-  const API_GET    = <?= json_encode(quiz_public_url('api/get_question.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-  const API_SAVE   = <?= json_encode(quiz_public_url('api/save_answer.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-  const API_SUBMIT = <?= json_encode(quiz_public_url('api/submit.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-  const API_REVIEW = <?= json_encode(quiz_public_url('api/set_review.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-  const PROCTOR_API = <?= json_encode(quiz_public_url('api/proctor_event.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const API_GET    = {$apiGetJson};
+  const API_SAVE   = {$apiSaveJson};
+  const API_SUBMIT = {$apiSubmitJson};
+  const API_REVIEW = {$apiReviewJson};
+  const PROCTOR_API = {$proctorApiJson};
 
   // ===== TIMER STATE =====
   let serverOffsetSec = 0;
