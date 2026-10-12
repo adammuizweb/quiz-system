@@ -189,6 +189,7 @@ $start_mode_labels = [
 $visual_theme_labels = [
   'default' => 'Default',
   'studio' => 'Studio',
+  'navy' => 'Navy',
 ];
 $enabled_methods = [];
 if ($otp_email_enabled) $enabled_methods[] = 'Email';
@@ -326,8 +327,9 @@ $test_number_preview = function_exists('quiz_format_test_number')
             <?= isset($field_errors['quiz_visual_theme']) ? 'aria-invalid="true"' : '' ?>>
             <option value="default" <?= $visual_theme === 'default' ? 'selected' : '' ?>>Default</option>
             <option value="studio" <?= $visual_theme === 'studio' ? 'selected' : '' ?>>Studio</option>
+            <option value="navy" <?= $visual_theme === 'navy' ? 'selected' : '' ?>>Navy</option>
           </select>
-          <p class="qz-field-help" id="quiz_visual_theme_help">Default preserves the current colors. Studio uses a navy, lime, violet, coral, and aqua palette. Individual Quizzes can override this setting.</p>
+          <p class="qz-field-help" id="quiz_visual_theme_help">Default preserves the current colors. Studio is playful and high-contrast. Navy pairs deep blue, warm gold, and ivory for a more formal appearance. Individual Quizzes can override this setting.</p>
           <?php if (isset($field_errors['quiz_visual_theme'])): ?>
             <p class="qz-field-error" id="quiz_visual_theme_error"><?= h($field_errors['quiz_visual_theme']) ?></p>
           <?php endif; ?>

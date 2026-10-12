@@ -249,6 +249,7 @@ $ownerLine = ($owner !== '' || $oemail !== '')
             <option value="" <?= $visual_theme_override===''?'selected':'' ?>>Use global setting</option>
             <option value="default" <?= $visual_theme_override==='default'?'selected':'' ?>>Default</option>
             <option value="studio" <?= $visual_theme_override==='studio'?'selected':'' ?>>Studio</option>
+            <option value="navy" <?= $visual_theme_override==='navy'?'selected':'' ?>>Navy</option>
           </select>
         </div>
       <?php $labels = ['verification_required_override'=>'OTP verification','require_fullscreen_override'=>'Require fullscreen','pause_when_blur_override'=>'Pause when tab/window loses focus','block_context_menu_override'=>'Block right-click','block_shortcuts_override'=>'Block copy, paste, shortcuts','devtools_detect_override'=>'Detect DevTools','show_exam_badge_override'=>'Show exam mode badge']; foreach ($labels as $field=>$label): ?>

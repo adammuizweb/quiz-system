@@ -381,7 +381,7 @@ function quiz_safe_result_visibility(mixed $value): string {
 
 function quiz_normalize_visual_theme(mixed $value): string {
   $value = strtolower(trim((string)$value));
-  if (!in_array($value, ['default', 'studio'], true)) {
+  if (!in_array($value, ['default', 'studio', 'navy'], true)) {
     throw new InvalidArgumentException('Invalid visual theme.');
   }
   return $value;

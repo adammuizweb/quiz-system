@@ -98,6 +98,38 @@ $resultStyles = <<<'HTML'
   .qr.qr-theme-studio .qr-hero{ box-shadow:0 24px 70px rgba(16,22,47,.18); }
   .qr.qr-theme-studio .qr-score-ring{ box-shadow:0 18px 45px rgba(16,22,47,.28); }
   .qr.qr-theme-studio .qr-button:hover{ transform:translateY(-2px); box-shadow:0 8px 0 rgba(16,22,47,.16); }
+  .qr.qr-theme-navy{
+    --qr-bg:#fffaf0;
+    --qr-paper:#fff;
+    --qr-ink:#132842;
+    --qr-muted:#5f6f82;
+    --qr-line:rgba(19,40,66,.14);
+    --qr-accent:#274977;
+    --qr-accent-soft:#fff1d4;
+    --qr-highlight:#fcbc55;
+    --qr-positive:#16865b;
+    --qr-score:#ffd992;
+    --qr-coral:#fcbc55;
+    --qr-hero:#0b1f35;
+    --qr-hero-soft:#132842;
+    --qr-on-hero:#fffaf0;
+    --qr-on-hero-muted:#d9e1e8;
+    --qr-track:#e5e9ec;
+    background:
+      radial-gradient(800px 520px at 7% 3%,rgba(252,188,85,.16),transparent 58%),
+      radial-gradient(740px 500px at 96% 8%,rgba(39,73,119,.13),transparent 58%),
+      linear-gradient(180deg,#fffaf0 0%,#fff 58%,#f7f8f4 100%);
+  }
+  .qr.qr-theme-navy .qr-hero{ box-shadow:0 24px 70px rgba(11,31,53,.18); }
+  .qr.qr-theme-navy .qr-hero::before{ border-color:#fcbc55; opacity:.30; }
+  .qr.qr-theme-navy .qr-score-ring{ box-shadow:0 18px 45px rgba(11,31,53,.28); }
+  .qr.qr-theme-navy .qr-metric,
+  .qr.qr-theme-navy .qr-category,
+  .qr.qr-theme-navy .qr-footer{ box-shadow:0 14px 36px rgba(11,31,53,.06); }
+  .qr.qr-theme-navy .qr-progress > i{ background:linear-gradient(90deg,#274977,#fcbc55); }
+  .qr.qr-theme-navy .qr-button{ color:#fffaf0; box-shadow:0 12px 24px rgba(11,31,53,.22); }
+  .qr.qr-theme-navy .qr-button:hover{ background:#fcbc55; color:#132842; filter:none; transform:translateY(-2px); }
+  .qr.qr-theme-navy .qr-button:focus-visible{ outline-color:#fcbc55; }
   .qr-shell{ width:min(1120px,100%); margin:0 auto; }
   .qr-topbar{ display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:18px; }
   .qr-brand{ display:flex; align-items:center; gap:12px; min-width:0; }
@@ -177,6 +209,7 @@ $resultStyles = <<<'HTML'
     .qr-footer{ align-items:stretch; flex-direction:column; }
     .qr-button{ width:100%; }
     .qr.qr-theme-studio .qr-hero{ box-shadow:0 18px 44px rgba(16,22,47,.16); }
+    .qr.qr-theme-navy .qr-hero{ box-shadow:0 18px 44px rgba(11,31,53,.16); }
   }
   @media (max-width:420px){
     .qr-hero{ padding:26px 20px; }

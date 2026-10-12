@@ -678,6 +678,66 @@ function makeOptBadge(i){
     body.qz-theme-studio #qzWarnList{ background:#f2f4ee; border-color:#ccd2ca; color:#10162f; }
     body.qz-theme-studio #qzExamBadge{ background:#10162f; color:#d9ff63; }
 
+    body.qz-theme-navy #qzProctorOverlay,
+    body.qz-theme-navy #qzDoneModal,
+    body.qz-theme-navy #qzSubmitWarn1,
+    body.qz-theme-navy #qzSubmitWarn2{
+      background:rgba(11,31,53,.70);
+      backdrop-filter:blur(8px);
+      -webkit-backdrop-filter:blur(8px);
+    }
+    body.qz-theme-navy #qzProctorCard,
+    body.qz-theme-navy #qzDoneCard,
+    body.qz-theme-navy #qzSubmitWarn1Card,
+    body.qz-theme-navy #qzSubmitWarn2Card{
+      background:#fff;
+      border-color:rgba(19,40,66,.16);
+      border-radius:24px;
+      color:#132842;
+      box-shadow:0 28px 70px rgba(11,31,53,.24);
+    }
+    body.qz-theme-navy #qzProctorBadge{
+      background:#fff1d4;
+      border-color:#fcbc55;
+      color:#132842;
+    }
+    body.qz-theme-navy #qzProctorMsg,
+    body.qz-theme-navy #qzProctorMini,
+    body.qz-theme-navy #qzProctorRules,
+    body.qz-theme-navy #qzDoneMsg,
+    body.qz-theme-navy #qzWarn1Msg,
+    body.qz-theme-navy #qzWarn2Msg{ color:#5f6f82; }
+    body.qz-theme-navy .qzLine{ background:rgba(19,40,66,.14); }
+    body.qz-theme-navy .qzBtnPrimary{
+      background:#132842;
+      color:#fffaf0;
+      box-shadow:0 12px 24px rgba(11,31,53,.20);
+    }
+    body.qz-theme-navy .qzBtnPrimary:hover{ background:#fcbc55; color:#132842; }
+    body.qz-theme-navy .qzBtnGhost{
+      background:#f7f8f4;
+      border-color:rgba(19,40,66,.16);
+      color:#132842;
+    }
+    body.qz-theme-navy .qzBtn:focus-visible{
+      outline:3px solid #fcbc55;
+      outline-offset:3px;
+    }
+    body.qz-theme-navy #qzWarnList{
+      background:#f7f8f4;
+      border-color:rgba(19,40,66,.14);
+      color:#132842;
+    }
+    body.qz-theme-navy #qzExamBadge{
+      background:#132842;
+      color:#ffd992;
+      box-shadow:0 12px 30px rgba(11,31,53,.24);
+    }
+    body.qz-theme-navy .qt-btn.danger.qz-submit-ready{
+      background:#b42318;
+      box-shadow:0 14px 32px rgba(180,35,24,.22);
+    }
+
   `;
   document.head.appendChild(css);
 

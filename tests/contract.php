@@ -338,13 +338,14 @@ $themeNormalizerRejected = false;
 try { quiz_normalize_visual_theme('custom'); } catch (InvalidArgumentException) { $themeNormalizerRejected = true; }
 $check($normalizerRejected && quiz_safe_result_visibility('answers') === 'hidden'
     && $themeNormalizerRejected && quiz_normalize_visual_theme(' STUDIO ') === 'studio'
+    && quiz_normalize_visual_theme(' NAVY ') === 'navy'
     && quiz_safe_visual_theme('custom') === 'default' && quiz_safe_visual_theme_override('custom') === null
     && quiz_safe_bool(null, 1) === 1, 'quiz setting helpers must validate input strictly and fail closed for stored values');
 $visualThemePdo = new PDO('sqlite::memory:');
 $visualThemePdo->exec('CREATE TABLE settings (`key` TEXT PRIMARY KEY, `value` TEXT)');
 $visualThemePdo->exec('CREATE TABLE quizzes (id INTEGER PRIMARY KEY, visual_theme_override TEXT)');
 $visualThemePdo->exec("INSERT INTO settings (`key`,`value`) VALUES ('quiz_visual_theme','default')");
-$visualThemePdo->exec("INSERT INTO quizzes (id,visual_theme_override) VALUES (9,'studio'),(10,NULL),(11,'invalid')");
+$visualThemePdo->exec("INSERT INTO quizzes (id,visual_theme_override) VALUES (9,'studio'),(10,NULL),(11,'invalid'),(12,'navy')");
 quiz_set_public_route_context('tpa', 9);
 $dedicatedTheme = quiz_public_visual_theme($visualThemePdo);
 quiz_set_public_route_context('assessment', 10);
@@ -355,8 +356,16 @@ quiz_set_public_route_context('assessment', 11);
 $invalidOverrideTheme = quiz_public_visual_theme($visualThemePdo);
 quiz_set_public_route_context('assessment', null);
 $globalTheme = quiz_public_visual_theme($visualThemePdo);
+$visualThemePdo->exec("UPDATE settings SET `value`='navy' WHERE `key`='quiz_visual_theme'");
+quiz_set_public_route_context('navy-assessment', 12);
+$dedicatedNavyTheme = quiz_public_visual_theme($visualThemePdo);
+quiz_set_public_route_context('assessment', 10);
+$inheritedNavyTheme = quiz_public_visual_theme($visualThemePdo);
+quiz_set_public_route_context('assessment', null);
+$globalNavyTheme = quiz_public_visual_theme($visualThemePdo);
 $check($dedicatedTheme === 'studio' && $inheritedTheme === 'default' && $inheritedStudioTheme === 'studio'
-    && $invalidOverrideTheme === 'studio' && $globalTheme === 'studio',
+    && $invalidOverrideTheme === 'studio' && $globalTheme === 'studio' && $dedicatedNavyTheme === 'navy'
+    && $inheritedNavyTheme === 'navy' && $globalNavyTheme === 'navy',
     'participant visual themes must use a bound Quiz override and otherwise inherit the allowlisted global theme');
 unset($GLOBALS['quiz_public_route_context']);
 final class AssignmentContractStatement extends PDOStatement {
@@ -1280,7 +1289,8 @@ $check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_global_public_pr
 $check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_visual_theme'")
     && str_contains($settingsSource, 'quiz_normalize_visual_theme(')
     && str_contains($settingsSource, 'name="quiz_visual_theme"')
-    && str_contains($settingsSource, '>Studio</option>'),
+    && str_contains($settingsSource, '>Studio</option>')
+    && str_contains($settingsSource, '>Navy</option>'),
     'Quiz settings must validate and persist the global participant visual theme');
 $check(str_contains($settingsSource, "settings_set(\$pdo, 'quiz_global_title'")
     && str_contains($settingsSource, 'quiz_normalize_public_title($global_title)')
@@ -1312,6 +1322,7 @@ $check(str_contains($quizEditSource, 'name="<?= h($field) ?>"')
     'Quiz edit and duplication must preserve every verification and proctor override');
 $check(str_contains($quizEditSource, 'name="visual_theme_override"')
     && str_contains($quizEditSource, 'visual_theme_override = :visual_theme_override')
+    && str_contains($quizEditSource, 'value="navy"')
     && str_contains($quizDuplicateSource, "':visual_theme_override' => quiz_safe_visual_theme_override"),
     'Quiz edit and duplication must preserve a validated nullable visual theme override');
 $check(str_contains($quizAddSource, 'quiz_public_prefix_lock($pdo)')
@@ -1403,14 +1414,17 @@ $check(str_contains($takeContext, 'visual_theme_override')
     && str_contains($takeContext, "settings_get(\$pdo, 'quiz_visual_theme', 'default')")
     && str_contains($takeView, 'qt-theme-studio')
     && str_contains($takeView, '.qt-theme-studio .qt-answers label:has(.qt-choice-input:checked)')
+    && str_contains($takeView, '.qt-theme-navy .qt-answers label:has(.qt-choice-input:checked)')
     && str_contains($takeJs, 'document.body.classList.add("qz-theme-" + VISUAL_THEME)')
-    && str_contains($takeJs, 'body.qz-theme-studio #qzProctorCard'),
+    && str_contains($takeJs, 'body.qz-theme-studio #qzProctorCard')
+    && str_contains($takeJs, 'body.qz-theme-navy #qzProctorCard'),
     'the resolved global or per-Quiz theme must color the take page, answer states, and proctor surfaces');
 $themeResolutionPosition = strpos($takeContext, "\$quiz['visual_theme'] =");
 $submittedGuardPosition = strpos($takeContext, "if (\$status === 'submitted')");
 $check($themeResolutionPosition !== false && $submittedGuardPosition !== false && $themeResolutionPosition < $submittedGuardPosition
     && str_contains($takeContext, "require __DIR__ . '/_submitted_view.php'")
     && str_contains($submittedViewSource, 'qs-theme-studio')
+    && str_contains($submittedViewSource, 'qs-theme-navy')
     && str_contains($submittedViewSource, "quiz_public_url('start')")
     && str_contains($submittedViewSource, "\$visibility === 'hidden'")
     && str_contains($submittedViewSource, 'Results are private')
@@ -1424,6 +1438,13 @@ $check(str_contains($takeView, '.qt-theme-studio .qt-main .qt-card{ box-shadow:1
     && str_contains($resultSource, '.qr.qr-theme-studio .qr-hero{ box-shadow:0 24px 70px rgba(16,22,47,.18); }')
     && str_contains($submittedViewSource, '.qs.qs-theme-studio .qs-result-note{ box-shadow:7px 7px 0 #10162f; }'),
     'Studio theme must carry Study Interest soft and offset shadow depth across take, result, and submitted surfaces');
+$check(str_contains($takeView, '.qt-theme-navy .qt-main .qt-card{')
+    && str_contains($takeView, 'box-shadow:0 18px 50px rgba(11,31,53,.08);')
+    && str_contains($takeJs, 'body.qz-theme-navy #qzProctorCard')
+    && str_contains($takeJs, 'background:#fcbc55; color:#132842;')
+    && str_contains($resultSource, '.qr.qr-theme-navy .qr-hero{ box-shadow:0 24px 70px rgba(11,31,53,.18); }')
+    && str_contains($submittedViewSource, '.qs.qs-theme-navy .qs-result-note{ box-shadow:0 18px 44px rgba(11,31,53,.09); }'),
+    'Navy theme must carry generic navy, warm-gold, ivory, and soft elevation across participant surfaces');
 $check(str_contains($takeView, "class=\"qt-sec'.(\$sectionDone?' done':'').'\"")
     && str_contains($takeView, '.qt-sec.done{')
     && str_contains($takeJs, 'function refreshSectionStates()')
@@ -2431,6 +2452,8 @@ $check(str_contains($helperSource, 'function quiz_public_visual_theme(PDO $pdo, 
     && str_contains($confirmSource, '$quiz_visual_theme_quiz_id = $quiz_id;')
     && str_contains($verifySource, '$quiz_visual_theme_quiz_id = $quiz_id;')
     && str_contains($publicStyleSource, 'body.quiz-theme-studio')
+    && str_contains($publicStyleSource, 'body.quiz-theme-navy')
+    && str_contains($publicStyleSource, '--qz-highlight:#fcbc55;')
     && str_contains($publicStyleSource, '--qz-shadow: 10px 10px 0 #10162f;'),
     'dedicated registration, confirmation, and verification must carry the resolved Quiz theme and contextual journey UI');
 $check(str_contains($takeContext, "'requireFullscreen' => \$quiz['require_fullscreen_override'] === null ? true")
