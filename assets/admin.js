@@ -291,7 +291,6 @@
 
   /* ===== Current-page bulk quiz selection ===== */
   document.querySelectorAll('[data-bulk-form]').forEach(function(form){
-    var englishUi = !!form.closest('.qz-shell');
     var all = form.querySelector('[data-bulk-all]');
     var items = Array.prototype.slice.call(form.querySelectorAll('[data-bulk-item]'));
     var count = form.querySelector('[data-bulk-count]');
@@ -304,7 +303,7 @@
         all.checked = items.length > 0 && selected.length === items.length;
         all.indeterminate = selected.length > 0 && selected.length < items.length;
       }
-      if (count) count.textContent = selected.length + (englishUi ? ' selected' : ' dipilih');
+      if (count) count.textContent = selected.length + ' selected';
       if (submit) submit.disabled = selected.length === 0 || !action || action.value === '';
       items.forEach(function(item){
         var row = item.closest('.qz-row, .qz-select-card');
@@ -324,12 +323,10 @@
       var selected = items.filter(function(item){ return item.checked; });
       if (selected.length === 0 || !action || !/^[01]$/.test(action.value)) return;
       var label = action.value === '1'
-        ? (englishUi ? 'activate' : 'mengaktifkan')
-        : (englishUi ? 'deactivate' : 'menonaktifkan');
+        ? 'activate'
+        : 'deactivate';
       NewNotifConfirm.warning({
-        message: englishUi
-          ? 'Are you sure you want to ' + label + ' ' + selected.length + ' selected quizzes?'
-          : 'Yakin ingin ' + label + ' ' + selected.length + ' quiz terpilih?',
+        message: 'Are you sure you want to ' + label + ' ' + selected.length + ' selected quizzes?',
         variant: 'warning'
       }).then(function(ok){ if (ok) form.submit(); });
     });
@@ -354,7 +351,7 @@
         all.indeterminate = selected.length > 0 && selected.length < items.length;
         all.disabled = items.length === 0;
       }
-      if (count) count.textContent = selected.length + ' dipilih';
+      if (count) count.textContent = selected.length + ' selected';
       if (submit) submit.disabled = selected.length === 0 || !action || action.value === '';
       items.forEach(function(item){
         var row = item.closest('tr');
@@ -372,11 +369,11 @@
     form.addEventListener('submit', function(event){
       event.preventDefault();
       var selected = items.filter(function(item){ return item.checked; });
-      var labels = { activate:'mengaktifkan', deactivate:'menonaktifkan', delete:'menghapus' };
+      var labels = { activate:'activate', deactivate:'deactivate', delete:'delete' };
       var verb = action ? labels[action.value] : '';
       if (!selected.length || !verb) return;
       var options = {
-        message: 'Yakin ingin ' + verb + ' ' + selected.length + ' soal terpilih?',
+        message: 'Are you sure you want to ' + verb + ' ' + selected.length + ' selected questions?',
         variant: action.value === 'delete' ? 'danger' : 'warning'
       };
       (action.value === 'delete' ? NewNotifConfirm.danger : NewNotifConfirm.warning)(options)
@@ -403,7 +400,7 @@
       else url.searchParams.delete('category_id');
       passage.disabled = true;
       passage.setAttribute('aria-busy', 'true');
-      passage.replaceChildren(new Option('Memuat passage...', ''));
+      passage.replaceChildren(new Option('Loading passages...', ''));
       fetch(url.toString(), {
         credentials:'same-origin',
         headers:{ 'Accept':'application/json', 'X-Requested-With':'XMLHttpRequest' }
@@ -412,13 +409,13 @@
           var data = null;
           try { data = JSON.parse(text); } catch (error) {}
           if (!response.ok || !data || data.ok !== true || !Array.isArray(data.passages)) {
-            throw new Error(data && data.error ? data.error : 'Request gagal.');
+            throw new Error(data && data.error ? data.error : 'Request failed.');
           }
           return data.passages;
         });
       }).then(function(passages){
         if (currentRequest !== requestNumber) return;
-        var placeholder = categoryId ? 'Semua passage kategori ini' : 'Semua passage tanpa kategori';
+        var placeholder = categoryId ? 'All passages in this category' : 'All uncategorized passages';
         var options = [new Option(placeholder, '')];
         passages.forEach(function(item){ options.push(new Option(String(item.title || ('Passage #' + item.id)), String(item.id))); });
         passage.replaceChildren.apply(passage, options);
@@ -426,7 +423,7 @@
         passage.removeAttribute('aria-busy');
       }).catch(function(){
         if (currentRequest !== requestNumber) return;
-        passage.replaceChildren(new Option('Gagal memuat passage', ''));
+        passage.replaceChildren(new Option('Could not load passages', ''));
         passage.disabled = false;
         passage.removeAttribute('aria-busy');
       });
@@ -561,7 +558,7 @@
       backdrop.className = 'qz-selector-backdrop';
       var dialog = document.createElement('div');
       dialog.className = 'qz-selector-dialog';
-      dialog.innerHTML = '<button type="button" class="qz-selector-close" aria-label="Tutup">&times;</button><div class="qz-selector-content">Memuat...</div>';
+      dialog.innerHTML = '<button type="button" class="qz-selector-close" aria-label="Close">&times;</button><div class="qz-selector-content">Loading...</div>';
       backdrop.appendChild(dialog);
       (document.getElementById('adam-main') || document.body).appendChild(backdrop);
       var finished = false;
@@ -590,7 +587,7 @@
       fetch(url, { credentials:'include' })
         .then(function(response){ if (!response.ok) throw new Error('HTTP ' + response.status); return response.text(); })
         .then(function(html){ injectQuestionModalHtml(dialog.querySelector('.qz-selector-content'), html); })
-        .catch(function(){ dialog.querySelector('.qz-selector-content').textContent = 'Gagal memuat selector.'; });
+        .catch(function(){ dialog.querySelector('.qz-selector-content').textContent = 'Could not load the selector.'; });
     });
   }
 
@@ -604,7 +601,7 @@
       return response.text().then(function(text){
         var data = null;
         try { data = JSON.parse(text); } catch (error) {}
-        if (!response.ok || !data || data.ok !== true) throw new Error(data && data.error ? data.error : 'Request gagal.');
+        if (!response.ok || !data || data.ok !== true) throw new Error(data && data.error ? data.error : 'Request failed.');
         return data;
       });
     });
@@ -640,7 +637,7 @@
       if (!canEditQuestion) return;
       questionSaveRevision++;
       clearTimeout(questionSaveTimer);
-      setQuestionSaveState('dirty', 'Menunggu autosave soal...');
+      setQuestionSaveState('dirty', 'Waiting to autosave the question...');
       questionSaveTimer = setTimeout(saveQuestionNow, 650);
     }
     function saveQuestionNow(){
@@ -652,7 +649,7 @@
       }
       var questionText = String(mainSource ? mainSource.value : '').trim();
       if (!questionText) {
-        setQuestionSaveState('error', 'Soal wajib diisi sebelum dapat disimpan.');
+        setQuestionSaveState('error', 'Enter the question before saving.');
         return;
       }
       var passageId = passage && passage.value !== '' ? Number(passage.value) : null;
@@ -660,7 +657,7 @@
       var categoryId = !passageId && category && category.value !== '' ? Number(category.value) : null;
       var submittedRevision = questionSaveRevision;
       questionSaveInFlight = true;
-      setQuestionSaveState('saving', 'Menyimpan perubahan soal...');
+      setQuestionSaveState('saving', 'Saving question changes...');
       postQuestionEditorJson(editor.getAttribute('data-question-save-url'), {
         csrf_token:csrf,
         quiz_id:quizId,
@@ -677,22 +674,22 @@
       }).then(function(data){
         if (questionId <= 0) {
           var createdId = Number(data.id || 0);
-          if (createdId <= 0) throw new Error('ID soal baru tidak diterima.');
+          if (createdId <= 0) throw new Error('The new question ID was not returned.');
           questionId = createdId;
           editor.setAttribute('data-question-id', String(createdId));
           editor.setAttribute('data-question-is-new', '0');
           if (answerAdd) answerAdd.disabled = false;
           if (createNote) createNote.hidden = true;
           var editorTitle = editor.querySelector('[data-question-editor-title]');
-          if (editorTitle) editorTitle.textContent = 'Edit Soal';
+          if (editorTitle) editorTitle.textContent = 'Edit Question';
           if (questionEditUrl && window.history && typeof window.history.replaceState === 'function') {
             window.history.replaceState({}, '', questionEditUrl.replace('__QUESTION_ID__', encodeURIComponent(String(createdId))));
           }
         }
         questionSaveInFlight = false;
-        if (questionSaveRevision === submittedRevision) setQuestionSaveState('saved', 'Semua perubahan soal tersimpan.');
+        if (questionSaveRevision === submittedRevision) setQuestionSaveState('saved', 'All question changes are saved.');
         else {
-          setQuestionSaveState('dirty', 'Ada perubahan soal baru yang belum tersimpan.');
+          setQuestionSaveState('dirty', 'New question changes have not been saved yet.');
           clearTimeout(questionSaveTimer);
           questionSaveTimer = setTimeout(saveQuestionNow, 250);
         }
@@ -734,7 +731,7 @@
       var count = (imageId && Number(imageId.value) > 0 ? 1 : 0)
         + (fileId && Number(fileId.value) > 0 ? 1 : 0)
         + (youtubeUrl && youtubeUrl.value.trim() !== '' ? 1 : 0);
-      if (attachmentState) attachmentState.textContent = count > 0 ? count + ' terisi' : 'Belum ada';
+      if (attachmentState) attachmentState.textContent = count > 0 ? count + ' added' : 'None';
     }
     function setQuestionImage(id, url){
       if (imageId) imageId.value = id ? String(id) : '';
@@ -763,7 +760,7 @@
     function setQuestionFile(id, label){
       if (fileId) fileId.value = id ? String(id) : '';
       if (fileIdLabel) fileIdLabel.textContent = id ? String(id) : '-';
-      if (fileLabel) fileLabel.textContent = id ? (label || ('File #' + id)) : 'Belum ada file';
+      if (fileLabel) fileLabel.textContent = id ? (label || ('File #' + id)) : 'No file selected';
       syncQuestionAttachmentState();
       scheduleQuestionAutosave();
     }
@@ -787,8 +784,8 @@
     if (mainForm) mainForm.addEventListener('submit', function(event){ event.preventDefault(); clearTimeout(questionSaveTimer); saveQuestionNow(); });
     questionSaveRetry?.addEventListener('click', function(){ clearTimeout(questionSaveTimer); saveQuestionNow(); });
     if (canEditQuestion) {
-      if (questionId > 0) setQuestionSaveState('saved', 'Semua perubahan soal tersimpan.');
-      else setQuestionSaveState('new', 'Mulai tulis soal untuk membuat record baru.');
+      if (questionId > 0) setQuestionSaveState('saved', 'All question changes are saved.');
+      else setQuestionSaveState('new', 'Start writing the question to create it.');
     }
 
     var answerList = editor.querySelector('[data-answer-list]');
@@ -797,7 +794,7 @@
       var empty = document.createElement('div');
       empty.className = 'empty';
       empty.setAttribute('data-answer-empty', '');
-      empty.textContent = 'Belum ada jawaban untuk soal ini.';
+      empty.textContent = 'This question has no answers yet.';
       answerList.insertAdjacentElement('afterend', empty);
     }
     function wireAnswerRow(row){
@@ -825,17 +822,17 @@
         revision++;
         clearTimeout(saveTimer);
         if (!String(text ? text.value : '').trim()) {
-          setAnswerSaveState('dirty', 'Isi teks jawaban untuk memulai autosave.');
+          setAnswerSaveState('dirty', 'Enter answer text to start autosaving.');
           return;
         }
-        setAnswerSaveState('dirty', 'Menunggu autosave jawaban...');
+        setAnswerSaveState('dirty', 'Waiting to autosave the answer...');
         saveTimer = setTimeout(saveAnswerNow, 650);
       }
       function saveAnswerNow(){
         if (!canEditQuestion) return;
         clearTimeout(saveTimer);
         if (questionId <= 0) {
-          setAnswerSaveState('dirty', 'Simpan isi soal terlebih dahulu.');
+          setAnswerSaveState('dirty', 'Save the question first.');
           return;
         }
         if (saveInFlight) {
@@ -845,16 +842,16 @@
         var answerText = String(text ? text.value : '').trim();
         var score = Number(scoreInput ? scoreInput.value : 0);
         if (!answerText) {
-          setAnswerSaveState('dirty', 'Isi teks jawaban untuk memulai autosave.');
+          setAnswerSaveState('dirty', 'Enter answer text to start autosaving.');
           return;
         }
         if (!Number.isFinite(score) || score < 0 || score > 100) {
-          setAnswerSaveState('error', 'Skor jawaban harus antara 0 sampai 100.');
+          setAnswerSaveState('error', 'The answer score must be between 0 and 100.');
           return;
         }
         var submittedRevision = revision;
         saveInFlight = true;
-        setAnswerSaveState('saving', 'Menyimpan jawaban otomatis...');
+        setAnswerSaveState('saving', 'Autosaving the answer...');
         postQuestionEditorJson(editor.getAttribute('data-answer-save-url'), {
           csrf_token:csrf,
           quiz_id:quizId,
@@ -866,9 +863,9 @@
         }).then(function(data){
           row.setAttribute('data-answer-id', String(data.id));
           saveInFlight = false;
-          if (revision === submittedRevision) setAnswerSaveState('saved', 'Jawaban tersimpan otomatis.');
+          if (revision === submittedRevision) setAnswerSaveState('saved', 'Answer autosaved.');
           else {
-            setAnswerSaveState('dirty', 'Ada perubahan jawaban baru yang belum tersimpan.');
+            setAnswerSaveState('dirty', 'New answer changes have not been saved yet.');
             saveTimer = setTimeout(saveAnswerNow, 250);
           }
           editor.querySelector('[data-answer-empty]')?.remove();
@@ -885,17 +882,17 @@
       if (scoreInput) scoreInput.addEventListener('input', scheduleAnswerAutosave);
       if (activeSelect) activeSelect.addEventListener('change', scheduleAnswerAutosave);
       if (canEditQuestion) {
-        if (Number(row.getAttribute('data-answer-id') || 0) > 0) setAnswerSaveState('saved', 'Jawaban tersimpan otomatis.');
-        else setAnswerSaveState('dirty', 'Isi teks jawaban untuk memulai autosave.');
+        if (Number(row.getAttribute('data-answer-id') || 0) > 0) setAnswerSaveState('saved', 'Answer autosaved.');
+        else setAnswerSaveState('dirty', 'Enter answer text to start autosaving.');
       } else {
-        setAnswerSaveState('readonly', 'Mode baca saja.');
+        setAnswerSaveState('readonly', 'Read-only mode.');
       }
       retryButton?.addEventListener('click', saveAnswerNow);
       deleteButton?.addEventListener('click', function(){
         clearTimeout(saveTimer);
         var id = Number(row.getAttribute('data-answer-id') || 0);
         if (id <= 0) { row.remove(); syncAnswerEmpty(); return; }
-        NewNotifConfirm.danger({ message:'Hapus jawaban ini?', variant:'danger' }).then(function(ok){
+        NewNotifConfirm.danger({ message:'Delete this answer?', variant:'danger' }).then(function(ok){
           if (!ok) return;
           postQuestionEditorJson(editor.getAttribute('data-answer-delete-url'), {
             csrf_token:csrf, quiz_id:quizId, question_id:questionId, id:id
@@ -1376,7 +1373,7 @@
 
     var badHtml = '';
     if (d.badzero > 0) {
-      badHtml = '<div class="qdm-warn"><b>&#9888;</b> ' + d.badzero + ' choice Questions have no Active Answers.</div>';
+      badHtml = '<div class="qdm-warn"><b>&#9888;</b> ' + d.badzero + ' choice questions have no active answers.</div>';
     }
 
     var schedHtml = '';

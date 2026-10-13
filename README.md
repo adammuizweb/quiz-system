@@ -2,7 +2,16 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.9.0`.
+Current release: `1.10.0`.
+
+Quiz `1.10.0` redesigns Master Editor as a responsive question-authoring
+workspace. Desktop uses a bounded, independently scrolling question bank beside
+full-width answer cards, while mobile switches deliberately between the question
+list and editor. Participant previews are collapsed by default, autosave state is
+visible and protected during navigation, and question selection is keyboard
+accessible. The release also standardizes the complete Quiz administration UI
+in English and improves dark-mode contrast throughout the editor and bulk-import
+workflow.
 
 Quiz `1.9.0` adds audited corrections for submitted responses, including an
 immutable answer-key snapshot, required reason, revision conflict protection,
@@ -35,11 +44,9 @@ off, including a Quiz that starts directly without OTP.
 
 ## Admin Experience
 
-Quiz `1.6.0` redesigns the dashboard, quiz management, students, attempts, and
-settings as a responsive administration console with consistent English copy,
-keyboard-friendly action menus, improved focus handling, dark mode, and
-content-hashed admin assets. Master Builder and its category, passage, question,
-and quality-control workflows retain their existing interface and behavior.
+Quiz `1.10.0` brings Master Builder and its category, passage, question, and
+quality-control workflows into the same responsive, English-only administration
+experience introduced for the rest of the plugin in Quiz `1.6.0`.
 
 ## Requirements
 

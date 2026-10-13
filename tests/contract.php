@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.9.0', 'plugin version must be 1.9.0');
+$check(($manifest['version'] ?? null) === '1.10.0', 'plugin version must be 1.10.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -1045,7 +1045,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1095,7 +1095,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1115,7 +1115,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.9.0'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1139,7 +1139,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1231,7 +1231,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.9.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1259,7 +1259,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.9.0'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -2082,29 +2082,71 @@ $check(str_contains($masterBuilder, 'id="btnToggleList"')
     && str_contains($masterBuilder, 'let initialListCollapsed = false')
     && str_contains($masterBuilder, 'localStorage.setItem(masterListStorageKey'), 'Master Builder question list must start visible and use a persistent edge-mounted toggle');
 $check(str_contains($masterBuilder, 'id="questionActions"')
-    && str_contains($masterBuilder, 'id="questionActions" style="display:none;gap:8px;align-items:center"')
-    && str_contains($masterBuilder, "questionActions.style.display = 'flex'")
-    && str_contains($masterBuilder, "questionActions.style.display = 'none'"), 'Master Builder question actions must stay hidden until a question is selected');
+    && str_contains($masterBuilder, 'class="qz-master-question-actions" id="questionActions" hidden')
+    && str_contains($masterBuilder, 'questionActions.hidden = false')
+    && str_contains($masterBuilder, 'questionActions.hidden = true'), 'Master Builder question actions must stay hidden until a question is selected');
 $check(str_contains($masterBuilder, '<details class="attach-wrap attach-disclosure"')
     && str_contains($masterBuilder, 'id="questionAttachmentsState"')
     && str_contains($masterBuilder, 'syncQuestionAttachments(true)'), 'Master Builder attachments must use a native disclosure with populated state feedback');
 $check(str_contains($masterBuilder, 'class="row qz-master-question-column"')
-    && strpos($masterBuilder, 'class="qz-master-answer-section"') < strpos($masterBuilder, 'Posisi di daftar')
-    && str_contains($adminCss, '.master-wrap .list{height:clamp(420px,72vh,900px);overflow:auto}')
-    && str_contains($adminCss, '.master-wrap .qz-master-answer-section{display:grid;gap:6px;margin-top:4px}'), 'Master Builder must keep answers directly below question content and bound the expanded question list to the viewport');
-$check(str_contains($masterBuilder, 'class="qz-live-preview qz-live-preview--question"')
-    && str_contains($masterBuilder, 'Preview soal')
-    && str_contains($masterBuilder, 'class="qz-live-preview qz-live-preview--answer"')
-    && str_contains($masterBuilder, 'Preview jawaban ${index + 1}')
+    && strpos($masterBuilder, 'class="qz-master-answer-section"') < strpos($masterBuilder, 'Position in list')
+    && str_contains($adminCss, '.qz-question-pane #leftPanel{position:absolute;inset:0;display:flex;height:100%;min-height:0;flex-direction:column')
+    && str_contains($adminCss, '.master-wrap .list{flex:1 1 auto;height:auto;min-height:0;overflow:auto;overscroll-behavior:contain')
+    && str_contains($adminCss, '.qz-question-pane #leftPanel{position:static;inset:auto;display:block;height:auto}')
+    && str_contains($adminCss, '.master-wrap .qz-master-answer-section{display:grid;gap:10px;margin:0}'), 'Master Builder must keep answers directly below question content while the desktop question list follows editor height without expanding it');
+$check(str_contains($masterBuilder, 'class="qz-live-preview qz-live-preview--question qz-preview-disclosure"')
+    && str_contains($masterBuilder, 'Question preview')
+    && str_contains($masterBuilder, 'class="qz-live-preview qz-live-preview--answer qz-preview-disclosure"')
+    && str_contains($masterBuilder, 'Answer ${index + 1} preview')
     && str_contains($adminCss, '.qz-live-preview__head{')
-    && str_contains($adminCss, ".qz-live-preview .md-preview:empty::before{content:'Preview akan muncul saat teks diisi.'"), 'Master Builder question and answer previews must be visually identified as participant-facing output');
-$check(str_contains($adminCss, 'grid-template-columns:300px minmax(0,1fr)')
-    && str_contains($adminCss, '.master-wrap .right-body{min-width:0;padding:14px;overflow-x:auto}')
-    && str_contains($adminCss, '.master-wrap #answersBox{max-width:100%;overflow-x:auto}')
-    && str_contains($adminCss, 'grid-template-columns:minmax(0,1fr) minmax(180px,220px);gap:12px;min-width:0;align-items:start')
-    && str_contains($adminCss, '.master-wrap.is-list-collapsed{grid-template-columns:1px minmax(0,1fr);gap:24px;max-width:1180px;margin-inline:auto}')
+    && str_contains($adminCss, ".qz-live-preview .md-preview:empty::before{content:'Preview will appear when text is entered.'"), 'Master Builder question and answer previews must be visually identified as participant-facing output');
+$check(str_contains($masterBuilder, '<details class="qz-live-preview qz-live-preview--question qz-preview-disclosure">')
+    && str_contains($masterBuilder, '<details class="qz-live-preview qz-live-preview--answer qz-preview-disclosure">')
+    && !str_contains($masterBuilder, '<details class="qz-live-preview qz-live-preview--question qz-preview-disclosure" open')
+    && str_contains($adminCss, 'details.qz-preview-disclosure[open]>summary::after'),
+    'Master Builder participant previews must use collapsed-by-default native disclosures');
+$check(str_contains($adminCss, 'html.theme-dark #adam-main .qz-master-section-note{')
+    && str_contains($adminCss, 'html.theme-dark #adam-main .qz-live-preview__head{')
+    && str_contains($adminCss, 'html.theme-dark #adam-main .kbd{border-color:#475569;background:#111827;color:#f1f5f9;'),
+    'Master Builder dark mode must keep Markdown, preview, and keyboard-hint labels legible on explicit dark surfaces');
+$check(str_contains($manifestJson, '"title": "Quiz Questions"')
+    && str_contains($manifestJson, '"title": "Bulk Quiz Questions"')
+    && str_contains($manifestJson, '"title": "Quiz Categories"')
+    && str_contains($manifestJson, '"title": "Add Quiz Category"')
+    && str_contains($manifestJson, '"title": "Quiz Passages"')
+    && str_contains($manifestJson, '"title": "Add Quiz Passage"'),
+    'Quiz admin route metadata must use consistent English titles');
+$check(str_contains($adminCss, 'grid-template-columns:340px minmax(0,1fr)')
+    && str_contains($adminCss, '.master-wrap .right-body{min-width:0;padding:22px 24px 28px;overflow:hidden}')
+    && str_contains($adminCss, '.master-wrap #answersBox{display:grid;max-width:100%;gap:10px;overflow:visible}')
+    && str_contains($adminCss, 'grid-template-columns:minmax(0,1fr) minmax(230px,270px);gap:18px;min-width:0;align-items:start')
+    && str_contains($adminCss, '.master-wrap.is-list-collapsed{grid-template-columns:1px minmax(0,1fr);gap:0}')
     && str_contains($adminCss, '.qz-question-pane__toggle{position:absolute')
-    && str_contains($adminCss, '@media (max-width:1100px)'), 'Master Builder editor must bound grid tracks, stack on narrow screens, and contain unavoidable horizontal overflow locally');
+    && str_contains($adminCss, '@media (max-width:860px)'), 'Master Builder editor must use bounded desktop tracks and an explicit narrow-screen workspace mode without horizontal answer scrolling');
+$check(str_contains($masterBuilder, 'id="btnShowQuestions"')
+    && str_contains($masterBuilder, 'id="btnShowEditor"')
+    && str_contains($masterBuilder, "setMobileView('editor')")
+    && str_contains($masterBuilder, 'mobileMasterQuery.matches')
+    && str_contains($adminCss, '.master-wrap.is-mobile-list .qz-master-editor-panel{display:none}')
+    && str_contains($adminCss, '.master-wrap.is-mobile-editor .qz-question-pane{display:none}'),
+    'Master Builder mobile UI must switch deliberately between the question list and editor without inheriting desktop collapse state');
+$check(str_contains($masterBuilder, 'id="saveStatus"')
+    && str_contains($masterBuilder, 'role="listbox"')
+    && str_contains($masterBuilder, "item.setAttribute('role', 'option')")
+    && str_contains($masterBuilder, 'flushPendingQuestionSave()')
+    && str_contains($masterBuilder, "window.addEventListener('beforeunload'"),
+    'Master Builder must expose accessible selection/save state and protect pending autosave work during navigation');
+$check(str_contains($masterBuilder, 'class="qz-master-empty-state__icon" aria-hidden="true"')
+    && str_contains($masterBuilder, "svg_ico('clipboard-list')")
+    && !str_contains($masterBuilder, 'class="qz-master-empty-state__index">01'),
+    'Master Builder empty selection state must use a semantic question-list icon instead of a numbered step marker');
+$check(str_contains($masterBuilder, 'class="qz-answer-card-head"')
+    && str_contains($masterBuilder, 'class="qz-answer-config"')
+    && str_contains($masterBuilder, 'rows="4"')
+    && str_contains($adminCss, '.master-wrap .answer-row{display:grid;grid-template-columns:minmax(0,1fr)')
+    && str_contains($adminCss, '.master-wrap .answer-preview img{display:block;max-width:100%;height:auto')
+    && str_contains($adminCss, '.qz-answer-config{display:grid;grid-template-columns:minmax(100px,130px) minmax(140px,180px) minmax(0,1fr)'),
+    'Master Builder answer cards must reserve full-width content and preview space before compact score and status controls');
 
 $check(str_contains($adminJs, "document.querySelectorAll('[data-bulk-form]')"), 'admin JavaScript must initialize bulk selection');
 $check(str_contains($adminJs, "e.key === 'ArrowDown'") && str_contains($adminJs, "e.key !== 'Escape'"), 'student action dropdown must support keyboard open and close behavior');
@@ -2493,9 +2535,9 @@ $check(str_contains($initSource, 'function qz_lock_answer_for_mutation')
     'answer mutation ownership must be inherited from a locked, authorized question');
 
 foreach ([
-    'admin/categories/delete.php' => ['question_passages', 'questions', 'milik kolaborator lain'],
+    'admin/categories/delete.php' => ['question_passages', 'questions', 'owned by another collaborator'],
     'admin/master/api/category_delete.php' => ['question_passages', 'questions', 'owned by another collaborator'],
-    'admin/passages/delete.php' => ['questions', 'FOR UPDATE', 'milik kolaborator lain'],
+    'admin/passages/delete.php' => ['questions', 'FOR UPDATE', 'owned by another collaborator'],
     'admin/master/api/passage_delete.php' => ['questions', 'FOR UPDATE', 'owned by another collaborator'],
 ] as $relative => $needles) {
     $source = (string)file_get_contents($pluginRoot . '/' . $relative);
@@ -2571,7 +2613,7 @@ $check($legacyAnswerFiles === []
     && !str_contains($manifestJson, 'admin/quiz/answers')
     && !str_contains($initSource, 'admin/quiz/answers')
     && !str_contains($menuSource, 'admin/quiz/answers'), 'legacy answer CRUD routes and files must remain removed');
-$check(str_contains($dumpSource, 'Edit Soal &amp; Jawaban')
+$check(str_contains($dumpSource, 'Edit Question &amp; Answers')
     && !str_contains($dumpSource, 'admin/quiz/answers')
     && !str_contains($dumpSource, '(Old)'), 'Dump QC must expose only the aggregate question-and-answer editor');
 $legacyQuestions = (string)file_get_contents($pluginRoot . '/admin/questions/index.php');
@@ -2588,7 +2630,7 @@ $check(str_contains($legacyQuestions, '$canViewAllContentMetadata')
     && str_contains($legacyQuestions, 'created_by=:filter_created_by')
     && str_contains($legacyQuestions, '$canShowContext && !empty($qq[\'category_name\'])'), 'contributor filters and foreign question metadata must not expose categories owned by other contributors');
 $check(str_contains($legacyQuestions, "!qz_can_mutate_resource(\$pdo, (int)\$user['id'], \$currentQuiz, \$resource)")
-    && str_contains($legacyQuestions, 'Kategori tidak tersedia untuk contributor ini.'), 'question saves must reject forged foreign category or passage assignments');
+    && str_contains($legacyQuestions, 'This category is not available to this contributor.'), 'question saves must reject forged foreign category or passage assignments');
 $filterPassagesSource = (string)file_get_contents($pluginRoot . '/admin/master/api/filter_passages.php');
 $check(str_contains($legacyQuestions, 'data-passages-url=')
     && !str_contains($legacyQuestions, 'data-category-id=')
@@ -2599,13 +2641,13 @@ $check(str_contains($filterPassagesSource, "require_quiz_exists(\$quizId)")
     && str_contains($filterPassagesSource, "category_id=:category_id")
     && str_contains($filterPassagesSource, "created_by=:created_by"), 'passage filter endpoint must scope results by quiz, category branch, and contributor ownership');
 $check(str_contains($legacyQuestions, 'CASE WHEN p.id IS NOT NULL THEN p.category_id ELSE q.category_id END')
-    && str_contains($legacyQuestions, 'class="qz-question-meta__item"><small>Kategori</small>')
+    && str_contains($legacyQuestions, 'class="qz-question-meta__item"><small>Category</small>')
     && str_contains($legacyQuestions, 'class="qz-question-meta__item"><small>Contributor</small>')
     && !str_contains($legacyQuestions, '🏷')
     && !str_contains($legacyQuestions, '📄'), 'question metadata must show direct or passage context with quiet labelled text instead of emoji chips');
 $check(str_contains($legacyQuestions, 'class="adam-card qz-card qz-shell qz-question-page" data-column-scope')
     && str_contains($legacyQuestions, 'class="qz-table qz-data-table qz-question-table"')
-    && str_contains($legacyQuestions, 'class="table-scroll qz-section__body" role="region" aria-label="Daftar soal" tabindex="0"')
+    && str_contains($legacyQuestions, 'class="table-scroll qz-section__body" role="region" aria-label="Question list" tabindex="0"')
     && str_contains($legacyQuestions, 'class="qz-empty-state"')
     && str_contains($adminCss, '.qz-question-table{min-width:860px}')
     && str_contains($adminCss, '.qz-question-table th:last-child')
@@ -2627,7 +2669,7 @@ $check(str_contains($legacyQuestions, 'data-question-aggregate-editor')
 $check(str_contains($legacyQuestions, "in_array(\$do, ['add', 'edit'], true)")
     && str_contains($legacyQuestions, 'data-question-is-new=')
     && str_contains($legacyQuestions, 'data-question-edit-url=')
-    && str_contains($legacyQuestions, '>+ Tambah Soal</a>')
+    && str_contains($legacyQuestions, '>+ Add Question</a>')
     && !str_contains($legacyQuestions, '+ Tambah Cepat'), 'new questions must open the complete aggregate editor instead of the quick-add form');
 $check(str_contains($adminJs, 'questionId = createdId;')
     && str_contains($adminJs, "window.history.replaceState({}, '', questionEditUrl.replace('__QUESTION_ID__'")
@@ -2635,24 +2677,24 @@ $check(str_contains($adminJs, 'questionId = createdId;')
     && str_contains($adminJs, "if (questionId <= 0) return;"), 'the first AJAX autosave must promote a new question into edit mode before answers can be added');
 $check(str_contains($legacyQuestions, 'class="qz-live-preview qz-live-preview--question"')
     && substr_count($legacyQuestions, 'class="qz-live-preview qz-live-preview--answer"') === 2
-    && str_contains($legacyQuestions, '<span>Preview soal</span><small>Tampilan peserta</small>')
-    && str_contains($legacyQuestions, '<span>Preview jawaban</span><small>Tampilan peserta</small>'), 'legacy aggregate editor must share the participant-preview presentation for questions and answers');
+    && str_contains($legacyQuestions, '<span>Question preview</span><small>Participant view</small>')
+    && str_contains($legacyQuestions, '<span>Answer preview</span><small>Participant view</small>'), 'legacy aggregate editor must share the participant-preview presentation for questions and answers');
 $check(str_contains($legacyQuestions, '<details class="qz-editor-section qz-editor-disclosure" data-question-attachments')
     && str_contains($legacyQuestions, 'data-question-attachment-state')
     && str_contains($adminCss, '.qz-editor-disclosure__summary{')
     && str_contains($adminJs, 'function syncQuestionAttachmentState()')
-    && str_contains($adminJs, "attachmentState.textContent = count > 0 ? count + ' terisi' : 'Belum ada'"), 'legacy question attachments must use a native disclosure with live populated-state feedback');
+    && str_contains($adminJs, "attachmentState.textContent = count > 0 ? count + ' added' : 'None'"), 'legacy question attachments must use a native disclosure with live populated-state feedback');
 $check(str_contains($legacyQuestions, 'class="qz-save-guide" role="note"')
-    && str_contains($legacyQuestions, 'Autosave aktif')
+    && str_contains($legacyQuestions, 'Autosave enabled')
     && str_contains($legacyQuestions, 'data-question-save-url=')
-    && !str_contains($legacyQuestions, 'Simpan Perubahan Soal')
+    && !str_contains($legacyQuestions, 'Save Question Changes')
     && substr_count($legacyQuestions, 'data-answer-save hidden') === 2
     && substr_count($legacyQuestions, 'class="adam-button ghost qz-save-retry"') === 3
     && substr_count($legacyQuestions, "svg_ico('save')") === 3
-    && substr_count($legacyQuestions, 'aria-label="Coba simpan lagi"') === 3
-    && !str_contains($legacyQuestions, '>Coba lagi</button>')
+    && substr_count($legacyQuestions, 'aria-label="Retry save"') === 3
+    && !str_contains($legacyQuestions, '>Retry</button>')
     && str_contains($adminCss, '.qz-save-retry svg{width:16px;height:16px}')
-    && str_contains($legacyQuestions, 'disimpan otomatis per baris melalui AJAX')
+    && str_contains($legacyQuestions, 'saved automatically, one row at a time, via AJAX')
     && str_contains($adminJs, 'function scheduleQuestionAutosave()')
     && str_contains($adminJs, 'function scheduleAnswerAutosave()')
     && substr_count($adminJs, 'setTimeout(saveQuestionNow') >= 2
@@ -2675,7 +2717,7 @@ $check(str_contains($legacyQuestions, 'data-question-bulk-form')
     && str_contains($legacyQuestions, 'data-question-bulk-item')
     && !str_contains($legacyQuestions, '<th width="70">ID</th>'), 'question list must replace confusing record IDs with current-page bulk selection');
 $check(str_contains($adminJs, "document.querySelectorAll('[data-question-bulk-form]')")
-    && str_contains($adminJs, "activate:'mengaktifkan'")
+    && str_contains($adminJs, "activate:'activate'")
     && str_contains($adminJs, 'NewNotifConfirm.danger'), 'question bulk controls must synchronize selection and confirm destructive actions');
 $check(str_contains($questionBulk, "count(\$ids) > 100")
     && str_contains($questionBulk, "['activate', 'deactivate', 'delete']")
@@ -2683,7 +2725,7 @@ $check(str_contains($questionBulk, "count(\$ids) > 100")
 $check(str_contains($legacyQuestions, 'data-question-column-picker')
     && str_contains($legacyQuestions, 'data-question-column="type"')
     && str_contains($legacyQuestions, 'data-question-column="type" checked')
-    && str_contains($legacyQuestions, '<th width="140" data-column="type">Tipe</th>')
+    && str_contains($legacyQuestions, '<th width="140" data-column="type">Type</th>')
     && !str_contains($legacyQuestions, 'data-column="type" hidden'), 'question list must show Type by default while retaining optional column controls');
 $check(str_contains($adminJs, 'quiz-question-columns-v1')
     && str_contains($adminJs, 'localStorage.setItem(storageKey')

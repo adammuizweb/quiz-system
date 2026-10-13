@@ -1,6 +1,6 @@
 {
   "name": "quiz",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "title": "Quiz",
   "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
@@ -56,7 +56,7 @@
       {
         "route": "admin/quiz/questions",
         "file": "admin/questions/index.php",
-        "title": "Soal Quiz",
+        "title": "Quiz Questions",
         "roles": [
           "admin",
           "editor"
@@ -66,7 +66,7 @@
       {
         "route": "admin/quiz/questions/bulk",
         "file": "admin/questions/bulk.php",
-        "title": "Bulk Soal Quiz",
+        "title": "Bulk Quiz Questions",
         "roles": [
           "admin",
           "editor"
@@ -184,7 +184,7 @@
       {
         "route": "admin/quiz/categories/index",
         "file": "admin/categories/index.php",
-        "title": "Kategori Quiz",
+        "title": "Quiz Categories",
         "roles": [
           "admin",
           "editor"
@@ -194,7 +194,7 @@
       {
         "route": "admin/quiz/categories/add",
         "file": "admin/categories/add.php",
-        "title": "Tambah Kategori Quiz",
+        "title": "Add Quiz Category",
         "roles": [
           "admin",
           "editor"
@@ -204,7 +204,7 @@
       {
         "route": "admin/quiz/categories/edit",
         "file": "admin/categories/edit.php",
-        "title": "Edit Kategori Quiz",
+        "title": "Edit Quiz Category",
         "roles": [
           "admin",
           "editor"
@@ -214,7 +214,7 @@
       {
         "route": "admin/quiz/categories/delete",
         "file": "admin/categories/delete.php",
-        "title": "Hapus Kategori Quiz",
+        "title": "Delete Quiz Category",
         "roles": [
           "admin",
           "editor"
@@ -224,7 +224,7 @@
       {
         "route": "admin/quiz/passages/index",
         "file": "admin/passages/index.php",
-        "title": "Passage Quiz",
+        "title": "Quiz Passages",
         "roles": [
           "admin",
           "editor"
@@ -234,7 +234,7 @@
       {
         "route": "admin/quiz/passages/add",
         "file": "admin/passages/add.php",
-        "title": "Tambah Passage Quiz",
+        "title": "Add Quiz Passage",
         "roles": [
           "admin",
           "editor"
@@ -244,7 +244,7 @@
       {
         "route": "admin/quiz/passages/edit",
         "file": "admin/passages/edit.php",
-        "title": "Edit Passage Quiz",
+        "title": "Edit Quiz Passage",
         "roles": [
           "admin",
           "editor"
@@ -254,7 +254,7 @@
       {
         "route": "admin/quiz/passages/delete",
         "file": "admin/passages/delete.php",
-        "title": "Hapus Passage Quiz",
+        "title": "Delete Quiz Passage",
         "roles": [
           "admin",
           "editor"

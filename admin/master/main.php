@@ -71,83 +71,112 @@ $modal = [
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 
-<section class="adam-card">
+<section class="adam-card qz-shell qz-master-page">
   <?php qz_admin_breadcrumb([['label'=>'Master Builder','url'=>$base.'/?page=admin/quiz/master'],['label'=>(string)$quiz['title']]]); ?>
-  <div class="qz-master-head">
-    <div>
-      <h2 style="margin:0">Master Builder — <?= e($quiz['title']) ?></h2>
-      <div class="muted" style="margin-top:6px">
-        1 layar untuk kelola soal + jawaban, auto-save, drag & drop urutan, dan bulk paste.
-      </div>
+  <header class="qz-master-head">
+    <div class="qz-master-head__copy">
+      <div class="qz-eyebrow">Master Editor</div>
+      <h1><?= e($quiz['title']) ?></h1>
+      <p>Organize questions, answers, ordering, and supporting content in one autosaving workspace.</p>
     </div>
     <div class="qz-master-head__actions">
       <a class="adam-button ghost"
-         href="<?= e($returnTo) ?>">← Kembali</a>
+         href="<?= e($returnTo) ?>">Back</a>
       <a class="adam-button"
-         href="<?= e($base) ?>/?page=admin/quiz/questions&quiz_id=<?= (int)$quiz_id ?>">View Lama</a>
+         href="<?= e($base) ?>/?page=admin/quiz/questions&quiz_id=<?= (int)$quiz_id ?>">Question Bank</a>
     </div>
+  </header>
+
+  <div class="qz-master-mobile-nav" role="group" aria-label="Master Editor view">
+    <button type="button" class="is-active" id="btnShowQuestions" aria-pressed="true">Questions <span id="qCountMobile">0</span></button>
+    <button type="button" id="btnShowEditor" aria-pressed="false" disabled>Editor</button>
   </div>
 
-  <div class="master-wrap" id="masterWrap" style="margin-top:14px">
+  <div class="master-wrap is-mobile-list" id="masterWrap">
 
     <!-- LEFT: LIST -->
     <div class="qz-question-pane" id="questionPane">
       <div class="panelq" id="leftPanel">
-        <div class="panel-head">
-          <h3>Daftar Soal</h3>
-          <div class="toolbar">
-            <input class="input" id="qSearch" placeholder="Cari soal... (ketik, auto filter)">
-            <button class="btn small" id="btnAddQ">+ Soal</button>
-            <button class="btn small secondary" id="btnBulk" style="display:none">Bulk</button>
+        <div class="panel-head qz-question-list-head">
+          <div class="qz-panel-title-line">
+            <div>
+              <span class="qz-panel-kicker">Quiz Structure</span>
+              <h2>Questions</h2>
+            </div>
+            <span class="badge" id="qCount">0</span>
           </div>
-          <div class="muted" style="margin-top:8px">
-            Drag & drop untuk urutkan. Klik item untuk edit.
-            <span style="float:right"><span class="badge" id="qCount">0</span></span>
+          <label class="qz-master-search" for="qSearch">
+            <span class="visually-hidden">Search questions</span>
+            <input class="input" type="search" id="qSearch" placeholder="Search content, ID, or category...">
+          </label>
+          <div class="toolbar qz-question-toolbar">
+            <button class="btn small" type="button" id="btnAddQ">+ New Question</button>
+            <button class="btn small secondary" type="button" id="btnBulk">Bulk Import</button>
           </div>
+          <p class="muted">Select a question to edit. Drag items to change their order.</p>
         </div>
-        <div class="list" id="qList"></div>
+        <div class="list" id="qList" role="listbox" aria-label="Questions"></div>
       </div>
-      <button class="qz-question-pane__toggle" type="button" id="btnToggleList" aria-controls="leftPanel" aria-expanded="true" aria-label="Ciutkan daftar soal" title="Ciutkan daftar soal"><span aria-hidden="true">‹</span></button>
+      <button class="qz-question-pane__toggle" type="button" id="btnToggleList" aria-controls="leftPanel" aria-expanded="true" aria-label="Collapse question list" title="Collapse question list"><span aria-hidden="true">‹</span></button>
     </div>
 
     <!-- RIGHT: EDITOR -->
     <div class="panelq qz-master-editor-panel">
-      <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-        <div>
-          <h3 id="editorTitle">Pilih soal</h3>
-          <div class="muted" id="editorMeta">Klik salah satu soal untuk mulai edit</div>
+      <div class="panel-head qz-master-editor-head">
+        <div class="qz-master-editor-heading">
+          <span class="qz-panel-kicker">Question Workspace</span>
+          <h3 id="editorTitle">Select a question</h3>
+          <div class="qz-master-editor-statusline">
+            <span class="muted" id="editorMeta">Select a question to start editing</span>
+            <span class="qz-save-state" id="saveStatus" data-state="idle" role="status" aria-live="polite">Waiting for selection</span>
+          </div>
         </div>
-        <div id="questionActions" style="display:none;gap:8px;align-items:center">
+        <div class="qz-master-question-actions" id="questionActions" hidden>
           <button class="btn small secondary" id="btnYesNo" disabled>Generate Yes/No</button>
-          <button class="btn small danger" id="btnDeleteQ" disabled>Hapus Soal</button>
+          <button class="btn small danger" id="btnDeleteQ" disabled>Delete Question</button>
         </div>
       </div>
 
       <div class="right-body">
-        <div id="emptyState" class="muted">Belum ada soal dipilih.</div>
+        <div id="emptyState" class="qz-master-empty-state">
+          <span class="qz-master-empty-state__icon" aria-hidden="true"><?= svg_ico('clipboard-list') ?></span>
+          <div>
+            <h3>Select a question to begin</h3>
+            <p>Questions are listed in the left panel. On smaller screens, use the Questions tab above.</p>
+          </div>
+        </div>
 
         <div id="editor" style="display:none">
           <div class="grid2">
             <div class="row qz-master-question-column">
-              <div class="label">Soal</div>
-              <textarea class="input textarea" id="questionText" placeholder="Tulis soal di sini..."></textarea>
-              <div class="qz-live-preview qz-live-preview--question">
-                <div class="qz-live-preview__head"><span>Preview soal</span><small>Tampilan peserta</small></div>
-                <div class="md-preview" id="questionPreview"></div>
-              </div>
-              <div class="muted">Auto-save saat kamu berhenti mengetik (debounce).</div>
+              <section class="qz-master-content-card">
+                <div class="qz-master-section-head">
+                  <div>
+                    <span class="qz-panel-kicker">Main Content</span>
+                    <h3>Question</h3>
+                  </div>
+                  <span class="qz-master-section-note">Markdown + Math</span>
+                </div>
+                <label class="label" for="questionText">Question text</label>
+                <textarea class="input textarea" id="questionText" placeholder="Enter the question here..."></textarea>
+                <details class="qz-live-preview qz-live-preview--question qz-preview-disclosure">
+                  <summary class="qz-live-preview__head"><span>Question preview</span><small>Participant view</small></summary>
+                  <div class="md-preview" id="questionPreview"></div>
+                </details>
+                <div class="muted">Changes are saved automatically after you stop typing.</div>
+              </section>
 
               <details class="attach-wrap attach-disclosure" id="questionAttachments">
-                <summary><span>Lampiran (opsional)</span><small id="questionAttachmentsState">Belum ada</small></summary>
+                <summary><span>Attachments (optional)</span><small id="questionAttachmentsState">None</small></summary>
                 <div class="attach-grid">
                   <div class="attach-card">
-                    <div class="label">Gambar</div>
+                    <div class="label">Image</div>
                     <div class="attach-preview" style="margin-top:8px">
                       <img id="imgPreview" alt="Preview">
-                      <div id="imgPH" class="attach-ph">Tidak ada gambar</div>
+                      <div id="imgPH" class="attach-ph">No image</div>
                     </div>
                     <div class="attach-actions">
-                      <button class="btn small" type="button" id="btnPickImage">Pilih dari Media</button>
+                      <button class="btn small" type="button" id="btnPickImage">Select from Media</button>
                       <button class="btn small secondary" type="button" id="btnClearImage">Clear</button>
                     </div>
                     <div class="attach-meta">Media ID: <span id="imgIdTxt">-</span></div>
@@ -157,104 +186,105 @@ $modal = [
                     <div>
                       <div class="label">File</div>
                       <div class="file-pill" style="margin-top:8px">
-                        <div class="file-title" id="fileLabel">Belum ada file</div>
+                        <div class="file-title" id="fileLabel">No file</div>
                         <div class="attach-meta">File ID: <span id="fileIdTxt">-</span></div>
                       </div>
                       <div class="attach-actions">
-                        <button class="btn small" type="button" id="btnPickFile">Pilih File</button>
+                        <button class="btn small" type="button" id="btnPickFile">Select File</button>
                         <button class="btn small secondary" type="button" id="btnClearFile">Clear</button>
                       </div>
                     </div>
 
                     <div class="row" style="margin:0">
-                      <div class="label">Link YouTube</div>
-                      <input class="input" id="youtubeUrl" placeholder="https://youtu.be/... atau https://www.youtube.com/watch?v=...">
-                      <div class="muted">Disimpan di kolom <code>youtube_url</code>.</div>
+                      <label class="label" for="youtubeUrl">YouTube link</label>
+                      <input class="input" id="youtubeUrl" type="url" placeholder="https://youtu.be/... or https://www.youtube.com/watch?v=...">
+                      <div class="muted">Saved in the <code>youtube_url</code> column.</div>
                     </div>
                   </div>
                 </div>
               </details>
 
               <div class="qz-master-answer-section">
-                <div class="hr"></div>
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+                <div class="qz-master-section-head">
                   <div>
-                    <div style="font-weight:800;color:var(--adam-text,#0f172a)">Jawaban</div>
-                    <div class="muted">Drag & drop untuk urutkan jawaban.</div>
+                    <span class="qz-panel-kicker">Response Options</span>
+                    <h3>Answers</h3>
+                    <p>Set the text, score, status, and order of each answer.</p>
                   </div>
-                  <div style="display:flex;gap:8px">
-                    <button class="btn small" id="btnAddA">+ Jawaban</button>
-                  </div>
+                  <button class="btn small" type="button" id="btnAddA">+ Answer</button>
                 </div>
-                <div id="answersBox" style="margin-top:6px"></div>
-                <div class="muted" style="margin-top:10px">
-                  Tips: Untuk pilihan benar/salah, pakai skor 100 & 0. Untuk yang bertingkat, bisa 0..100.
-                </div>
+                <div id="answersBox"></div>
+                <p class="muted qz-answer-tip">Use scores of 100 and 0 for correct/incorrect choices, or a range of 0-100 for weighted scoring.</p>
               </div>
             </div>
 
-            <div>
+            <aside class="qz-master-settings" aria-label="Question settings">
+              <div class="qz-master-settings__head">
+                <span class="qz-panel-kicker">Configuration</span>
+                <h3>Question Settings</h3>
+                <p>Context, type, status, and question position.</p>
+              </div>
               <div class="row">
-                <div class="label">Posisi di daftar</div>
-                <input class="input" id="questionPos" type="number" min="1" placeholder="mis. 6">
+                <label class="label" for="questionPos">Position in list</label>
+                <input class="input" id="questionPos" type="number" min="1" placeholder="e.g. 6">
                 <div class="muted">
-                  Ketik angka untuk memindahkan soal. Contoh: <b>6</b> = taruh di posisi #6 (soal lain otomatis bergeser).
+                  Enter a target number to move the question within the global order.
                 </div>
               </div>
 
               <div class="row">
-                <div class="label">Tipe</div>
+                <label class="label" for="questionType">Question type</label>
                 <select class="select" id="questionType">
-                  <option value="single_choice">single_choice</option>
-                  <option value="multiple_choice">multiple_choice</option>
-                  <option value="yesno">yesno</option>
-                  <option value="text">text</option>
-                  <option value="number">number</option>
+                  <option value="single_choice">Single choice</option>
+                  <option value="multiple_choice">Multiple choice</option>
+                  <option value="yesno">Yes / No</option>
+                  <option value="text">Text</option>
+                  <option value="number">Number</option>
                 </select>
               </div>
 
               <div class="row">
-                <div class="label">Status</div>
+                <label class="label" for="questionActive">Status</label>
                 <select class="select" id="questionActive">
-                  <option value="1">Aktif</option>
-                  <option value="0">Nonaktif</option>
+                  <option value="1">Active</option>
+                  <option value="0">Inactive</option>
                 </select>
               </div>
 
               <div class="row">
-                <div class="label">Shortcut</div>
-                <button class="btn small secondary" id="btnDuplicate" disabled>Duplikat Soal</button>
-              </div>
-
-              <div class="row">
-                <div class="label" style="display:flex;justify-content:space-between;align-items:center">
-                  <span>Passage / Cerita</span>
-                  <button class="btn small secondary" type="button" id="btnPassageManage">Kelola</button>
+                <div class="label qz-master-field-head">
+                  <span>Passage</span>
+                  <button class="btn small secondary" type="button" id="btnPassageManage">Manage</button>
                 </div>
                 <select class="select" id="passageSelect">
-                  <option value="">(Tanpa passage)</option>
+                  <option value="">(No Passage)</option>
                 </select>
               </div>
 
               <div class="row">
-                <div class="label">Urutan di dalam passage (opsional)</div>
-                <input class="input" id="passageSeq" type="number" min="1" placeholder="mis. 1..10">
-                <div class="muted">Isi kalau mau urutan khusus (kalau kosong = bebas).</div>
+                <label class="label" for="passageSeq">Order within Passage</label>
+                <input class="input" id="passageSeq" type="number" min="1" placeholder="e.g. 1..10">
+                <div class="muted">Leave blank if no specific order is required.</div>
               </div>
 
               <div class="row">
-                <div class="label" style="display:flex;justify-content:space-between;align-items:center">
-                  <span>Kategori (untuk soal tanpa passage)</span>
-                  <button class="btn small secondary" type="button" id="btnQCategoryManage">Kelola</button>
+                <div class="label qz-master-field-head">
+                  <span>Direct Category</span>
+                  <button class="btn small secondary" type="button" id="btnQCategoryManage">Manage</button>
                 </div>
                 <select class="select" id="qCategorySelect">
-                  <option value="">(Tanpa kategori)</option>
+                  <option value="">(No Category)</option>
                 </select>
                 <div class="muted">
-                  Disimpan ke kolom <code>questions.category_id</code>. Jika soal memakai passage, kategori mengikuti passage.
+                  If the question uses a Passage, its Category follows that Passage.
                 </div>
               </div>
-            </div>
+
+              <div class="qz-master-settings__action">
+                <span class="label">Quick actions</span>
+                <button class="btn small secondary" type="button" id="btnDuplicate" disabled>Duplicate Question</button>
+              </div>
+            </aside>
           </div>
 
         </div>
@@ -262,18 +292,18 @@ $modal = [
     </div>
 
   <!-- BULK MODAL -->
-<div class="modal" id="bulkModal" aria-hidden="true">
-  <div class="modal-dialog bulk-dialog">
+<div class="modal" id="bulkModal" role="dialog" aria-modal="true" aria-labelledby="bulkModalTitle" aria-hidden="true">
+  <div class="modal-dialog bulk-dialog" tabindex="-1">
     <div class="modal-head">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div>
-          <div style="font-weight:900;font-size:14px">Bulk Paste / Import</div>
+          <div id="bulkModalTitle" style="font-weight:900;font-size:14px">Bulk Paste / Import</div>
           <div class="muted">
-            1 blok = 1 soal (+ jawaban). Pisahkan blok dengan <b>1 baris kosong</b>.
-            <span class="kbd">Esc</span> untuk tutup, <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> untuk import.
+            1 block = 1 question (+ answers). Separate blocks with <b>1 blank line</b>.
+            Press <span class="kbd">Esc</span> to close or <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> to import.
           </div>
         </div>
-        <button class="btn small secondary" id="bulkClose" type="button">Tutup</button>
+        <button class="btn small secondary" id="bulkClose" type="button">Close</button>
       </div>
       <div class="hr"></div>
     </div>
@@ -283,42 +313,42 @@ $modal = [
         <div class="row">
           <div class="label">Mode</div>
           <select class="select" id="bulkStrict">
-            <option value="1" selected>Strict (rekomendasi)</option>
-            <option value="0">Lenient (abaikan mismatch)</option>
+            <option value="1" selected>Strict (recommended)</option>
+            <option value="0">Lenient (ignore mismatches)</option>
           </select>
-          <div class="muted">Strict akan menolak category/passage yang bukan milik quiz ini.</div>
+          <div class="muted">Strict mode rejects categories and passages that do not belong to this quiz.</div>
         </div>
 
         <div class="row">
-          <div class="label">Default Kategori</div>
+          <div class="label">Default Category</div>
           <select class="select" id="bulkDefaultCategory">
-            <option value="">(Tidak ada)</option>
+            <option value="">(None)</option>
           </select>
-          <div class="muted">Dipakai untuk soal tanpa passage (kalau blok tidak set @cat).</div>
+          <div class="muted">Used for questions without a Passage when the block does not set @cat.</div>
         </div>
 
         <div class="row">
           <div class="label">Default Passage</div>
           <select class="select" id="bulkDefaultPassage">
-            <option value="">(Tidak ada)</option>
+            <option value="">(None)</option>
           </select>
-          <div class="muted">Kalau dipilih, semua blok tanpa @passage akan masuk passage ini.</div>
+          <div class="muted">When selected, all blocks without @passage are assigned to this Passage.</div>
         </div>
       </div>
 
       <div class="bulk-grid">
         <div>
           <div class="bulk-help">
-            <div class="label">Contoh</div>
-            <pre>Apa ibu kota Indonesia?
-- Jakarta | 100
-- Bandung | 0
+            <div class="label">Example</div>
+            <pre>What is the capital of France?
+- Paris | 100
+- Lyon | 0
 
 @img: 12
 @file: 5
 @yt: https://youtu.be/xxxx
-@cat: matematika
-@passage: Cerita A
+@cat: mathematics
+@passage: Passage A
 @seq: 1</pre>
           </div>
 
@@ -326,33 +356,33 @@ $modal = [
             <span class="bulk-tag"><code>@img:</code> media_id</span>
             <span class="bulk-tag"><code>@file:</code> file_id</span>
             <span class="bulk-tag"><code>@yt:</code> youtube url</span>
-            <span class="bulk-tag"><code>@cat:</code> id / nama</span>
-            <span class="bulk-tag"><code>@passage:</code> id / judul</span>
-            <span class="bulk-tag"><code>@seq:</code> urutan</span>
+            <span class="bulk-tag"><code>@cat:</code> ID / name</span>
+            <span class="bulk-tag"><code>@passage:</code> ID / title</span>
+            <span class="bulk-tag"><code>@seq:</code> order</span>
             <span class="bulk-tag"><code>@type:</code> single_choice/multiple_choice/yesno/text/number</span>
           </div>
         </div>
 
-        <textarea class="input" id="bulkText" placeholder="Paste di sini..."></textarea>
+        <textarea class="input" id="bulkText" placeholder="Paste here..."></textarea>
         <div class="muted" style="margin-top:6px">
-          Tips: Jawaban tulis pakai <b>-</b> lalu skor pakai <b>|</b>. Skor kosong = 0.
+          Tip: Start each answer with <b>-</b>, then add its score after <b>|</b>. A blank score is 0.
         </div>
       </div>
 
       <div class="bulk-right">
         <div class="bulk-stat" id="bulkStat">
-          <span>Soal: <b>0</b></span>
-          <span>Jawaban: <b>0</b></span>
-          <span>Lampiran: <b>0</b></span>
+          <span>Questions: <b>0</b></span>
+          <span>Answers: <b>0</b></span>
+          <span>Attachments: <b>0</b></span>
           <span class="bulk-warn" id="bulkWarn"></span>
         </div>
         <div class="bulk-pane">
           <h4>Preview</h4>
-          <div id="bulkPreview" class="muted">Belum ada data.</div>
+          <div id="bulkPreview" class="muted">No data yet.</div>
 
           <div class="hr"></div>
 
-          <h4>Catatan / Error</h4>
+          <h4>Notes / Errors</h4>
           <div id="bulkErrors" class="muted">—</div>
         </div>
       </div>
@@ -362,7 +392,7 @@ $modal = [
       <div class="bulk-foot">
         <div class="left">
           <button class="btn small secondary" id="bulkClearBtn" type="button">Clear</button>
-          <span class="muted">Preview update otomatis saat mengetik.</span>
+          <span class="muted">The preview updates automatically as you type.</span>
         </div>
         <div class="right">
           <button class="btn small secondary" id="bulkPreviewBtn" type="button">Preview</button>
@@ -374,17 +404,17 @@ $modal = [
 </div>
 
 <!-- PASSAGE MODAL -->
-<div class="modal" id="passageModal" aria-hidden="true">
-  <div class="modal-dialog">
+<div class="modal" id="passageModal" role="dialog" aria-modal="true" aria-labelledby="passageModalTitle" aria-hidden="true">
+  <div class="modal-dialog" tabindex="-1">
     <div class="modal-head">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div>
-          <div style="font-weight:900;font-size:14px">Kelola Passage / Cerita</div>
-          <div class="muted">Buat cerita, lalu tautkan ke soal via dropdown.</div>
+          <div id="passageModalTitle" style="font-weight:900;font-size:14px">Manage Passages</div>
+          <div class="muted">Create a Passage, then link it to a question using the dropdown.</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn small" id="btnPassageAdd">+ Passage</button>
-          <button class="btn small secondary" id="passageClose">Tutup</button>
+          <button class="btn small secondary" id="passageClose">Close</button>
         </div>
       </div>
       <div class="hr"></div>
@@ -398,37 +428,37 @@ $modal = [
 
           <div class="row">
             <div class="label" style="display:flex;justify-content:space-between;align-items:center">
-              <span>Kategori (opsional)</span>
-              <button class="btn small secondary" type="button" id="btnCategoryManage">Kelola</button>
+              <span>Category (optional)</span>
+              <button class="btn small secondary" type="button" id="btnCategoryManage">Manage</button>
             </div>
             <select class="select" id="categorySelect">
-              <option value="">(Tanpa kategori)</option>
+              <option value="">(No Category)</option>
             </select>
-            <div class="muted">Disimpan ke kolom <code>question_passages.category_id</code>.</div>
+            <div class="muted">Saved in the <code>question_passages.category_id</code> column.</div>
           </div>
 
           <div class="row">
-            <div class="label">Judul (opsional)</div>
-            <input class="input" id="passageTitle" placeholder="Cerita A">
+            <div class="label">Title (optional)</div>
+            <input class="input" id="passageTitle" placeholder="Passage A">
           </div>
 
           <div class="row">
-            <div class="label">Teks Passage</div>
-            <textarea class="input textarea" id="passageText" placeholder="Tulis cerita/stimulus di sini..."></textarea>
+            <div class="label">Passage text</div>
+            <textarea class="input textarea" id="passageText" placeholder="Enter the Passage or stimulus here..."></textarea>
             <div class="md-preview" id="passagePreview"></div>
           </div>
 
           <div class="attach-wrap">
-            <div class="label" style="margin-bottom:8px">Lampiran Passage (opsional)</div>
+            <div class="label" style="margin-bottom:8px">Passage attachments (optional)</div>
             <div class="attach-grid">
               <div class="attach-card">
-                <div class="label">Gambar</div>
+                <div class="label">Image</div>
                 <div class="attach-preview" style="margin-top:8px">
                   <img id="pImgPreview" alt="Preview">
-                  <div id="pImgPH" class="attach-ph">Tidak ada gambar</div>
+                  <div id="pImgPH" class="attach-ph">No image</div>
                 </div>
                 <div class="attach-actions">
-                  <button class="btn small" type="button" id="btnPassagePickImage">Pilih dari Media</button>
+                  <button class="btn small" type="button" id="btnPassagePickImage">Select from Media</button>
                   <button class="btn small secondary" type="button" id="btnPassageClearImage">Clear</button>
                 </div>
                 <div class="attach-meta">Media ID: <span id="pImgIdTxt">-</span></div>
@@ -438,19 +468,19 @@ $modal = [
                 <div>
                   <div class="label">File</div>
                   <div class="file-pill" style="margin-top:8px">
-                    <div class="file-title" id="pFileLabel">Belum ada file</div>
+                    <div class="file-title" id="pFileLabel">No file</div>
                     <div class="attach-meta">File ID: <span id="pFileIdTxt">-</span></div>
                   </div>
                   <div class="attach-actions">
-                    <button class="btn small" type="button" id="btnPassagePickFile">Pilih File</button>
+                    <button class="btn small" type="button" id="btnPassagePickFile">Select File</button>
                     <button class="btn small secondary" type="button" id="btnPassageClearFile">Clear</button>
                   </div>
                 </div>
 
                 <div class="row" style="margin:0">
-                  <div class="label">Link YouTube</div>
-                  <input class="input" id="passageYoutubeUrl" placeholder="https://youtu.be/... atau https://www.youtube.com/watch?v=...">
-                  <div class="muted">Disimpan di kolom <code>youtube_url</code> pada passage.</div>
+                  <div class="label">YouTube link</div>
+                  <input class="input" id="passageYoutubeUrl" placeholder="https://youtu.be/... or https://www.youtube.com/watch?v=...">
+                  <div class="muted">Saved in the Passage's <code>youtube_url</code> column.</div>
                 </div>
               </div>
             </div>
@@ -458,32 +488,32 @@ $modal = [
 
           <div class="grid2" style="grid-template-columns:1fr 1fr">
             <div class="row">
-              <div class="label">Shuffle soal di dalam passage</div>
+              <div class="label">Shuffle Questions within Passage</div>
               <select class="select" id="passageShuffle">
-                <option value="1">Ya</option>
-                <option value="0">Tidak</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
               </select>
             </div>
 
             <div class="row">
               <div class="label">Status</div>
               <select class="select" id="passageActive">
-                <option value="1">Aktif</option>
-                <option value="0">Nonaktif</option>
+                <option value="1">Active</option>
+                <option value="0">Inactive</option>
               </select>
             </div>
           </div>
 
           <div class="row" style="margin-top:2px">
-            <div class="label">Min soal dari passage ini (opsional)</div>
-            <input class="input" id="passageMinQuestions" type="number" min="0" placeholder="mis. 3 (0/kosong = tidak wajib)">
-            <div class="muted">Disimpan ke kolom <code>min_questions</code>. 0 = tidak ada minimum.</div>
+            <div class="label">Minimum Questions from this Passage (optional)</div>
+            <input class="input" id="passageMinQuestions" type="number" min="0" placeholder="e.g. 3 (0/blank = not required)">
+            <div class="muted">Saved in the <code>min_questions</code> column. 0 means no minimum.</div>
           </div>
 
           <div class="row" style="margin-top:2px">
-            <div class="label">Max soal dari passage ini (opsional)</div>
-            <input class="input" id="passageMaxQuestions" type="number" min="1" placeholder="mis. 10 (kosong = semua)">
-            <div class="muted">Disimpan ke kolom <code>max_questions</code>. Kosong = tidak dibatasi.</div>
+            <div class="label">Maximum Questions from this Passage (optional)</div>
+            <input class="input" id="passageMaxQuestions" type="number" min="1" placeholder="e.g. 10 (blank = all)">
+            <div class="muted">Saved in the <code>max_questions</code> column. Blank means unlimited.</div>
           </div>
         </div>
       </div>
@@ -491,25 +521,25 @@ $modal = [
 
     <div class="modal-foot">
       <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button type="button" class="btn small danger" id="btnPassageDelete" disabled>Hapus</button>
-        <button type="button" class="btn small" id="btnPassageSave" disabled>Simpan</button>
+        <button type="button" class="btn small danger" id="btnPassageDelete" disabled>Delete</button>
+        <button type="button" class="btn small" id="btnPassageSave" disabled>Save</button>
       </div>
     </div>
   </div>
 </div>
 
 <!-- CATEGORY MODAL -->
-<div class="modal" id="categoryModal" aria-hidden="true">
-  <div class="modal-dialog" style="width:min(860px,100%)">
+<div class="modal" id="categoryModal" role="dialog" aria-modal="true" aria-labelledby="categoryModalTitle" aria-hidden="true">
+  <div class="modal-dialog" style="width:min(860px,100%)" tabindex="-1">
     <div class="modal-head">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div>
-          <div style="font-weight:900;font-size:14px">Kelola Kategori</div>
-          <div class="muted">Kategori dipakai untuk mengelompokkan passage (dan nanti aturan random per kategori).</div>
+          <div id="categoryModalTitle" style="font-weight:900;font-size:14px">Manage Categories</div>
+          <div class="muted">Categories group Passages and support per-category randomization rules.</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn small" id="btnCategoryAdd">+ Kategori</button>
-          <button class="btn small secondary" id="categoryClose">Tutup</button>
+          <button class="btn small" id="btnCategoryAdd">+ Category</button>
+          <button class="btn small secondary" id="categoryClose">Close</button>
         </div>
       </div>
       <div class="hr"></div>
@@ -521,50 +551,50 @@ $modal = [
 
         <div class="modal-right">
           <div class="row">
-            <div class="label">Nama Kategori</div>
-            <input class="input" id="categoryName" placeholder="mis. Topik A (wajib)">
+            <div class="label">Category name</div>
+            <input class="input" id="categoryName" placeholder="e.g. Topic A (required)">
           </div>
 
           <div class="row">
-            <div class="label">Deskripsi (opsional)</div>
-            <textarea class="input textarea" id="categoryDesc" placeholder="Catatan singkat..."></textarea>
+            <div class="label">Description (optional)</div>
+            <textarea class="input textarea" id="categoryDesc" placeholder="Brief notes..."></textarea>
           </div>
 
           <div class="grid2" style="grid-template-columns:1fr 1fr">
             <div class="row">
-              <div class="label">Shuffle passage dalam kategori</div>
+              <div class="label">Shuffle Passages within Category</div>
               <select class="select" id="categoryShufflePassages">
-                <option value="1">Ya</option>
-                <option value="0">Tidak</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
               </select>
             </div>
 
             <div class="row">
-              <div class="label">Shuffle soal non-passage</div>
+              <div class="label">Shuffle Questions without a Passage</div>
               <select class="select" id="categoryShuffleQuestions">
-                <option value="1">Ya</option>
-                <option value="0">Tidak</option>
+                <option value="1">Yes</option>
+                <option value="0">No</option>
               </select>
             </div>
           </div>
 
           <div class="row" style="margin-top:2px">
-            <div class="label">Min soal dari kategori ini (opsional)</div>
-            <input class="input" id="categoryMinQuestions" type="number" min="0" placeholder="mis. 5 (0/kosong = tidak wajib)">
-            <div class="muted">Disimpan ke kolom <code>min_questions</code>. 0 = tidak ada minimum.</div>
+            <div class="label">Minimum Questions from this Category (optional)</div>
+            <input class="input" id="categoryMinQuestions" type="number" min="0" placeholder="e.g. 5 (0/blank = not required)">
+            <div class="muted">Saved in the <code>min_questions</code> column. 0 means no minimum.</div>
           </div>
 
           <div class="row" style="margin-top:2px">
-            <div class="label">Max soal dari kategori ini (opsional)</div>
-            <input class="input" id="categoryMaxQuestions" type="number" min="1" placeholder="mis. 25 (kosong = semua)">
-            <div class="muted">Disimpan ke kolom <code>max_questions</code>.</div>
+            <div class="label">Maximum Questions from this Category (optional)</div>
+            <input class="input" id="categoryMaxQuestions" type="number" min="1" placeholder="e.g. 25 (blank = all)">
+            <div class="muted">Saved in the <code>max_questions</code> column.</div>
           </div>
 
           <div class="row">
             <div class="label">Status</div>
             <select class="select" id="categoryActive">
-              <option value="1">Aktif</option>
-              <option value="0">Nonaktif</option>
+              <option value="1">Active</option>
+              <option value="0">Inactive</option>
             </select>
           </div>
         </div>
@@ -573,14 +603,14 @@ $modal = [
 
     <div class="modal-foot">
       <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button type="button" class="btn small danger" id="btnCategoryDelete" disabled>Hapus</button>
-        <button type="button" class="btn small" id="btnCategorySave" disabled>Simpan</button>
+        <button type="button" class="btn small danger" id="btnCategoryDelete" disabled>Delete</button>
+        <button type="button" class="btn small" id="btnCategorySave" disabled>Save</button>
       </div>
     </div>
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   </div>
 </section>
@@ -639,7 +669,7 @@ $modal = [
     } catch (e) {
       const snip = String(txt).replace(/\s+/g, ' ').trim().slice(0, 260);
       const hint = ct.includes('text/html')
-        ? ' (CT=text/html; kemungkinan redirect ke login / error page / PHP warning)'
+        ? ' (CT=text/html; possible redirect to login, error page, or PHP warning)'
         : (ct ? ` (CT=${ct})` : '');
 
       console.error('[fetchJSON] NON-JSON', {
@@ -649,7 +679,7 @@ $modal = [
         preview: snip
       });
 
-      throw new Error(`[fetchJSON] Non-JSON dari ${finalUrl} (HTTP ${res.status})${hint}: ${snip}`);
+      throw new Error(`[fetchJSON] Non-JSON response from ${finalUrl} (HTTP ${res.status})${hint}: ${snip}`);
     }
 
     if (!res.ok || !data || data.ok !== true) {
@@ -759,7 +789,7 @@ $modal = [
         });
       } catch (err) {
         console.error('injectHtmlWithScriptsTo error', err);
-        if (container) container.innerHTML = '<div style="color:#c00">Gagal memuat konten.</div>';
+        if (container) container.innerHTML = '<div style="color:#c00">Failed to load content.</div>';
       }
     };
   }
@@ -799,7 +829,7 @@ $modal = [
         .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(html => injectHtmlWithScriptsTo(content, html))
         .catch(err => {
-          content.innerHTML = '<div style="color:#c00">Gagal memuat modal.</div>';
+          content.innerHTML = '<div style="color:#c00">Failed to load dialog.</div>';
           console.error(err);
         });
 
@@ -909,7 +939,7 @@ $modal = [
     } catch (error) {
       if (error && (error.status === 409 || error.code === 'order_conflict')) {
         orderSaving = false;
-        showToast('Urutan berubah. Data dimuat ulang.');
+        showToast('The order changed. Data has been reloaded.');
         await reload();
         return false;
       }
@@ -931,7 +961,7 @@ $modal = [
     const total = (questions || []).length || 1;
     questionPos.value = String(pos);
     if (editorMeta) {
-      editorMeta.textContent = `Auto-save aktif. Urutan jawaban bisa drag & drop. · Posisi #${pos} dari ${total}`;
+      editorMeta.textContent = `Autosave is active. Drag and drop Answers to reorder them. · Position ${pos} of ${total}`;
     }
   }
 
@@ -939,7 +969,7 @@ $modal = [
     if (!qid || !activeQ || activeQ.can_mutate !== true || !canReorderQuestions()) return;
 
     if (searchTerm){
-      alert('Matikan filter/cari dulu sebelum pindah posisi agar urutan global aman.');
+      alert('Clear the search filter before changing position to preserve the global order.');
       syncEditorPositionUI();
       return;
     }
@@ -963,10 +993,11 @@ $modal = [
     ids.splice(to, 0, ids.splice(from, 1)[0]);
 
     clearTimeout(saveTimer);
+    saveTimer = null;
     try {
       await saveQuestionNow();
     } catch (e) {
-      showToast('Gagal simpan sebelum pindah posisi');
+      showToast('Failed to save before changing position');
       syncEditorPositionUI();
       return;
     }
@@ -978,7 +1009,7 @@ $modal = [
         quiz_id: QUIZ_ID,
         ordered_ids: ids,
         order_revision: questionOrderRevision
-      }, loadQuestions, 'Posisi soal dipindahkan');
+      }, loadQuestions, 'Question moved');
       syncEditorPositionUI();
       renderList();
     } finally {
@@ -992,6 +1023,8 @@ $modal = [
   let activeQ = null;
   let searchTerm = '';
   let saveTimer = null;
+  let questionDirty = false;
+  let questionSelectionToken = 0;
 
   let passages = [];
   let passageOrderRevision = '';
@@ -1021,6 +1054,7 @@ $modal = [
   const btnToggleList = el('btnToggleList');
   const qList = el('qList');
   const qCount = el('qCount');
+  const qCountMobile = el('qCountMobile');
   const qSearch = el('qSearch');
   const btnAddQ = el('btnAddQ');
   const btnDeleteQ = el('btnDeleteQ');
@@ -1033,6 +1067,9 @@ $modal = [
   const editorMeta = el('editorMeta');
   const emptyState = el('emptyState');
   const editor = el('editor');
+  const saveStatus = el('saveStatus');
+  const btnShowQuestions = el('btnShowQuestions');
+  const btnShowEditor = el('btnShowEditor');
 
   const questionText = el('questionText');
   const questionPreview = el('questionPreview');
@@ -1109,14 +1146,39 @@ $modal = [
   const btnCategorySave = el('btnCategorySave');
   const btnCategoryDelete = el('btnCategoryDelete');
 
+  function setSaveStatus(state, message){
+    if (!saveStatus) return;
+    saveStatus.dataset.state = state;
+    saveStatus.textContent = message;
+  }
+
+  function setMobileView(view){
+    if (!masterWrap) return;
+    const editorView = view === 'editor' && !!activeQ;
+    masterWrap.classList.toggle('is-mobile-list', !editorView);
+    masterWrap.classList.toggle('is-mobile-editor', editorView);
+    if (btnShowQuestions) {
+      btnShowQuestions.classList.toggle('is-active', !editorView);
+      btnShowQuestions.setAttribute('aria-pressed', editorView ? 'false' : 'true');
+    }
+    if (btnShowEditor) {
+      btnShowEditor.disabled = !activeQ;
+      btnShowEditor.classList.toggle('is-active', editorView);
+      btnShowEditor.setAttribute('aria-pressed', editorView ? 'true' : 'false');
+    }
+    if (editorView && editorTitle) editorTitle.scrollIntoView({ block:'nearest' });
+  }
+
+  const mobileMasterQuery = window.matchMedia('(max-width: 860px)');
   const masterListStorageKey = 'quiz-master-list-collapsed-v2';
   function setQuestionListCollapsed(collapsed, persist=false){
     if (!masterWrap || !questionPane || !leftPanel || !btnToggleList) return;
+    if (mobileMasterQuery.matches) collapsed = false;
     masterWrap.classList.toggle('is-list-collapsed', collapsed);
     questionPane.classList.toggle('is-collapsed', collapsed);
     leftPanel.hidden = collapsed;
     btnToggleList.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    const label = collapsed ? 'Tampilkan daftar soal' : 'Ciutkan daftar soal';
+    const label = collapsed ? 'Show question list' : 'Collapse question list';
     btnToggleList.setAttribute('aria-label', label);
     btnToggleList.title = label;
     btnToggleList.firstElementChild.textContent = collapsed ? '›' : '‹';
@@ -1127,18 +1189,26 @@ $modal = [
   let initialListCollapsed = false;
   try {
     const storedListState = localStorage.getItem(masterListStorageKey);
-    if (storedListState === '1' || storedListState === '0') initialListCollapsed = storedListState === '1';
+    if (!mobileMasterQuery.matches && (storedListState === '1' || storedListState === '0')) initialListCollapsed = storedListState === '1';
   } catch (error) {}
   setQuestionListCollapsed(initialListCollapsed);
   if (btnToggleList) btnToggleList.addEventListener('click', ()=>{
     setQuestionListCollapsed(!masterWrap.classList.contains('is-list-collapsed'), true);
+  });
+  if (btnShowQuestions) btnShowQuestions.addEventListener('click', ()=>setMobileView('list'));
+  if (btnShowEditor) btnShowEditor.addEventListener('click', ()=>setMobileView('editor'));
+  mobileMasterQuery.addEventListener('change', event=>{
+    if (event.matches) {
+      setQuestionListCollapsed(false);
+      setMobileView(activeQ ? 'editor' : 'list');
+    }
   });
 
   // ===== CATEGORIES helpers
   function categoryTitleText(c){
     const t = (c && (c.name || c.title)) ? String(c.name || c.title).trim() : '';
     if (t) return t;
-    return c && c.id ? ('Kategori #' + c.id) : 'Kategori';
+    return c && c.id ? ('Category #' + c.id) : 'Category';
   }
 
   function getCategoryNameById(id){
@@ -1146,7 +1216,7 @@ $modal = [
     if (!cid) return '';
     const found = categories.find(x=>Number(x.id)===cid);
     if (found) return categoryTitleText(found);
-    return 'Kategori #' + cid;
+    return 'Category #' + cid;
   }
 
   // ============================================================
@@ -1186,7 +1256,7 @@ $modal = [
       (activeQ && getQuestionCategoryId(activeQ) > 0) ? String(getQuestionCategoryId(activeQ)) :
       (qCategorySelect.value || '');
 
-    qCategorySelect.innerHTML = '<option value="">(Tanpa kategori)</option>';
+    qCategorySelect.innerHTML = '<option value="">(No Category)</option>';
 
     categories.forEach(c=>{
       const opt = document.createElement('option');
@@ -1220,7 +1290,7 @@ $modal = [
   // ===== Attachments UI setters (question)
   function syncQuestionAttachments(openWhenPopulated=false){
     const count = (attImageId ? 1 : 0) + (attFileId ? 1 : 0) + ((youtubeUrl && youtubeUrl.value.trim()) ? 1 : 0);
-    if (questionAttachmentsState) questionAttachmentsState.textContent = count > 0 ? count + ' terisi' : 'Belum ada';
+    if (questionAttachmentsState) questionAttachmentsState.textContent = count > 0 ? count + ' attached' : 'None';
     if (openWhenPopulated && count > 0 && questionAttachments) questionAttachments.open = true;
   }
 
@@ -1256,7 +1326,7 @@ $modal = [
     attFileLabel = label ? String(label) : '';
 
     if (fileIdTxt) fileIdTxt.textContent = attFileId ? String(attFileId) : '-';
-    if (fileLabelEl) fileLabelEl.textContent = attFileId ? (attFileLabel || ('File #' + attFileId)) : 'Belum ada file';
+    if (fileLabelEl) fileLabelEl.textContent = attFileId ? (attFileLabel || ('File #' + attFileId)) : 'No file';
 
     if (activeQ) {
       activeQ.file_id = attFileId;
@@ -1298,7 +1368,7 @@ $modal = [
     pAttFileLabel = label ? String(label) : '';
 
     if (pFileIdTxt) pFileIdTxt.textContent = pAttFileId ? String(pAttFileId) : '-';
-    if (pFileLabelEl) pFileLabelEl.textContent = pAttFileId ? (pAttFileLabel || ('File #' + pAttFileId)) : 'Belum ada file';
+    if (pFileLabelEl) pFileLabelEl.textContent = pAttFileId ? (pAttFileLabel || ('File #' + pAttFileId)) : 'No file';
 
     if (activeP) {
       activeP.file_id = pAttFileId;
@@ -1360,7 +1430,7 @@ $modal = [
       (activeP && Number(activeP.category_id||0) > 0) ? String(activeP.category_id) :
       (categorySelect.value || '');
 
-    categorySelect.innerHTML = '<option value="">(Tanpa kategori)</option>';
+    categorySelect.innerHTML = '<option value="">(No Category)</option>';
     categories.forEach(c=>{
       const opt = document.createElement('option');
       opt.value = String(c.id);
@@ -1375,36 +1445,36 @@ $modal = [
     if (!categoryList) return;
 
     if (!categories.length){
-      categoryList.innerHTML = '<div class="muted" style="padding:12px">Belum ada kategori.</div>';
+      categoryList.innerHTML = '<div class="muted" style="padding:12px">No Categories yet.</div>';
       return;
     }
 
     const canReorder = categories.length > 1 && !orderSaving && categories.every(c=>c.can_mutate === true);
     categoryList.innerHTML = categories.map((c, index)=>{
-      const st = (Number(c.is_active)===1) ? '<span class="chip">aktif</span>' : '<span class="chip off">nonaktif</span>';
-      const sp = (Number(c.shuffle_passages)===1) ? '<span class="chip" title="Passage dalam kategori diacak">shuffle-pass</span>' : '<span class="chip off" title="Passage tidak diacak">no-pass</span>';
-      const sq = (Number(c.shuffle_questions)===1) ? '<span class="chip" title="Soal (non-passage) diacak">shuffle-q</span>' : '<span class="chip off" title="Soal (non-passage) tidak diacak">no-q</span>';
+      const st = (Number(c.is_active)===1) ? '<span class="chip">Active</span>' : '<span class="chip off">Inactive</span>';
+      const sp = (Number(c.shuffle_passages)===1) ? '<span class="chip" title="Passages in Category are shuffled">shuffle-pass</span>' : '<span class="chip off" title="Passages are not shuffled">no-pass</span>';
+      const sq = (Number(c.shuffle_questions)===1) ? '<span class="chip" title="Questions without a Passage are shuffled">shuffle-q</span>' : '<span class="chip off" title="Questions without a Passage are not shuffled">no-q</span>';
 
       const mn = (c.min_questions != null && Number(c.min_questions) > 0)
-        ? `<span class="chip" title="Minimal soal dari kategori">min ${Number(c.min_questions)}</span>`
+        ? `<span class="chip" title="Minimum Questions from Category">min ${Number(c.min_questions)}</span>`
         : '';
       const mq = (c.max_questions != null && Number(c.max_questions) > 0)
-        ? `<span class="chip" title="Batas soal dari kategori">max ${Number(c.max_questions)}</span>`
+        ? `<span class="chip" title="Maximum Questions from Category">max ${Number(c.max_questions)}</span>`
         : '';
 
       const snip = c.description ? `<div class="muted" style="margin-top:6px">${escapeHTML(cutText(c.description, 90))}</div>` : '';
 
       return `
         <div class="item" data-cid="${c.id}">
-          <div class="handle" title="Drag untuk urutkan">≡</div>
+          <div class="handle" title="Drag to reorder">≡</div>
           <div style="min-width:0;flex:1">
             <div class="item-title">${escapeHTML(categoryTitleText(c))}</div>
             <div class="item-sub">${st}${sp}${sq}${mn}${mq}</div>
             ${snip}
           </div>
           <div class="order-buttons" ${canReorder?'':'hidden'}>
-            <button type="button" data-category-step="-1" title="Naikkan kategori" aria-label="Naikkan kategori" ${index===0?'disabled':''}>↑</button>
-            <button type="button" data-category-step="1" title="Turunkan kategori" aria-label="Turunkan kategori" ${index===categories.length-1?'disabled':''}>↓</button>
+            <button type="button" data-category-step="-1" title="Move Category up" aria-label="Move Category up" ${index===0?'disabled':''}>↑</button>
+            <button type="button" data-category-step="1" title="Move Category down" aria-label="Move Category down" ${index===categories.length-1?'disabled':''}>↓</button>
           </div>
         </div>
       `;
@@ -1439,7 +1509,7 @@ $modal = [
 
     loadCategories().catch(err=>{
       console.error(err);
-      showToast('Gagal load kategori');
+      showToast('Failed to load Categories');
     });
 
     setTimeout(()=>{ try{ if (categoryName) categoryName.focus(); }catch(e){} }, 0);
@@ -1500,14 +1570,14 @@ $modal = [
   async function saveCategory(){
     if (activeC && activeC.id && activeC.can_mutate !== true) return;
     const name = (categoryName && categoryName.value) ? String(categoryName.value).trim() : '';
-    if (!name) { alert('Nama kategori wajib diisi'); return; }
+    if (!name) { alert('Category name is required'); return; }
 
     let mq = null;
     if (categoryMaxQuestions) {
       mq = parseNullablePositiveInt(categoryMaxQuestions.value);
       if (mq !== null) {
         if (!Number.isFinite(mq) || mq < 1) {
-          alert('Max soal harus >= 1 atau kosong');
+          alert('Maximum Questions must be at least 1 or blank');
           return;
         }
       }
@@ -1517,13 +1587,13 @@ $modal = [
     if (categoryMinQuestions) {
       mn = parseNonNegInt(categoryMinQuestions.value, 0);
       if (!Number.isFinite(mn) || mn < 0) {
-        alert('Min soal harus >= 0');
+        alert('Minimum Questions must be 0 or greater');
         return;
       }
     }
 
     if (mq !== null && mn > mq) {
-      alert('Min soal tidak boleh lebih besar dari Max soal');
+      alert('Minimum Questions cannot exceed Maximum Questions');
       return;
     }
 
@@ -1542,11 +1612,11 @@ $modal = [
 
     categorySaving = true;
     updateCategoryButtons();
-    showToast('Menyimpan kategori...');
+    showToast('Saving Category...');
 
     const res = await fetchJSON(API.csave, payload);
 
-    showToast('Kategori tersimpan');
+    showToast('Category saved');
 
     await loadCategories();
 
@@ -1565,13 +1635,13 @@ $modal = [
 
   async function deleteCategory(){
     if (!activeC || !activeC.id || activeC.can_mutate !== true) return;
-    if (!(await NewNotifConfirm.danger({message:'Hapus kategori ini? Passage yang terkait akan menjadi tanpa kategori.'}))) return;
+    if (!(await NewNotifConfirm.danger({message:'Delete this Category? Associated Passages will have no Category.'}))) return;
 
     categorySaving = true;
     updateCategoryButtons();
 
     await fetchJSON(API.cdel, { csrf_token: CSRF, quiz_id: QUIZ_ID, id: Number(activeC.id) });
-    showToast('Kategori dihapus');
+    showToast('Category deleted');
 
     clearCategoryEditor(true);
     await loadCategories();
@@ -1601,7 +1671,7 @@ $modal = [
       quiz_id: QUIZ_ID,
       ordered_ids: ids,
       order_revision: categoryOrderRevision
-    }, loadCategories, 'Urutan kategori tersimpan');
+    }, loadCategories, 'Category order saved');
   }
 
   function attachDnDCategory(node){
@@ -1635,7 +1705,7 @@ $modal = [
         renderCategoryOptions();
         renderQuestionCategoryOptions();
         renderList();
-      }, 'Urutan kategori tersimpan');
+      }, 'Category order saved');
     });
   }
 
@@ -1658,7 +1728,7 @@ $modal = [
     if (!passageSelect) return;
 
     const desired = (activeQ && activeQ.passage_id) ? String(activeQ.passage_id) : (passageSelect.value || '');
-    passageSelect.innerHTML = '<option value="">(Tanpa passage)</option>';
+    passageSelect.innerHTML = '<option value="">(No Passage)</option>';
 
     passages.forEach(p=>{
       const opt = document.createElement('option');
@@ -1675,7 +1745,7 @@ $modal = [
     if (!passageList) return;
 
     if (!passages.length){
-      passageList.innerHTML = '<div class="muted" style="padding:12px">Belum ada passage.</div>';
+      passageList.innerHTML = '<div class="muted" style="padding:12px">No Passages yet.</div>';
       return;
     }
 
@@ -1684,23 +1754,23 @@ $modal = [
       const title = passageTitleText(p);
       const snip = cutText(p.passage_text || '', 80);
 
-      const st = (Number(p.is_active)===1) ? '<span class="chip">aktif</span>' : '<span class="chip off">nonaktif</span>';
-      const sh = (Number(p.shuffle_questions)===1) ? '<span class="chip" title="Soal dalam passage diacak">shuffle</span>' : '<span class="chip off" title="Soal dalam passage tidak diacak">no-shuffle</span>';
+      const st = (Number(p.is_active)===1) ? '<span class="chip">Active</span>' : '<span class="chip off">Inactive</span>';
+      const sh = (Number(p.shuffle_questions)===1) ? '<span class="chip" title="Questions in Passage are shuffled">shuffle</span>' : '<span class="chip off" title="Questions in Passage are not shuffled">no-shuffle</span>';
 
       const mn = (p.min_questions != null && Number(p.min_questions) > 0)
-        ? `<span class="chip" title="Minimal soal dari passage ini">min ${Number(p.min_questions)}</span>`
+        ? `<span class="chip" title="Minimum Questions from this Passage">min ${Number(p.min_questions)}</span>`
         : '';
       const mq = (p.max_questions != null && Number(p.max_questions) > 0)
-        ? `<span class="chip" title="Maks soal dari passage ini">max ${Number(p.max_questions)}</span>`
+        ? `<span class="chip" title="Maximum Questions from this Passage">max ${Number(p.max_questions)}</span>`
         : '';
 
       const catChip = (Number(p.category_id||0) > 0)
-        ? `<span class="chip" title="Kategori">${escapeHTML(p.category_name || p.category_title || getCategoryNameById(p.category_id))}</span>`
+        ? `<span class="chip" title="Category">${escapeHTML(p.category_name || p.category_title || getCategoryNameById(p.category_id))}</span>`
         : '';
 
       return `
         <div class="item" data-pid="${p.id}">
-          <div class="handle" title="Drag untuk urutkan">≡</div>
+          <div class="handle" title="Drag to reorder">≡</div>
           <div style="min-width:0;flex:1">
             <div class="item-title">${escapeHTML(title)}</div>
             <div class="item-sub">
@@ -1713,8 +1783,8 @@ $modal = [
             <div class="muted" style="margin-top:6px">${escapeHTML(snip)}</div>
           </div>
           <div class="order-buttons" ${canReorder?'':'hidden'}>
-            <button type="button" data-passage-step="-1" title="Naikkan passage" aria-label="Naikkan passage" ${index===0?'disabled':''}>↑</button>
-            <button type="button" data-passage-step="1" title="Turunkan passage" aria-label="Turunkan passage" ${index===passages.length-1?'disabled':''}>↓</button>
+            <button type="button" data-passage-step="-1" title="Move Passage up" aria-label="Move Passage up" ${index===0?'disabled':''}>↑</button>
+            <button type="button" data-passage-step="1" title="Move Passage down" aria-label="Move Passage down" ${index===passages.length-1?'disabled':''}>↓</button>
           </div>
         </div>
       `;
@@ -1746,7 +1816,7 @@ $modal = [
       quiz_id: QUIZ_ID,
       ordered_ids: ids,
       order_revision: passageOrderRevision
-    }, loadPassages, 'Urutan passage tersimpan');
+    }, loadPassages, 'Passage order saved');
   }
   function attachDnDPassage(node){
     node.addEventListener('dragstart', (event)=>{
@@ -1771,7 +1841,7 @@ $modal = [
         quiz_id: QUIZ_ID,
         ordered_ids: ids.map(Number),
         order_revision: passageOrderRevision
-      }, loadPassages, 'Urutan passage tersimpan');
+      }, loadPassages, 'Passage order saved');
     });
   }
 
@@ -1791,7 +1861,7 @@ $modal = [
 
     Promise.all([loadCategories(), loadPassages()]).catch(err=>{
       console.error(err);
-      showToast('Gagal load data passage/kategori');
+      showToast('Failed to load Passage and Category data');
     });
 
     setTimeout(()=>{ try{ if (passageTitle) passageTitle.focus(); }catch(e){} }, 0);
@@ -1871,13 +1941,13 @@ $modal = [
   async function savePassage(){
     if (activeP && activeP.id && activeP.can_mutate !== true) return;
     const txt = (passageText && passageText.value) ? String(passageText.value).trim() : '';
-    if (!txt) { alert('Teks passage wajib diisi'); return; }
+    if (!txt) { alert('Passage text is required'); return; }
 
     let mn = 0;
     if (passageMinQuestions){
       mn = parseNonNegInt(passageMinQuestions.value, 0);
       if (!Number.isFinite(mn) || mn < 0) {
-        alert('Min soal passage harus >= 0');
+        alert('Minimum Passage Questions must be 0 or greater');
         return;
       }
     }
@@ -1887,14 +1957,14 @@ $modal = [
       mq = parseNullablePositiveInt(passageMaxQuestions.value);
       if (mq !== null) {
         if (!Number.isFinite(mq) || mq < 1) {
-          alert('Max soal passage harus >= 1 atau kosong');
+          alert('Maximum Passage Questions must be at least 1 or blank');
           return;
         }
       }
     }
 
     if (mq !== null && mn > mq) {
-      alert('Min soal passage tidak boleh lebih besar dari Max soal passage');
+      alert('Minimum Passage Questions cannot exceed Maximum Passage Questions');
       return;
     }
 
@@ -1923,11 +1993,11 @@ $modal = [
 
     passageSaving = true;
     updatePassageButtons();
-    showToast('Menyimpan passage...');
+    showToast('Saving Passage...');
 
     const res = await fetchJSON(API.psave, payload);
 
-    showToast('Passage tersimpan');
+    showToast('Passage saved');
 
     await loadPassages();
 
@@ -1946,13 +2016,13 @@ $modal = [
 
   async function deletePassage(){
     if (!activeP || !activeP.id || activeP.can_mutate !== true) return;
-    if (!(await NewNotifConfirm.danger({message:'Hapus passage ini? Soal yang terkait akan otomatis jadi tanpa passage.'}))) return;
+    if (!(await NewNotifConfirm.danger({message:'Delete this Passage? Associated Questions will automatically have no Passage.'}))) return;
 
     passageSaving = true;
     updatePassageButtons();
 
     await fetchJSON(API.pdel, { csrf_token: CSRF, quiz_id: QUIZ_ID, id: Number(activeP.id) });
-    showToast('Passage dihapus');
+    showToast('Passage deleted');
 
     clearPassageEditor(true);
     await loadPassages();
@@ -1988,11 +2058,12 @@ $modal = [
   function renderList(){
     const list = filteredQuestions();
     if (qCount) qCount.textContent = list.length;
+    if (qCountMobile) qCountMobile.textContent = list.length;
     if (!qList) return;
     qList.innerHTML = '';
 
     if (!list.length){
-      qList.innerHTML = '<div style="padding:12px" class="muted">Tidak ada soal.</div>';
+      qList.innerHTML = '<div class="qz-master-list-empty"><strong>No Questions</strong><span>Add a new Question or change your search.</span></div>';
       return;
     }
 
@@ -2003,13 +2074,16 @@ $modal = [
       item.className = 'item' + (activeQ && activeQ.id == q.id ? ' active' : '');
       item.dataset.id = q.id;
       item.draggable = canReorder;
+      item.tabIndex = 0;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', activeQ && activeQ.id == q.id ? 'true' : 'false');
 
-      const statusChip = (Number(q.is_active)===1) ? '<span class="chip">aktif</span>' : '<span class="chip off">nonaktif</span>';
+      const statusChip = (Number(q.is_active)===1) ? '<span class="chip">Active</span>' : '<span class="chip off">Inactive</span>';
 
       const attChips = [
-        (Number(q.image_media_id||0) > 0) ? '<span class="chip" title="Ada gambar">🖼</span>' : '',
-        (Number(q.file_id||0) > 0) ? '<span class="chip" title="Ada file">📎</span>' : '',
-        (q.youtube_url && String(q.youtube_url).trim() !== '') ? '<span class="chip" title="Ada video">▶</span>' : ''
+        (Number(q.image_media_id||0) > 0) ? '<span class="chip" title="Has image">🖼</span>' : '',
+        (Number(q.file_id||0) > 0) ? '<span class="chip" title="Has file">📎</span>' : '',
+        (q.youtube_url && String(q.youtube_url).trim() !== '') ? '<span class="chip" title="Has video">▶</span>' : ''
       ].join('');
 
       const pChip = (Number(q.passage_id||0) > 0)
@@ -2018,11 +2092,11 @@ $modal = [
 
       const cid = getQuestionCategoryId(q);
       const cChip = (cid > 0 && Number(q.passage_id||0) <= 0)
-        ? `<span class="chip" title="Kategori">🏷 ${escapeHTML(getCategoryNameById(cid) || ('Kategori #' + cid))}</span>`
+        ? `<span class="chip" title="Category">🏷 ${escapeHTML(getCategoryNameById(cid) || ('Category #' + cid))}</span>`
         : '';
 
       item.innerHTML = `
-        <div class="handle" title="Drag untuk urutkan">≡</div>
+        <div class="handle" title="Drag to reorder">≡</div>
         <div style="min-width:0;flex:1">
           <div class="item-title">#${ord} · ${escapeHTML(cutText(q.question_text || '', 92))}</div>
           <div class="item-sub">
@@ -2031,12 +2105,17 @@ $modal = [
             ${pChip}
             ${cChip}
             ${attChips}
-            <span class="badge" title="Jumlah jawaban aktif">${Number(q.answer_count||0)}</span>
+            <span class="badge" title="Number of Active Answers">${Number(q.answer_count||0)}</span>
           </div>
         </div>
       `;
 
       item.onclick = ()=> selectQuestion(q.id);
+      item.onkeydown = event=>{
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        selectQuestion(q.id);
+      };
 
       if (canReorder) attachDnDQuestion(item);
       qList.appendChild(item);
@@ -2044,20 +2123,37 @@ $modal = [
   }
 
   // ===== SELECT / LOAD QUESTION DETAIL
+  async function flushPendingQuestionSave(){
+    if (!saveTimer || !questionDirty) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await saveQuestionNow();
+  }
+
   async function selectQuestion(id){
+    const selectionToken = ++questionSelectionToken;
+    try {
+      await flushPendingQuestionSave();
+    } catch (error) {
+      console.error(error);
+      setSaveStatus('error', 'Save failed');
+    }
     await flushPendingAnswerSaves();
     const data = await fetchJSON(API.get + '&quiz_id=' + encodeURIComponent(QUIZ_ID) + '&question_id=' + encodeURIComponent(id));
+    if (selectionToken !== questionSelectionToken) return;
     activeQ = data.question;
     if (!activeQ) return;
 
     if (emptyState) emptyState.style.display = 'none';
     if (editor) editor.style.display = 'block';
-    if (questionActions) questionActions.style.display = 'flex';
+    if (questionActions) questionActions.hidden = false;
 
-    if (editorTitle) editorTitle.textContent = 'Edit Soal #' + activeQ.id;
-    if (editorMeta) editorMeta.textContent = 'Auto-save aktif. Urutan jawaban bisa drag & drop.';
+    if (editorTitle) editorTitle.textContent = 'Edit Question #' + activeQ.id;
+    if (editorMeta) editorMeta.textContent = 'Autosave is active. Drag and drop Answers to reorder them.';
 
     const canMutate = activeQ.can_mutate === true;
+    questionDirty = false;
+    setSaveStatus(canMutate ? 'saved' : 'idle', canMutate ? 'All changes saved' : 'Read-only mode');
     if (btnDeleteQ) btnDeleteQ.disabled = !canMutate;
     if (btnAddA) btnAddA.disabled = !canMutate;
     if (btnYesNo) btnYesNo.disabled = !canMutate;
@@ -2107,28 +2203,37 @@ $modal = [
     renderList();
     renderAnswers();
     syncEditorPositionUI();
+    if (mobileMasterQuery.matches) setMobileView('editor');
   }
 
   // ===== AUTOSAVE (debounced)
   function scheduleSaveQuestion(){
     if (!activeQ || activeQ.can_mutate !== true) return;
+    questionDirty = true;
+    setSaveStatus('dirty', 'Unsaved changes');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(()=> {
+      saveTimer = null;
       saveQuestionNow().catch(err=>{
         console.error(err);
-        showToast('Gagal simpan: ' + (err.message || 'error'));
+        setSaveStatus('error', 'Save failed');
+        showToast('Failed to save: ' + (err.message || 'error'));
       });
     }, 520);
   }
 
   async function saveQuestionNow(){
     if (!activeQ || activeQ.can_mutate !== true) return;
+    const targetQuestion = activeQ;
 
     const qt = (questionText && questionText.value ? questionText.value : '').trim();
     if (qt === '') {
-      showToast('Soal kosong (tidak disimpan)');
+      setSaveStatus('error', 'Question is blank');
+      showToast('Blank Question was not saved');
       return;
     }
+
+    setSaveStatus('saving', 'Saving...');
 
     let pid = null;
     let pseq = null;
@@ -2157,7 +2262,7 @@ $modal = [
     const payload = {
       csrf_token: CSRF,
       quiz_id: QUIZ_ID,
-      id: activeQ.id,
+      id: targetQuestion.id,
       question_text: questionText ? questionText.value : '',
       question_type: questionType ? questionType.value : 'single_choice',
       is_active: Number(questionActive ? questionActive.value : 1),
@@ -2172,19 +2277,19 @@ $modal = [
 
     const data = await fetchJSON(API.qsave, payload);
 
-    activeQ.id = data.id;
-    activeQ.question_text = payload.question_text;
-    activeQ.question_type = payload.question_type;
-    activeQ.is_active = payload.is_active;
-    activeQ.image_media_id = payload.image_media_id;
-    activeQ.file_id = payload.file_id;
-    activeQ.youtube_url = payload.youtube_url;
-    activeQ.passage_id = payload.passage_id;
-    activeQ.passage_seq = payload.passage_seq;
-    activeQ.category_id = payload.category_id;
-    activeQ.question_category_id = payload.category_id;
+    targetQuestion.id = data.id;
+    targetQuestion.question_text = payload.question_text;
+    targetQuestion.question_type = payload.question_type;
+    targetQuestion.is_active = payload.is_active;
+    targetQuestion.image_media_id = payload.image_media_id;
+    targetQuestion.file_id = payload.file_id;
+    targetQuestion.youtube_url = payload.youtube_url;
+    targetQuestion.passage_id = payload.passage_id;
+    targetQuestion.passage_seq = payload.passage_seq;
+    targetQuestion.category_id = payload.category_id;
+    targetQuestion.question_category_id = payload.category_id;
 
-    const idx = questions.findIndex(x=>x.id == activeQ.id);
+    const idx = questions.findIndex(x=>x.id == data.id);
     if (idx >= 0){
       questions[idx].question_text = payload.question_text;
       questions[idx].question_type = payload.question_type;
@@ -2198,7 +2303,11 @@ $modal = [
     }
 
     renderList();
-    showToast('Tersimpan');
+    if (activeQ === targetQuestion) {
+      questionDirty = false;
+      setSaveStatus('saved', 'All changes saved');
+      showToast('Saved');
+    }
   }
 
   // ===== ANSWERS
@@ -2208,7 +2317,7 @@ $modal = [
     answersBox.innerHTML = '';
 
     if (!ans.length){
-      answersBox.innerHTML = '<div class="muted" style="padding:10px 0">Belum ada jawaban. Klik "+ Jawaban".</div>';
+      answersBox.innerHTML = '<div class="muted" style="padding:10px 0">No Answers yet. Select "+ Answer".</div>';
       return;
     }
 
@@ -2221,28 +2330,38 @@ $modal = [
       row.draggable = canMutate;
 
       row.innerHTML = `
-        <div class="handle" title="Drag untuk urutkan">≡</div>
-
-        <div class="answer-md">
-          <textarea class="input" data-k="answer_text" rows="2" placeholder="Teks jawaban...">${escapeHTML(a.answer_text || '')}</textarea>
-          <div class="qz-live-preview qz-live-preview--answer">
-            <div class="qz-live-preview__head"><span>Preview jawaban ${index + 1}</span><small>Tampilan peserta</small></div>
-            <div class="md-preview answer-preview" data-preview></div>
+        <div class="qz-answer-card-head">
+          <div>
+            <span class="qz-panel-kicker">Response Option</span>
+            <strong>Answer ${index + 1}</strong>
           </div>
-          <div class="order-buttons answer-order-buttons" ${canReorder?'':'hidden'}>
-            <button type="button" data-answer-step="-1" title="Naikkan jawaban" aria-label="Naikkan jawaban" ${index===0?'disabled':''}>↑</button>
-            <button type="button" data-answer-step="1" title="Turunkan jawaban" aria-label="Turunkan jawaban" ${index===ans.length-1?'disabled':''}>↓</button>
+          <div class="qz-answer-card-actions">
+            <div class="handle" title="Drag to reorder" aria-label="Drag to reorder Answers">≡</div>
+            <div class="order-buttons answer-order-buttons" ${canReorder?'':'hidden'}>
+              <button type="button" data-answer-step="-1" title="Move Answer up" aria-label="Move Answer up" ${index===0?'disabled':''}>↑</button>
+              <button type="button" data-answer-step="1" title="Move Answer down" aria-label="Move Answer down" ${index===ans.length-1?'disabled':''}>↓</button>
+            </div>
+            <button class="iconbtn danger qz-answer-delete" type="button" title="Delete Answer" aria-label="Delete Answer">Delete</button>
           </div>
         </div>
 
-        <input class="input" data-k="score" type="number" min="0" max="100" value="${Number(a.score||0)}" title="Skor 0..100">
+        <div class="answer-md">
+          <label class="label" for="qz-answer-${a.id}">Answer text</label>
+          <textarea class="input" id="qz-answer-${a.id}" data-k="answer_text" rows="4" placeholder="Enter an Answer, Markdown, or image reference...">${escapeHTML(a.answer_text || '')}</textarea>
+          <details class="qz-live-preview qz-live-preview--answer qz-preview-disclosure">
+            <summary class="qz-live-preview__head"><span>Answer ${index + 1} preview</span><small>Participant view</small></summary>
+            <div class="md-preview answer-preview" data-preview></div>
+          </details>
+        </div>
 
-        <select class="select" data-k="is_active" title="Status">
-          <option value="1" ${Number(a.is_active)===1?'selected':''}>Aktif</option>
-          <option value="0" ${Number(a.is_active)===0?'selected':''}>Nonaktif</option>
-        </select>
-
-        <button class="iconbtn danger" type="button" title="Hapus jawaban">🗑</button>
+        <div class="qz-answer-config">
+          <label class="qz-answer-field"><span>Score</span><input class="input" data-k="score" type="number" min="0" max="100" value="${Number(a.score||0)}" title="Score 0..100"></label>
+          <label class="qz-answer-field"><span>Status</span><select class="select" data-k="is_active" title="Status">
+            <option value="1" ${Number(a.is_active)===1?'selected':''}>Active</option>
+            <option value="0" ${Number(a.is_active)===0?'selected':''}>Inactive</option>
+          </select></label>
+          <span class="qz-answer-save-note">Text, score, and status are saved automatically.</span>
+        </div>
       `;
 
       if (canMutate) attachDnDAnswer(row);
@@ -2288,7 +2407,8 @@ $modal = [
       .then(()=>saveAnswerNow(pending.questionId, pending.answerId, pending.row))
       .catch(err=>{
         console.error(err);
-        showToast('Gagal simpan jawaban');
+        setSaveStatus('error', 'Failed to save Answer');
+        showToast('Failed to save Answer');
         throw err;
       })
       .finally(()=>{
@@ -2299,6 +2419,7 @@ $modal = [
 
   function scheduleSaveAnswer(answerId, row){
     if (!activeQ || activeQ.can_mutate !== true) return;
+    setSaveStatus('dirty', 'Answer has unsaved changes');
     const questionId = Number(activeQ.id);
     const key = questionId + ':' + Number(answerId);
     const previous = answerSaveTimers.get(key);
@@ -2343,7 +2464,8 @@ $modal = [
       }
     }
 
-    showToast('Jawaban tersimpan');
+    setSaveStatus('saved', 'All changes saved');
+    showToast('Answer saved');
     await refreshCounts();
   }
 
@@ -2361,23 +2483,23 @@ $modal = [
       quiz_id: QUIZ_ID,
       question_id: activeQ.id,
       id: 0,
-      answer_text: 'Jawaban baru',
+      answer_text: 'New Answer',
       score: 0,
       is_active: 1
     };
     const data = await fetchJSON(API.asave, payload);
     await selectQuestion(activeQ.id);
-    showToast('Jawaban ditambah');
+    showToast('Answer added');
     await refreshCounts();
   }
 
   async function deleteAnswer(id){
     if (!activeQ || activeQ.can_mutate !== true) return;
-    if (!(await NewNotifConfirm.danger({message:'Hapus jawaban ini?'}))) return;
+    if (!(await NewNotifConfirm.danger({message:'Delete this Answer?'}))) return;
     await flushPendingAnswerSaves();
     await fetchJSON(API.adel, { csrf_token: CSRF, quiz_id: QUIZ_ID, question_id: activeQ.id, id: id });
     await selectQuestion(activeQ.id);
-    showToast('Jawaban dihapus');
+    showToast('Answer deleted');
     await refreshCounts();
   }
 
@@ -2387,7 +2509,7 @@ $modal = [
       csrf_token: CSRF,
       quiz_id: QUIZ_ID,
       id: 0,
-      question_text: 'Soal baru (edit saya)',
+      question_text: 'New Question (edit me)',
       question_type: 'single_choice',
       is_active: 0,
       image_media_id: null,
@@ -2400,28 +2522,31 @@ $modal = [
     };
     const data = await fetchJSON(API.qsave, payload);
     await loadQuestions();
-    showToast('Soal dibuat');
+    showToast('Question created');
     await selectQuestion(data.id);
   }
 
   async function deleteQuestion(){
     if (!activeQ || activeQ.can_mutate !== true) return;
-    if (!(await NewNotifConfirm.danger({message:'Hapus soal ini? Semua jawaban akan ikut terhapus.'}))) return;
+    if (!(await NewNotifConfirm.danger({message:'Delete this Question? All of its Answers will also be deleted.'}))) return;
     await fetchJSON(API.qdel, { csrf_token: CSRF, quiz_id: QUIZ_ID, id: activeQ.id });
     activeQ = null;
 
     if (editor) editor.style.display = 'none';
     if (emptyState) emptyState.style.display = 'block';
-    if (questionActions) questionActions.style.display = 'none';
-    if (editorTitle) editorTitle.textContent = 'Pilih soal';
-    if (editorMeta) editorMeta.textContent = 'Klik salah satu soal untuk mulai edit';
+    if (questionActions) questionActions.hidden = true;
+    if (editorTitle) editorTitle.textContent = 'Select a Question';
+    if (editorMeta) editorMeta.textContent = 'Select a Question to start editing';
+    questionDirty = false;
+    setSaveStatus('idle', 'Waiting for selection');
     if (btnDeleteQ) btnDeleteQ.disabled = true;
     if (btnAddA) btnAddA.disabled = true;
     if (btnYesNo) btnYesNo.disabled = true;
     if (btnDuplicate) btnDuplicate.disabled = true;
 
     await loadQuestions();
-    showToast('Soal dihapus');
+    setMobileView('list');
+    showToast('Question deleted');
   }
 
   async function duplicateQuestion(){
@@ -2465,7 +2590,7 @@ $modal = [
     };
 
     const data = await fetchJSON(API.qsave, payload);
-    showToast('Duplikat dibuat');
+    showToast('Duplicate created');
     await loadQuestions();
     await selectQuestion(data.id);
   }
@@ -2476,18 +2601,18 @@ $modal = [
     if (questionType) questionType.value = 'yesno';
     scheduleSaveQuestion();
 
-    if (!(await NewNotifConfirm.warning({message:'Generate jawaban Yes/No akan mengisi "Ya (100)" & "Tidak (0)". Lanjutkan?'}))) return;
+    if (!(await NewNotifConfirm.warning({message:'Generating Yes/No Answers will add "Yes (100)" and "No (0)". Continue?'}))) return;
     await flushPendingAnswerSaves();
 
     const existing = (activeQ.answers||[]).slice();
     for (const a of existing){
       await fetchJSON(API.adel, { csrf_token: CSRF, quiz_id: QUIZ_ID, question_id: activeQ.id, id: a.id });
     }
-    await fetchJSON(API.asave, { csrf_token: CSRF, quiz_id: QUIZ_ID, question_id: activeQ.id, id: 0, answer_text:'Ya', score:100, is_active:1 });
-    await fetchJSON(API.asave, { csrf_token: CSRF, quiz_id: QUIZ_ID, question_id: activeQ.id, id: 0, answer_text:'Tidak', score:0, is_active:1 });
+    await fetchJSON(API.asave, { csrf_token: CSRF, quiz_id: QUIZ_ID, question_id: activeQ.id, id: 0, answer_text:'Yes', score:100, is_active:1 });
+    await fetchJSON(API.asave, { csrf_token: CSRF, quiz_id: QUIZ_ID, question_id: activeQ.id, id: 0, answer_text:'No', score:0, is_active:1 });
 
     await selectQuestion(activeQ.id);
-    showToast('Yes/No dibuat');
+    showToast('Yes/No Answers created');
     await refreshCounts();
   }
 
@@ -2516,7 +2641,7 @@ $modal = [
       list.splice(to, 0, list.splice(from, 1)[0]);
 
       if (searchTerm){
-        alert('Matikan filter/cari dulu sebelum reorder agar urutan global aman.');
+        alert('Clear the search filter before reordering to preserve the global order.');
         return;
       }
 
@@ -2525,7 +2650,7 @@ $modal = [
         quiz_id: QUIZ_ID,
         ordered_ids: list.map(Number),
         order_revision: questionOrderRevision
-      }, loadQuestions, 'Urutan soal tersimpan');
+      }, loadQuestions, 'Question order saved');
     });
   }
 
@@ -2547,7 +2672,7 @@ $modal = [
       question_id: questionId,
       ordered_ids: ids,
       order_revision: String(activeQ.answer_order_revision || '')
-    }, ()=>selectQuestion(questionId), 'Urutan jawaban tersimpan');
+    }, ()=>selectQuestion(questionId), 'Answer order saved');
     await refreshCounts();
   }
 
@@ -2581,7 +2706,7 @@ $modal = [
         question_id: questionId,
         ordered_ids: ids.map(Number),
         order_revision: String(activeQ.answer_order_revision || '')
-      }, ()=>selectQuestion(questionId), 'Urutan jawaban tersimpan');
+      }, ()=>selectQuestion(questionId), 'Answer order saved');
       await refreshCounts();
     });
   }
@@ -2622,7 +2747,7 @@ $modal = [
   function renderBulkDefaults(){
     if (bulkDefaultCategory){
       const cur = String(bulkDefaultCategory.value || '');
-      bulkDefaultCategory.innerHTML = '<option value="">(Tidak ada)</option>';
+      bulkDefaultCategory.innerHTML = '<option value="">(None)</option>';
       (categories || []).forEach(c=>{
         const opt = document.createElement('option');
         opt.value = String(c.id);
@@ -2634,7 +2759,7 @@ $modal = [
 
     if (bulkDefaultPassage){
       const cur = String(bulkDefaultPassage.value || '');
-      bulkDefaultPassage.innerHTML = '<option value="">(Tidak ada)</option>';
+      bulkDefaultPassage.innerHTML = '<option value="">(None)</option>';
       (passages || []).forEach(p=>{
         const opt = document.createElement('option');
         opt.value = String(p.id);
@@ -2670,7 +2795,7 @@ $modal = [
       if (!lines.length) continue;
 
       const qText = lines[0];
-      if (!qText) { errs.push(`Blok #${bi+1}: soal kosong`); continue; }
+      if (!qText) { errs.push(`Block #${bi+1}: Question is blank`); continue; }
 
       const answers = [];
       const q = {
@@ -2698,13 +2823,13 @@ $modal = [
 
           if (k === 'img' || k === 'image'){
             const id = asIntOrNull(v);
-            if (!id) warns.push(`Blok #${bi+1}: @img invalid (${v})`);
+            if (!id) warns.push(`Block #${bi+1}: invalid @img (${v})`);
             q.image_media_id = id;
             continue;
           }
           if (k === 'file'){
             const id = asIntOrNull(v);
-            if (!id) warns.push(`Blok #${bi+1}: @file invalid (${v})`);
+            if (!id) warns.push(`Block #${bi+1}: invalid @file (${v})`);
             q.file_id = id;
             continue;
           }
@@ -2732,7 +2857,7 @@ $modal = [
           if (k === 'type'){
             const t = String(v||'').trim();
             if (allowedTypes.includes(t)) q.question_type = t;
-            else warns.push(`Blok #${bi+1}: @type tidak dikenal (${v})`);
+            else warns.push(`Block #${bi+1}: unknown @type (${v})`);
             continue;
           }
 
@@ -2759,7 +2884,8 @@ $modal = [
         const lower = answers.map(a => String(a.answer_text||'').toLowerCase());
         const isYesNo =
           answers.length === 2 &&
-          lower.includes('ya') && lower.includes('tidak');
+          ((lower.includes('yes') && lower.includes('no')) ||
+           (lower.includes('ya') && lower.includes('tidak')));
 
         if (isYesNo) q.question_type = 'yesno';
         else if (answers.length === 0) q.question_type = 'text';
@@ -2767,7 +2893,7 @@ $modal = [
       }
 
       if (answers.length === 0 && (q.question_type === 'single_choice' || q.question_type === 'multiple_choice' || q.question_type === 'yesno')){
-        warns.push(`Blok #${bi+1}: tidak ada jawaban, tipe ${q.question_type} (server tetap bisa simpan, tapi mungkin bukan yang kamu mau)`);
+        warns.push(`Block #${bi+1}: no Answers for type ${q.question_type} (the server can still save it, but this may not be intended)`);
       }
 
       items.push(q);
@@ -2830,20 +2956,20 @@ $modal = [
 
     if (bulkPreview){
       if (!totalQ){
-        bulkPreview.innerHTML = '<div class="muted">Belum ada data.</div>';
+        bulkPreview.innerHTML = '<div class="muted">No data yet.</div>';
       } else {
         const lis = finalItems.slice(0, 10).map((q,i)=>{
           const chips = [];
           chips.push(`<span class="chip">${escapeHTML(q.question_type||'')}</span>`);
-          chips.push(`<span class="chip" title="Jawaban">${Number((q.answers||[]).length||0)} ans</span>`);
+          chips.push(`<span class="chip" title="Answers">${Number((q.answers||[]).length||0)} ans</span>`);
 
           if (q.passage_id || q.passage_title){
             chips.push(`<span class="chip passage" title="Passage">📜</span>`);
           } else if (q.category_id || q.category_name){
-            chips.push(`<span class="chip" title="Kategori">🏷</span>`);
+            chips.push(`<span class="chip" title="Category">🏷</span>`);
           }
 
-          if (q.image_media_id) chips.push(`<span class="chip" title="Gambar">🖼</span>`);
+          if (q.image_media_id) chips.push(`<span class="chip" title="Image">🖼</span>`);
           if (q.file_id) chips.push(`<span class="chip" title="File">📎</span>`);
           if (q.youtube_url) chips.push(`<span class="chip" title="YouTube">▶</span>`);
 
@@ -2856,9 +2982,9 @@ $modal = [
         }).join('');
 
         bulkPreview.innerHTML = `
-          <div class="muted" style="margin-bottom:8px">Menampilkan ${Math.min(10,totalQ)} dari ${totalQ} soal.</div>
+          <div class="muted" style="margin-bottom:8px">Showing ${Math.min(10,totalQ)} of ${totalQ} Questions.</div>
           <ol class="bulk-preview-list">${lis}</ol>
-          ${totalQ>10 ? '<div class="muted" style="margin-top:8px">… dan lainnya</div>' : ''}
+          ${totalQ>10 ? '<div class="muted" style="margin-top:8px">… and more</div>' : ''}
         `;
       }
     }
@@ -2867,11 +2993,11 @@ $modal = [
       const parts = [];
       if (parsed.errs.length){
         parts.push(`<div class="bulk-err"><b>Error:</b><ul>${parsed.errs.slice(0,8).map(x=>`<li>${escapeHTML(x)}</li>`).join('')}</ul></div>`);
-        if (parsed.errs.length>8) parts.push(`<div class="muted">… ${parsed.errs.length-8} error lainnya</div>`);
+        if (parsed.errs.length>8) parts.push(`<div class="muted">… ${parsed.errs.length-8} more errors</div>`);
       }
       if (parsed.warns.length){
         parts.push(`<div class="bulk-warn"><b>Warning:</b><ul>${parsed.warns.slice(0,8).map(x=>`<li>${escapeHTML(x)}</li>`).join('')}</ul></div>`);
-        if (parsed.warns.length>8) parts.push(`<div class="muted">… ${parsed.warns.length-8} warning lainnya</div>`);
+        if (parsed.warns.length>8) parts.push(`<div class="muted">… ${parsed.warns.length-8} more warnings</div>`);
       }
       bulkErrors.innerHTML = parts.length ? parts.join('') : '<div class="muted">—</div>';
     }
@@ -2894,7 +3020,7 @@ $modal = [
     bulkModal.setAttribute('aria-hidden','false');
 
     if (bulkText) bulkText.value = '';
-    if (bulkPreview) bulkPreview.innerHTML = '<div class="muted">Belum ada data.</div>';
+    if (bulkPreview) bulkPreview.innerHTML = '<div class="muted">No data yet.</div>';
     if (bulkErrors) bulkErrors.innerHTML = '<div class="muted">—</div>';
     if (bulkWarn) bulkWarn.textContent = '';
     if (bulkImportBtn) bulkImportBtn.disabled = true;
@@ -2957,14 +3083,14 @@ $modal = [
     const res = updateBulkUI();
     const items = (res && res.finalItems) ? res.finalItems : [];
 
-    if (!items.length) { alert('Tidak ada data untuk diimport'); return; }
-    if (!(await NewNotifConfirm.warning({message:`Import ${items.length} soal?`}))) return;
+    if (!items.length) { alert('There is no data to import'); return; }
+    if (!(await NewNotifConfirm.warning({message:`Import ${items.length} Questions?`}))) return;
 
     const strictVal = bulkStrict ? Number(bulkStrict.value||1) : 1;
 
     bulkImportBtn.disabled = true;
     if (bulkPreviewBtn) bulkPreviewBtn.disabled = true;
-    showToast('Import berjalan...');
+    showToast('Import in progress...');
 
     try{
       await fetchJSON(API.bulk, {
@@ -2974,7 +3100,7 @@ $modal = [
         questions: items
       });
 
-      showToast('Import selesai');
+      showToast('Import complete');
       closeBulk();
       await loadQuestions();
     } finally {
@@ -3101,7 +3227,7 @@ $modal = [
       console.error(err);
       passageSaving = false;
       updatePassageButtons();
-      alert('Gagal simpan passage: ' + (err.message || 'error'));
+      alert('Failed to save Passage: ' + (err.message || 'error'));
     });
   };
 
@@ -3113,7 +3239,7 @@ $modal = [
       console.error(err);
       passageSaving = false;
       updatePassageButtons();
-      alert('Gagal hapus passage: ' + (err.message || 'error'));
+      alert('Failed to delete Passage: ' + (err.message || 'error'));
     });
   };
 
@@ -3141,6 +3267,19 @@ $modal = [
   if (categoryClose) categoryClose.onclick = (e)=>{ e.preventDefault(); closeCategoryModal(); };
   if (categoryModal) categoryModal.addEventListener('click', (e)=>{ if (e.target === categoryModal) closeCategoryModal(); });
 
+  document.addEventListener('keydown', event=>{
+    if (event.key !== 'Escape') return;
+    if (categoryModal && categoryModal.classList.contains('active')) {
+      event.preventDefault();
+      closeCategoryModal();
+      return;
+    }
+    if (passageModal && passageModal.classList.contains('active')) {
+      event.preventDefault();
+      closePassageModal();
+    }
+  });
+
   if (btnCategoryAdd) btnCategoryAdd.onclick = (e)=>{
     e.preventDefault();
     clearCategoryEditor(true);
@@ -3163,7 +3302,7 @@ $modal = [
       console.error(err);
       categorySaving = false;
       updateCategoryButtons();
-      alert('Gagal simpan kategori: ' + (err.message || 'error'));
+      alert('Failed to save Category: ' + (err.message || 'error'));
     });
   };
 
@@ -3175,7 +3314,7 @@ $modal = [
       console.error(err);
       categorySaving = false;
       updateCategoryButtons();
-      alert('Gagal hapus kategori: ' + (err.message || 'error'));
+      alert('Failed to delete Category: ' + (err.message || 'error'));
     });
   };
 
@@ -3195,6 +3334,12 @@ $modal = [
   if (questionType) questionType.addEventListener('change', scheduleSaveQuestion);
   if (questionActive) questionActive.addEventListener('change', scheduleSaveQuestion);
 
+  window.addEventListener('beforeunload', event=>{
+    if (!questionDirty && !saveTimer && answerSaveTimers.size === 0) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
   // ===== Position input (move question to global position)
   let posCommitTimer = null;
   if (questionPos){
@@ -3208,7 +3353,7 @@ $modal = [
       posCommitTimer = setTimeout(()=>{
         moveQuestionToPosition(activeQ.id, raw).catch(err=>{
           console.error(err);
-          showToast('Gagal pindah posisi');
+          showToast('Failed to change position');
           syncEditorPositionUI();
         });
       }, 0);
@@ -3233,7 +3378,7 @@ $modal = [
   // ===== init
   Promise.all([loadCategories(), loadPassages(), loadQuestions()]).catch(err=>{
     console.error(err);
-    alert('Gagal init: ' + err.message);
+    alert('Initialization failed: ' + err.message);
   });
 
 })();

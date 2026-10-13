@@ -23,7 +23,7 @@ try {
   $allowed = ['single_choice','multiple_choice','yesno','text','number'];
   if (!in_array($question_type, $allowed, true)) jfail('Invalid question_type', 400);
   if ($is_active !== 0 && $is_active !== 1) $is_active = 1;
-  if ($question_text === '') jfail('Soal wajib diisi', 422);
+  if ($question_text === '') jfail('Question text is required.', 422);
   $image_media_id = $in['image_media_id'] ?? null;
   $file_id        = $in['file_id'] ?? null;
   $youtube_url    = trim((string)($in['youtube_url'] ?? ''));
@@ -46,7 +46,7 @@ try {
   if ($passage_id !== null) {
     $st = $pdo->prepare("SELECT id FROM question_passages WHERE id=:id AND quiz_id=:quiz_id LIMIT 1");
     $st->execute([':id'=>$passage_id, ':quiz_id'=>$quiz_id]);
-    if (!$st->fetch()) jfail('Passage tidak ditemukan untuk quiz ini', 422);
+    if (!$st->fetch()) jfail('Passage not found in this quiz.', 422);
   }
   $category_id_present = array_key_exists('category_id', $in);
   $category_id_in = null;
@@ -57,19 +57,19 @@ try {
     if ($category_id_in !== null && $category_id_in <= 0) $category_id_in = null;
   }
   if ($youtube_url !== null) {
-    if (!filter_var($youtube_url, FILTER_VALIDATE_URL)) jfail('Link YouTube tidak valid', 422);
+    if (!filter_var($youtube_url, FILTER_VALIDATE_URL)) jfail('Invalid YouTube URL.', 422);
     $host = strtolower((string)parse_url($youtube_url, PHP_URL_HOST));
-    if (!in_array($host, ['youtube.com','www.youtube.com','m.youtube.com','youtu.be'], true)) jfail('Link YouTube harus domain youtube.com atau youtu.be', 422);
+    if (!in_array($host, ['youtube.com','www.youtube.com','m.youtube.com','youtu.be'], true)) jfail('The YouTube URL must use youtube.com or youtu.be.', 422);
   }
   if ($image_media_id !== null) {
     $st = $pdo->prepare("SELECT id FROM media WHERE id=:id AND visibility='public' AND storage_disk='public' AND access_scope='public' LIMIT 1");
     $st->execute([':id'=>$image_media_id]);
-    if (!$st->fetch()) jfail('Media gambar tidak ditemukan', 422);
+    if (!$st->fetch()) jfail('Image media not found.', 422);
   }
   if ($file_id !== null) {
     $st = $pdo->prepare("SELECT id FROM `file` WHERE id=:id AND visibility='public' AND storage_disk='public' AND access_scope='public' AND is_downloadable=1 LIMIT 1");
     $st->execute([':id'=>$file_id]);
-    if (!$st->fetch()) jfail('File publik tidak ditemukan', 422);
+    if (!$st->fetch()) jfail('Public file not found.', 422);
   }
   $clone_from = (int)($in['clone_from_question_id'] ?? 0);
   $user = qz_api_user();
@@ -87,7 +87,7 @@ try {
     if ($final_category_id !== null) {
       $st = $pdo->prepare("SELECT id FROM question_categories WHERE id=:id AND quiz_id=:quiz_id LIMIT 1");
       $st->execute([':id'=>$final_category_id, ':quiz_id'=>$quiz_id]);
-      if (!$st->fetch()) { $pdo->rollBack(); jfail('Kategori tidak ditemukan untuk quiz ini', 422); }
+      if (!$st->fetch()) { $pdo->rollBack(); jfail('Category not found in this quiz.', 422); }
     }
     $stmt = $pdo->prepare("UPDATE questions SET passage_id=:pid, passage_seq=:pseq, category_id=:cid, question_text=:qt, question_type=:type, is_active=:act, image_media_id=:mid, file_id=:fid, youtube_url=:yt WHERE id=:id AND quiz_id=:quiz_id LIMIT 1");
     $stmt->execute([':pid'=>$passage_id, ':pseq'=>$passage_seq, ':cid'=>$final_category_id, ':qt'=>$question_text, ':type'=>$question_type, ':act'=>$is_active, ':mid'=>$image_media_id, ':fid'=>$file_id, ':yt'=>$youtube_url, ':id'=>$id, ':quiz_id'=>$quiz_id]);
@@ -100,7 +100,7 @@ try {
   if ($final_category_id !== null) {
     $st = $pdo->prepare("SELECT id FROM question_categories WHERE id=:id AND quiz_id=:quiz_id LIMIT 1");
     $st->execute([':id'=>$final_category_id, ':quiz_id'=>$quiz_id]);
-    if (!$st->fetch()) { $pdo->rollBack(); jfail('Kategori tidak ditemukan untuk quiz ini', 422); }
+    if (!$st->fetch()) { $pdo->rollBack(); jfail('Category not found in this quiz.', 422); }
   }
   if ($clone_from > 0) qz_lock_question_for_mutation($pdo, $quiz_id, $clone_from, (int)$user['id']);
   $sort_order = qz_append_sort_order($pdo, 'questions', $quiz_id);

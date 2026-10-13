@@ -23,7 +23,7 @@ function jin(): array {
 
 function require_csrf(string $token): void {
   if (!function_exists('csrf_token') || !hash_equals(csrf_token(), $token)) {
-    jfail('CSRF invalid', 419);
+    jfail('Invalid CSRF token.', 419);
   }
 }
 
@@ -70,7 +70,7 @@ function order_revision(array $rows): string {
 
 function required_order_revision(mixed $value): string {
   $revision = is_string($value) ? strtolower(trim($value)) : '';
-  if (preg_match('/^[a-f0-9]{64}$/', $revision) !== 1) jfail('Order revision wajib diisi', 422);
+  if (preg_match('/^[a-f0-9]{64}$/', $revision) !== 1) jfail('Order revision is required.', 422);
   return $revision;
 }
 
@@ -101,7 +101,7 @@ function order_members_match(array $orderedIds, array $rows): bool {
 
 function order_conflict(PDO $pdo): never {
   if ($pdo->inTransaction()) $pdo->rollBack();
-  jfail('Urutan sudah berubah. Muat ulang data sebelum mencoba lagi.', 409, ['code' => 'order_conflict']);
+  jfail('The order has changed. Reload the data before trying again.', 409, ['code' => 'order_conflict']);
 }
 
 function require_question_in_quiz(int $quiz_id, int $question_id): void {

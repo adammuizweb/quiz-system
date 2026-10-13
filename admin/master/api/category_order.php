@@ -8,7 +8,7 @@ $quiz_id = (int)($in['quiz_id'] ?? 0);
 $ordered = $in['ordered_ids'] ?? null;
 $expectedRevision = required_order_revision($in['order_revision'] ?? null);
 if ($quiz_id<=0) jfail('Missing quiz_id', 400);
-if (!is_array($ordered) || !$ordered) jfail('ordered_ids wajib array', 422);
+if (!is_array($ordered) || !$ordered) jfail('ordered_ids must be a non-empty array', 422);
 require_quiz_exists($quiz_id);
 $ids = ordered_positive_ids($ordered);
 try {

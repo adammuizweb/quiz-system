@@ -44,7 +44,7 @@ try {
     if ($fid !== null && $fid <= 0) $fid = null;
     $yt = trim((string)($q['youtube_url'] ?? ''));
     if ($yt === '') $yt = null;
-    if ($yt !== null && !is_valid_youtube($yt)) jfail("Bulk: YouTube tidak valid pada item #".($i+1), 422);
+    if ($yt !== null && !is_valid_youtube($yt)) jfail("Bulk import: invalid YouTube URL in item #".($i+1), 422);
     if ($mid !== null) $mids[] = $mid;
     if ($fid !== null) $fids[] = $fid;
     $rawCatId = $q['category_id'] ?? null;
@@ -71,29 +71,29 @@ try {
     }
     $san[] = ['question_text'=>$qt, 'question_type'=>$type, 'is_active'=>$act, 'image_media_id'=>$mid, 'file_id'=>$fid, 'youtube_url'=>$yt, 'category_id'=>$cat_id, 'category_name'=>$cat_name, 'passage_id'=>$pass_id, 'passage_title'=>$pass_title, 'passage_seq'=>$pass_seq, 'answers'=>$ansSan];
   }
-  if (!count($san)) jfail('Bulk: tidak ada data valid', 422);
+  if (!count($san)) jfail('Bulk import: no valid data found.', 422);
   $mids = array_values(array_unique(array_filter($mids, fn($x)=>$x>0)));
   if ($mids) {
     $place = implode(',', array_fill(0, count($mids), '?')); $st = $pdo->prepare("SELECT id FROM media WHERE id IN ($place) AND visibility='public' AND storage_disk='public' AND access_scope='public'"); $st->execute($mids);
     $found = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []); $miss = array_values(array_diff($mids, $found));
-    if ($miss) jfail('Bulk: media tidak ditemukan: '.implode(',',$miss), 422);
+    if ($miss) jfail('Bulk import: media not found: '.implode(',',$miss), 422);
   }
   $fids = array_values(array_unique(array_filter($fids, fn($x)=>$x>0)));
   if ($fids) {
-    $place = implode(',', array_fill(0, count($fids), '?')); $st = $pdo->prepare("SELECT id FROM `file` WHERE id IN ($place) AND visibility='public' AND storage_disk='public' AND access_scope='public' AND is_downloadable=1"); $st->execute($fids); $found = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []); $miss = array_values(array_diff($fids, $found)); if ($miss) jfail('Bulk: file publik tidak ditemukan: '.implode(',',$miss), 422);
+    $place = implode(',', array_fill(0, count($fids), '?')); $st = $pdo->prepare("SELECT id FROM `file` WHERE id IN ($place) AND visibility='public' AND storage_disk='public' AND access_scope='public' AND is_downloadable=1"); $st->execute($fids); $found = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []); $miss = array_values(array_diff($fids, $found)); if ($miss) jfail('Bulk import: public files not found: '.implode(',',$miss), 422);
   }
   $catIds = array_values(array_unique(array_filter($catIds, fn($x)=>$x>0)));
   $passIds = array_values(array_unique(array_filter($passIds, fn($x)=>$x>0)));
   $catNames = array_values(array_unique(array_filter(array_map('norm_name', $catNames), fn($x)=>$x!=='')));
   $passTitles = array_values(array_unique(array_filter(array_map('norm_name', $passTitles), fn($x)=>$x!=='')));
   $validCatIds = [];
-  if ($catIds) { $place = implode(',', array_fill(0, count($catIds), '?')); $st = $pdo->prepare("SELECT id FROM question_categories WHERE quiz_id=? AND id IN ($place)"); $st->execute(array_merge([$quiz_id], $catIds)); $validCatIds = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []); $miss = array_values(array_diff($catIds, $validCatIds)); if ($miss && $strict) jfail('Bulk: category_id bukan milik quiz ini: '.implode(',',$miss), 422); }
+  if ($catIds) { $place = implode(',', array_fill(0, count($catIds), '?')); $st = $pdo->prepare("SELECT id FROM question_categories WHERE quiz_id=? AND id IN ($place)"); $st->execute(array_merge([$quiz_id], $catIds)); $validCatIds = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []); $miss = array_values(array_diff($catIds, $validCatIds)); if ($miss && $strict) jfail('Bulk import: category_id does not belong to this quiz: '.implode(',',$miss), 422); }
   $catNameToId = [];
-  if ($catNames) { $place = implode(',', array_fill(0, count($catNames), '?')); $st = $pdo->prepare("SELECT id, name FROM question_categories WHERE quiz_id=? AND name IN ($place)"); $st->execute(array_merge([$quiz_id], $catNames)); $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: []; foreach ($rows as $r) { $catNameToId[norm_name($r['name'])] = (int)$r['id']; } if ($strict) { $miss = []; foreach ($catNames as $nm) if (!isset($catNameToId[$nm])) $miss[] = $nm; if ($miss) jfail('Bulk: category_name tidak ditemukan di quiz ini: '.implode(' | ', $miss), 422); } }
+  if ($catNames) { $place = implode(',', array_fill(0, count($catNames), '?')); $st = $pdo->prepare("SELECT id, name FROM question_categories WHERE quiz_id=? AND name IN ($place)"); $st->execute(array_merge([$quiz_id], $catNames)); $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: []; foreach ($rows as $r) { $catNameToId[norm_name($r['name'])] = (int)$r['id']; } if ($strict) { $miss = []; foreach ($catNames as $nm) if (!isset($catNameToId[$nm])) $miss[] = $nm; if ($miss) jfail('Bulk import: category_name was not found in this quiz: '.implode(' | ', $miss), 422); } }
   $validPassIds = [];
-  if ($passIds) { $place = implode(',', array_fill(0, count($passIds), '?')); $st = $pdo->prepare("SELECT id FROM question_passages WHERE quiz_id=? AND id IN ($place)"); $st->execute(array_merge([$quiz_id], $passIds)); $validPassIds = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []); $miss = array_values(array_diff($passIds, $validPassIds)); if ($miss && $strict) jfail('Bulk: passage_id bukan milik quiz ini: '.implode(',',$miss), 422); }
+  if ($passIds) { $place = implode(',', array_fill(0, count($passIds), '?')); $st = $pdo->prepare("SELECT id FROM question_passages WHERE quiz_id=? AND id IN ($place)"); $st->execute(array_merge([$quiz_id], $passIds)); $validPassIds = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []); $miss = array_values(array_diff($passIds, $validPassIds)); if ($miss && $strict) jfail('Bulk import: passage_id does not belong to this quiz: '.implode(',',$miss), 422); }
   $passTitleToId = [];
-  if ($passTitles) { $place = implode(',', array_fill(0, count($passTitles), '?')); $st = $pdo->prepare("SELECT id, title FROM question_passages WHERE quiz_id=? AND title IN ($place)"); $st->execute(array_merge([$quiz_id], $passTitles)); $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: []; foreach ($rows as $r) { $passTitleToId[norm_name($r['title'])] = (int)$r['id']; } if ($strict) { $miss = []; foreach ($passTitles as $tt) if (!isset($passTitleToId[$tt])) $miss[] = $tt; if ($miss) jfail('Bulk: passage_title tidak ditemukan di quiz ini: '.implode(' | ', $miss), 422); } }
+  if ($passTitles) { $place = implode(',', array_fill(0, count($passTitles), '?')); $st = $pdo->prepare("SELECT id, title FROM question_passages WHERE quiz_id=? AND title IN ($place)"); $st->execute(array_merge([$quiz_id], $passTitles)); $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: []; foreach ($rows as $r) { $passTitleToId[norm_name($r['title'])] = (int)$r['id']; } if ($strict) { $miss = []; foreach ($passTitles as $tt) if (!isset($passTitleToId[$tt])) $miss[] = $tt; if ($miss) jfail('Bulk import: passage_title was not found in this quiz: '.implode(' | ', $miss), 422); } }
   foreach ($san as &$q) {
     if (!empty($q['category_id'])) { $cid = (int)$q['category_id']; if (!in_array($cid, $validCatIds, true)) $q['category_id'] = null; }
     elseif (!empty($q['category_name'])) { $nm = norm_name($q['category_name']); $q['category_id'] = $catNameToId[$nm] ?? null; }

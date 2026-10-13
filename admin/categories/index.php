@@ -5,7 +5,7 @@ require __DIR__ . '/../_init.php';
 
 $base = ADMIN_BASE_PATH;
 $quiz_id = (int)($_GET['quiz_id'] ?? 0);
-if ($quiz_id <= 0) { echo '<div class="adam-alert error">Missing or invalid quiz_id</div>'; return; }
+if ($quiz_id <= 0) { echo '<div class="adam-alert error">Missing or invalid quiz_id.</div>'; return; }
 $quizAccess = qz_require_quiz_access($pdo, $quiz_id);
 $user = qz_admin_user($pdo);
 
@@ -18,13 +18,13 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([':id'=>$quiz_id]);
 $quiz = $stmt->fetch(\PDO::FETCH_ASSOC);
-if (!$quiz) { http_response_code(404); exit('Quiz not found / no access'); }
+if (!$quiz) { http_response_code(404); exit('Quiz not found, or you do not have access.'); }
 
 $on = trim((string)($quiz['owner_name'] ?? ''));
 $oe = trim((string)($quiz['owner_email'] ?? ''));
 $ownerLine = ($on || $oe)
-  ? ('Owner: ' . ($on ? h($on) : 'User#'.(int)$quiz['created_by']) . ($oe ? (' <span style="opacity:.75">(' . h($oe) . ')</span>') : ''))
-  : ('Owner: User#'.(int)$quiz['created_by']);
+  ? ('Owner: ' . ($on ? h($on) : 'User #'.(int)$quiz['created_by']) . ($oe ? (' <span style="opacity:.75">(' . h($oe) . ')</span>') : ''))
+  : ('Owner: User #'.(int)$quiz['created_by']);
 
 $catStmt = $pdo->prepare("
   SELECT c.*,
@@ -50,24 +50,24 @@ $addUrl = "$base/?page=admin/quiz/categories/add&quiz_id=$quiz_id";
 $backQuizzes = "$base/?page=admin/quiz/quizzes";
 ?>
 <section class="adam-card qz-card">
-  <?php qz_admin_breadcrumb([['label'=>'Master Builder','url'=>$base.'/?page=admin/quiz/master'],['label'=>(string)$quiz['title'],'url'=>$masterUrl],['label'=>'Kategori']]); ?>
+  <?php qz_admin_breadcrumb([['label'=>'Master Builder','url'=>$base.'/?page=admin/quiz/master'],['label'=>(string)$quiz['title'],'url'=>$masterUrl],['label'=>'Categories']]); ?>
   <div class="qz-head">
     <div>
-      <h2 style="margin:0">Kategori — <?= h($quiz['title']) ?></h2>
+      <h2 style="margin:0">Categories — <?= h($quiz['title']) ?></h2>
       <div class="qz-meta">Quiz ID: <b><?= $quiz_id ?></b><span class="dot">•</span><?= $ownerLine ?></div>
     </div>
     <div class="qz-toolbar">
-      <a class="adam-button" href="<?= h($addUrl) ?>">+ Tambah Kategori</a>
-      <a class="adam-button ghost" href="<?= h($masterUrl) ?>">← Master</a>
-      <a class="adam-button ghost" href="<?= h($backQuizzes) ?>">← Quiz</a>
+      <a class="adam-button" href="<?= h($addUrl) ?>">+ Add Category</a>
+      <a class="adam-button ghost" href="<?= h($masterUrl) ?>">← Master Builder</a>
+      <a class="adam-button ghost" href="<?= h($backQuizzes) ?>">← Quizzes</a>
     </div>
   </div>
   <?php if ($messages): ?><div class="adam-alert success"><?php foreach($messages as $m):?><div><?=h($m)?></div><?php endforeach;?></div><?php endif; ?>
   <?php if ($errors): ?><div class="adam-alert error"><?php foreach($errors as $e):?><div><?=h($e)?></div><?php endforeach;?></div><?php endif; ?>
   <table class="qz-table">
-    <thead><tr><th width="70">ID</th><th>Nama</th><th width="120">Passages</th><th width="220">Soal</th><th width="140">Min Soal</th><th width="140">Max Soal</th><th width="120">Shuffle</th><th width="120">Sort</th><th width="120">Status</th><th width="220">Aksi</th></tr></thead>
+    <thead><tr><th width="70">ID</th><th>Name</th><th width="120">Passages</th><th width="220">Questions</th><th width="140">Minimum Questions</th><th width="140">Maximum Questions</th><th width="120">Shuffle</th><th width="120">Order</th><th width="120">Status</th><th width="220">Actions</th></tr></thead>
     <tbody>
-      <?php if (!$categories): ?><tr><td colspan="10" style="padding:.9rem">Belum ada kategori.</td></tr>
+      <?php if (!$categories): ?><tr><td colspan="10" style="padding:.9rem">No categories yet.</td></tr>
       <?php else: foreach ($categories as $c):
         $canMutate = qz_can_mutate_resource($pdo, (int)$user['id'], $quizAccess, $c);
         $isActive = (int)($c['is_active']??0)===1;
@@ -87,20 +87,20 @@ $backQuizzes = "$base/?page=admin/quiz/quizzes";
         <td class="col-id"><?=(int)$c['id']?></td>
         <td><div class="qtext"><?=h((string)$c['name'])?></div><?php if(!empty($c['description'])):?><div class="qsub"><span class="chip muted"><?=h(mb_strimwidth((string)$c['description'],0,140,'…','UTF-8'))?></span></div><?php endif;?></td>
         <td><span class="badge count"><?=$passageCount?></span></td>
-        <td><div class="qsub"><span class="badge count">Dipakai: <?=$cntPassage?></span><span class="badge muted">Total: <?=$cntLegacy?></span><?php if($cntUnmapped>0):?><span class="badge warn">Belum: <?=$cntUnmapped?></span><?php endif;?></div></td>
+        <td><div class="qsub"><span class="badge count">Used: <?=$cntPassage?></span><span class="badge muted">Total: <?=$cntLegacy?></span><?php if($cntUnmapped>0):?><span class="badge warn">Unassigned: <?=$cntUnmapped?></span><?php endif;?></div></td>
         <td><?php if($minq>0):?><span class="badge <?=$warnMin?'warn':''?>"><?=$minq?></span><?php else:?><span class="badge muted">0</span><?php endif;?></td>
         <td><?php if($maxq!==null):?><span class="badge <?=$warnMax?'warn':''?>"><?=$maxq?></span><?php else:?><span class="badge muted">∞</span><?php endif;?></td>
         <td><div class="qsub"><span class="chip"><?=$sp?'🔀 P':'— P'?></span><span class="chip"><?=$sq?'🔀 Q':'— Q'?></span></div></td>
         <td><?php if($sort!==null):?><span class="badge"><?=$sort?></span><?php else:?><span class="badge muted">-</span><?php endif;?></td>
-        <td><?php if($isActive):?><span class="badge ok">Aktif</span><?php else:?><span class="badge muted">Nonaktif</span><?php endif;?></td>
-        <td class="actions"><?php if($canMutate):?><a class="link" href="<?=h($editUrl)?>">Edit</a><span class="sep">•</span><form method="post" action="<?=h($base)?>/?page=admin/quiz/categories/delete" style="display:inline"><input type="hidden" name="id" value="<?=(int)$c['id']?>"><input type="hidden" name="quiz_id" value="<?=$quiz_id?>"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><button type="submit" class="link danger" data-confirm="Hapus kategori? Semua passage akan lepas (category_id jadi NULL)." data-confirm-variant="danger">Hapus</button></form><?php else:?><span class="badge muted">Read only</span><?php endif;?></td>
+        <td><?php if($isActive):?><span class="badge ok">Active</span><?php else:?><span class="badge muted">Inactive</span><?php endif;?></td>
+        <td class="actions"><?php if($canMutate):?><a class="link" href="<?=h($editUrl)?>">Edit</a><span class="sep">•</span><form method="post" action="<?=h($base)?>/?page=admin/quiz/categories/delete" style="display:inline"><input type="hidden" name="id" value="<?=(int)$c['id']?>"><input type="hidden" name="quiz_id" value="<?=$quiz_id?>"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><button type="submit" class="link danger" data-confirm="Delete this category? All passages will be detached (category_id will be set to NULL)." data-confirm-variant="danger">Delete</button></form><?php else:?><span class="badge muted">Read only</span><?php endif;?></td>
       </tr><?php endforeach; endif; ?>
     </tbody>
   </table>
   <div class="qz-footnote">
-    <span class="dot">•</span><b>Dipakai</b> = soal /take (via <code>question_passages.category_id</code>)
-    <span class="dot">•</span><b>Total</b> = soal via <code>questions.category_id</code> (legacy)
-    <span class="dot">•</span><b>Belum</b> = Total yang belum nyantol ke passage kategori ini
+    <span class="dot">•</span><b>Used</b> = questions shown in /take (via <code>question_passages.category_id</code>)
+    <span class="dot">•</span><b>Total</b> = questions linked through <code>questions.category_id</code> (legacy)
+    <span class="dot">•</span><b>Unassigned</b> = total questions not linked to a passage in this category
   </div>
 </section>
 <?php

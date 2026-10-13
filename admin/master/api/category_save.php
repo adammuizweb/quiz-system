@@ -24,16 +24,16 @@ $is_active         = (int)($in['is_active'] ?? 1);
 if ($shuffle_passages !== 0 && $shuffle_passages !== 1) $shuffle_passages = 1;
 if ($shuffle_questions !== 0 && $shuffle_questions !== 1) $shuffle_questions = 1;
 if ($is_active !== 0 && $is_active !== 1) $is_active = 1;
-if ($name === '') jfail('Nama kategori wajib diisi', 422);
+if ($name === '') jfail('Category name is required', 422);
 $max_questions = $in['max_questions'] ?? null;
 if ($max_questions === '' || $max_questions === null) $max_questions = null;
-else { $max_questions = (int)$max_questions; if ($max_questions <= 0) jfail('max_questions harus >= 1 atau kosong', 422); if ($max_questions > 5000) jfail('max_questions terlalu besar', 422); }
+else { $max_questions = (int)$max_questions; if ($max_questions <= 0) jfail('max_questions must be at least 1 or blank', 422); if ($max_questions > 5000) jfail('max_questions cannot exceed 5000', 422); }
 $min_questions = $in['min_questions'] ?? 0;
 if ($min_questions === '' || $min_questions === null) $min_questions = 0;
 $min_questions = (int)$min_questions;
-if ($min_questions < 0) jfail('min_questions harus >= 0', 422);
-if ($min_questions > 5000) jfail('min_questions terlalu besar', 422);
-if ($max_questions !== null && $min_questions > $max_questions) jfail('min_questions tidak boleh lebih besar dari max_questions', 422);
+if ($min_questions < 0) jfail('min_questions must be at least 0', 422);
+if ($min_questions > 5000) jfail('min_questions cannot exceed 5000', 422);
+if ($max_questions !== null && $min_questions > $max_questions) jfail('min_questions cannot exceed max_questions', 422);
 try {
   $user = qz_api_user();
   $pdo->beginTransaction();

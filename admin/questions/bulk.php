@@ -34,12 +34,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
   http_response_code(405);
   exit('Method not allowed');
 }
-if ($quizId <= 0 || !csrf_check((string)($_POST['csrf_token'] ?? ''))) $go('err', 'Request bulk tidak valid.');
+if ($quizId <= 0 || !csrf_check((string)($_POST['csrf_token'] ?? ''))) $go('err', 'Invalid bulk request.');
 
 $action = trim((string)($_POST['bulk_action'] ?? ''));
-if (!in_array($action, ['activate', 'deactivate', 'delete'], true)) $go('err', 'Pilih bulk action yang valid.');
+if (!in_array($action, ['activate', 'deactivate', 'delete'], true)) $go('err', 'Select a valid bulk action.');
 $rawIds = $_POST['ids'] ?? [];
-if (!is_array($rawIds)) $go('err', 'Pilihan soal tidak valid.');
+if (!is_array($rawIds)) $go('err', 'Invalid question selection.');
 $ids = [];
 foreach ($rawIds as $rawId) {
   if (!is_scalar($rawId)) continue;
@@ -47,7 +47,7 @@ foreach ($rawIds as $rawId) {
   if ($id > 0) $ids[$id] = $id;
 }
 $ids = array_values($ids);
-if ($ids === [] || count($ids) > 100) $go('err', 'Pilih 1 sampai 100 soal.');
+if ($ids === [] || count($ids) > 100) $go('err', 'Select between 1 and 100 questions.');
 
 $userId = (int)qz_admin_user($pdo)['id'];
 try {
@@ -74,10 +74,10 @@ try {
   if ($changed > count($ids)) throw new RuntimeException('Bulk mutation affected an unexpected number of rows.');
   $pdo->commit();
 
-  $labels = ['activate' => 'diaktifkan', 'deactivate' => 'dinonaktifkan', 'delete' => 'dihapus'];
-  $go('msg', count($ids) . ' soal diproses; ' . $changed . ' baris ' . $labels[$action] . '.');
+  $labels = ['activate' => 'activated', 'deactivate' => 'deactivated', 'delete' => 'deleted'];
+  $go('msg', count($ids) . ' questions processed; ' . $changed . ' rows ' . $labels[$action] . '.');
 } catch (Throwable $error) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log('[quiz question bulk] ' . $error->getMessage());
-  $go('err', 'Bulk action gagal. Pastikan semua soal terpilih masih tersedia dan dapat Anda kelola.');
+  $go('err', 'Bulk action failed. Make sure all selected questions are still available and that you can manage them.');
 }

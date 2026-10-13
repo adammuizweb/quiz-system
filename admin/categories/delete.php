@@ -8,15 +8,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); ex
 $id = (int)($_POST['id'] ?? 0);
 $quiz_id = (int)($_POST['quiz_id'] ?? 0);
 $csrf = (string)($_POST['csrf_token'] ?? '');
-if ($id <= 0 || $quiz_id <= 0) { http_response_code(400); exit('Missing id/quiz_id'); }
-if (!csrf_check($csrf)) { http_response_code(403); exit('Invalid CSRF'); }
+if ($id <= 0 || $quiz_id <= 0) { http_response_code(400); exit('Missing category ID or quiz_id.'); }
+if (!csrf_check($csrf)) { http_response_code(403); exit('The CSRF token is invalid.'); }
 $quiz = qz_require_quiz_access($pdo, $quiz_id);
 qz_require_category_access($pdo, $quiz_id, $id);
 
 $stmt = $pdo->prepare("SELECT c.id, c.name, q.title AS quiz_title FROM question_categories c JOIN quizzes q ON q.id=c.quiz_id WHERE c.id=:id AND c.quiz_id=:qid LIMIT 1");
 $stmt->execute([':id'=>$id,':qid'=>$quiz_id]);
 $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-if (!$row) { http_response_code(404); exit('Not found / no access'); }
+if (!$row) { http_response_code(404); exit('Category not found, or you do not have access.'); }
 
 $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM question_passages WHERE quiz_id=:qid AND category_id=:cid");
 $cntStmt->execute([':qid'=>$quiz_id,':cid'=>$id]);
@@ -34,12 +34,12 @@ try {
     $dependent = $pdo->prepare('SELECT created_by FROM question_passages WHERE quiz_id=:qid AND category_id=:id FOR UPDATE');
     $dependent->execute([':qid'=>$quiz_id, ':id'=>$id]);
     foreach ($dependent->fetchAll(PDO::FETCH_COLUMN) ?: [] as $createdBy) {
-      if ((int)$createdBy !== $userId) throw new RuntimeException('Kategori memiliki passage milik kolaborator lain.');
+      if ((int)$createdBy !== $userId) throw new RuntimeException('The category contains a passage owned by another collaborator.');
     }
     $dependent = $pdo->prepare('SELECT q.created_by FROM questions q LEFT JOIN question_passages p ON p.id=q.passage_id AND p.quiz_id=q.quiz_id WHERE q.quiz_id=:qid AND (q.category_id=:direct_id OR p.category_id=:passage_id) FOR UPDATE');
     $dependent->execute([':qid'=>$quiz_id, ':direct_id'=>$id, ':passage_id'=>$id]);
     foreach ($dependent->fetchAll(PDO::FETCH_COLUMN) ?: [] as $createdBy) {
-      if ((int)$createdBy !== $userId) throw new RuntimeException('Kategori memiliki soal milik kolaborator lain.');
+      if ((int)$createdBy !== $userId) throw new RuntimeException('The category contains a question owned by another collaborator.');
     }
   }
   $pdo->prepare('UPDATE question_passages SET category_id=NULL WHERE quiz_id=:qid AND category_id=:id')->execute([':qid'=>$quiz_id, ':id'=>$id]);
@@ -49,8 +49,8 @@ try {
   $pdo->commit();
 } catch (\Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
-  qz_redirect("$base/?page=admin/quiz/categories/index&quiz_id=$quiz_id&err=" . urlencode("Gagal menghapus kategori: ".$e->getMessage()));
+  qz_redirect("$base/?page=admin/quiz/categories/index&quiz_id=$quiz_id&err=" . urlencode("Could not delete the category: ".$e->getMessage()));
 }
 
-$msg = "Kategori berhasil dihapus. ({$passCount} passage dilepas dari kategori)";
+$msg = "Category deleted successfully. Passages detached: {$passCount}.";
 qz_redirect("$base/?page=admin/quiz/categories/index&quiz_id=$quiz_id&msg=" . urlencode($msg));

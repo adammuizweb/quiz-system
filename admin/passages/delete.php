@@ -8,8 +8,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); ex
 $id = (int)($_POST['id'] ?? 0);
 $quiz_id = (int)($_POST['quiz_id'] ?? 0);
 $csrf = (string)($_POST['csrf_token'] ?? '');
-if ($id <= 0 || $quiz_id <= 0) { http_response_code(400); exit('Missing id/quiz_id'); }
-if (!csrf_check($csrf)) { http_response_code(403); exit('Invalid CSRF'); }
+if ($id <= 0 || $quiz_id <= 0) { http_response_code(400); exit('Missing passage ID or quiz_id.'); }
+if (!csrf_check($csrf)) { http_response_code(403); exit('The CSRF token is invalid.'); }
 $quiz = qz_require_quiz_access($pdo, $quiz_id);
 qz_require_passage_access($pdo, $quiz_id, $id);
 
@@ -25,7 +25,7 @@ try {
     $dependent = $pdo->prepare('SELECT created_by FROM questions WHERE quiz_id=:qid AND passage_id=:id FOR UPDATE');
     $dependent->execute([':qid'=>$quiz_id, ':id'=>$id]);
     foreach ($dependent->fetchAll(PDO::FETCH_COLUMN) ?: [] as $createdBy) {
-      if ((int)$createdBy !== $userId) throw new RuntimeException('Passage memiliki soal milik kolaborator lain.');
+      if ((int)$createdBy !== $userId) throw new RuntimeException('The passage contains a question owned by another collaborator.');
     }
   }
   $u = $pdo->prepare("UPDATE questions SET passage_id=NULL,passage_seq=NULL WHERE quiz_id=:qid AND passage_id=:pid");
@@ -35,6 +35,6 @@ try {
   $pdo->commit();
 } catch (\Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
-  qz_redirect("$base/?page=admin/quiz/passages/index&quiz_id=$quiz_id&err=" . urlencode("Gagal menghapus passage: ".$e->getMessage()));
+  qz_redirect("$base/?page=admin/quiz/passages/index&quiz_id=$quiz_id&err=" . urlencode("Could not delete the passage: ".$e->getMessage()));
 }
-qz_redirect("$base/?page=admin/quiz/passages/index&quiz_id=$quiz_id&msg=" . urlencode("Passage berhasil dihapus. Soal yang terhubung sudah dilepas."));
+qz_redirect("$base/?page=admin/quiz/passages/index&quiz_id=$quiz_id&msg=" . urlencode("Passage deleted successfully. Linked questions were detached."));

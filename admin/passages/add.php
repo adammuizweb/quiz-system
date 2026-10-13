@@ -5,7 +5,7 @@ require __DIR__ . '/../_init.php';
 
 $base = ADMIN_BASE_PATH;
 $quiz_id = (int)($_GET['quiz_id'] ?? 0);
-if ($quiz_id <= 0) { http_response_code(400); exit('Missing or invalid quiz_id'); }
+if ($quiz_id <= 0) { http_response_code(400); exit('Missing or invalid quiz_id.'); }
 $quiz = qz_require_quiz_access($pdo, $quiz_id);
 $user = qz_admin_user($pdo);
 
@@ -39,7 +39,7 @@ $shuffle_questions = 1; $min_questions = ''; $max_questions = ''; $is_active = 1
 $image_media_id = null; $image_preview_url = ''; $file_id = null; $file_label = ''; $youtube_url = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  if (!hash_equals(csrf_token(), (string)($_POST['csrf_token'] ?? ''))) $errors[] = 'CSRF token tidak valid.';
+  if (!hash_equals(csrf_token(), (string)($_POST['csrf_token'] ?? ''))) $errors[] = 'The CSRF token is invalid.';
   $title = trim((string)($_POST['title'] ?? ''));
   $passage_text = (string)($_POST['passage_text'] ?? '');
   $shuffle_questions = (int)($_POST['shuffle_questions'] ?? 1) ? 1 : 0;
@@ -47,46 +47,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $min_questions = trim((string)($_POST['min_questions'] ?? ''));
   $minVal = 0;
   if ($min_questions !== '') {
-    if (!ctype_digit($min_questions)) $errors[] = 'Min questions harus angka (>= 0).';
-    else { $minVal = (int)$min_questions; if ($minVal < 0) $errors[] = 'Min tidak boleh negatif.'; if ($minVal > 5000) $errors[] = 'Min terlalu besar.'; }
+    if (!ctype_digit($min_questions)) $errors[] = 'Minimum questions must be a whole number greater than or equal to 0.';
+    else { $minVal = (int)$min_questions; if ($minVal < 0) $errors[] = 'Minimum questions cannot be negative.'; if ($minVal > 5000) $errors[] = 'Minimum questions cannot exceed 5000.'; }
   }
   $max_questions = trim((string)($_POST['max_questions'] ?? ''));
-  if ($max_questions !== '' && !ctype_digit($max_questions)) $errors[] = 'Max questions harus angka.';
-  if ($max_questions !== '' && (int)$max_questions < 1) $errors[] = 'Max questions minimal 1.';
+  if ($max_questions !== '' && !ctype_digit($max_questions)) $errors[] = 'Maximum questions must be a whole number.';
+  if ($max_questions !== '' && (int)$max_questions < 1) $errors[] = 'Maximum questions must be at least 1.';
   $maxVal = null; if ($max_questions !== '') $maxVal = (int)$max_questions;
-  if ($maxVal !== null && $minVal > $maxVal) $errors[] = 'Min tidak boleh > Max.';
+  if ($maxVal !== null && $minVal > $maxVal) $errors[] = 'Minimum questions cannot exceed maximum questions.';
   $raw_cat = trim((string)($_POST['category_id'] ?? ''));
   if ($raw_cat === '') $category_id = null;
   elseif (ctype_digit($raw_cat)) $category_id = (int)$raw_cat;
-  else $errors[] = 'Kategori tidak valid.';
+  else $errors[] = 'The category is invalid.';
   $raw_mid = trim((string)($_POST['image_media_id'] ?? ''));
   if ($raw_mid === '') $image_media_id = null;
   elseif (ctype_digit($raw_mid)) $image_media_id = (int)$raw_mid;
-  else $errors[] = 'Gambar tidak valid.';
+  else $errors[] = 'The image is invalid.';
   $raw_fid = trim((string)($_POST['file_id'] ?? ''));
   if ($raw_fid === '') $file_id = null;
   elseif (ctype_digit($raw_fid)) $file_id = (int)$raw_fid;
-  else $errors[] = 'File tidak valid.';
+  else $errors[] = 'The file is invalid.';
   $youtube_url = trim((string)($_POST['youtube_url'] ?? ''));
-  if (!is_valid_youtube_url($youtube_url)) $errors[] = 'Link YouTube tidak valid.';
-  if ($passage_text === '') $errors[] = 'Passage text wajib diisi.';
+  if (!is_valid_youtube_url($youtube_url)) $errors[] = 'The YouTube URL is invalid.';
+  if ($passage_text === '') $errors[] = 'Passage text is required.';
   if ($category_id !== null && $category_id > 0) {
     $st = $pdo->prepare("SELECT id FROM question_categories WHERE id=:id AND quiz_id=:qid LIMIT 1");
     $st->execute([':id'=>$category_id,':qid'=>$quiz_id]);
-    if (!$st->fetchColumn()) { $errors[] = 'Kategori tidak ditemukan untuk quiz ini.'; $category_id = null; }
+    if (!$st->fetchColumn()) { $errors[] = 'The category was not found in this quiz.'; $category_id = null; }
   }
   if ($image_media_id !== null && $image_media_id > 0) {
     $st = $pdo->prepare("SELECT id, url FROM media WHERE id=:id AND visibility='public' AND storage_disk='public' AND access_scope='public' LIMIT 1");
     $st->execute([':id'=>$image_media_id]);
     $mrow = $st->fetch(\PDO::FETCH_ASSOC);
-    if (!$mrow) { $errors[] = 'Media tidak ditemukan.'; $image_media_id = null; $image_preview_url = ''; }
+    if (!$mrow) { $errors[] = 'The media item was not found.'; $image_media_id = null; $image_preview_url = ''; }
     else $image_preview_url = (string)($mrow['url'] ?? '');
   }
   if ($file_id !== null && $file_id > 0) {
     $st = $pdo->prepare("SELECT id, filename, title FROM `file` WHERE id=:id AND visibility='public' AND storage_disk='public' AND access_scope='public' AND is_downloadable=1 LIMIT 1");
     $st->execute([':id'=>$file_id]);
     $frow = $st->fetch(\PDO::FETCH_ASSOC);
-    if (!$frow) { $errors[] = 'File tidak ditemukan.'; $file_id = null; $file_label = ''; }
+    if (!$frow) { $errors[] = 'The file was not found.'; $file_id = null; $file_label = ''; }
     else $file_label = (string)($frow['filename'] ?? $frow['name'] ?? $frow['title'] ?? ('File #'.$file_id));
   }
   if (!$errors) {
@@ -97,10 +97,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $stmt = $pdo->prepare("INSERT INTO question_passages (quiz_id,created_by,category_id,title,passage_text,image_media_id,file_id,youtube_url,shuffle_questions,min_questions,max_questions,sort_order,is_active) VALUES (:qid,:created_by,:catid,:title,:pt,:mid,:fid,:yt,:shuf,:minq,:maxq,:sort,:act)");
       $stmt->execute([':qid'=>$quiz_id,':created_by'=>(int)$user['id'],':catid'=>$category_id,':title'=>$title,':pt'=>$passage_text,':mid'=>$image_media_id,':fid'=>$file_id,':yt'=>($youtube_url===''?null:$youtube_url),':shuf'=>$shuffle_questions,':minq'=>$minVal,':maxq'=>($max_questions===''?null:(int)$max_questions),':sort'=>$sortOrder,':act'=>$is_active]);
       $pdo->commit();
-      qz_redirect("$base/?page=admin/quiz/passages/index&quiz_id=$quiz_id&msg=".urlencode("Passage berhasil ditambahkan."));
+      qz_redirect("$base/?page=admin/quiz/passages/index&quiz_id=$quiz_id&msg=".urlencode("Passage added successfully."));
     } catch (Throwable $error) {
       if ($pdo->inTransaction()) $pdo->rollBack();
-      $errors[] = 'Passage gagal disimpan atau akses sudah tidak berlaku.';
+      $errors[] = 'The passage could not be saved, or you no longer have access.';
     }
   }
 }
@@ -116,31 +116,31 @@ $masterUrl = "$base/?page=admin/quiz/master&quiz_id=$quiz_id";
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 
 <section class="adam-card qz-card qz-editor-page">
-  <?php qz_admin_breadcrumb([['label'=>'Master Builder','url'=>$base.'/?page=admin/quiz/master'],['label'=>(string)$quiz['title'],'url'=>$masterUrl],['label'=>'Passage','url'=>$backUrl],['label'=>'Tambah']]); ?>
-  <div class="qz-head"><div><div class="qz-kicker">Bank soal</div><h2 style="margin:0">Tambah Passage</h2><p class="qz-context"><?=h($quiz['title'])?> · Passage baru otomatis berada di urutan terakhir.</p></div><div class="qz-toolbar"><a class="adam-button ghost" href="<?=h($backUrl)?>">Daftar Passage</a><a class="adam-button ghost" href="<?=h($masterUrl)?>">Master Builder</a></div></div>
+  <?php qz_admin_breadcrumb([['label'=>'Master Builder','url'=>$base.'/?page=admin/quiz/master'],['label'=>(string)$quiz['title'],'url'=>$masterUrl],['label'=>'Passages','url'=>$backUrl],['label'=>'Add']]); ?>
+  <div class="qz-head"><div><div class="qz-kicker">Question bank</div><h2 style="margin:0">Add Passage</h2><p class="qz-context"><?=h($quiz['title'])?> · New passages are automatically placed last.</p></div><div class="qz-toolbar"><a class="adam-button ghost" href="<?=h($backUrl)?>">Passage List</a><a class="adam-button ghost" href="<?=h($masterUrl)?>">Master Builder</a></div></div>
   <?php if ($errors):?><div class="adam-alert error"><?php foreach($errors as $e):?><div><?=h($e)?></div><?php endforeach;?></div><?php endif;?>
   <form method="post" novalidate>
     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
     <input type="hidden" name="image_media_id" id="inp_image_media_id" value="<?=h((string)($image_media_id ?? ''))?>">
     <input type="hidden" name="file_id" id="inp_file_id" value="<?=h((string)($file_id ?? ''))?>">
     <div class="group-box" style="margin-bottom:1rem">
-      <div style="display:grid;gap:.5rem"><label><strong>Judul (opsional)</strong></label><input class="adam-input" name="title" value="<?=h($title)?>" placeholder="mis. Bacaan 1 / Stimulus A"></div>
-      <div style="display:grid;gap:.5rem"><label><strong>Kategori (opsional)</strong></label><select class="adam-input" name="category_id"><option value="">(Tanpa kategori)</option><?php foreach($categories as $c):$cid=(int)$c['id'];$cn=trim((string)($c['name']??''));$sel=($category_id!==null&&$category_id===$cid)?'selected':'';?><option value="<?=$cid?>"<?=$sel?>><?=h($cn!==''?$cn:'Kategori #'.$cid)?></option><?php endforeach;?></select><div class="small-hint">Kategori mengelompokkan passage. <a href="<?=h($catManageUrl)?>" style="font-weight:900;text-decoration:none">Kelola kategori</a></div></div>
+      <div style="display:grid;gap:.5rem"><label><strong>Title (optional)</strong></label><input class="adam-input" name="title" value="<?=h($title)?>" placeholder="e.g. Reading 1 / Stimulus A"></div>
+      <div style="display:grid;gap:.5rem"><label><strong>Category (optional)</strong></label><select class="adam-input" name="category_id"><option value="">(No category)</option><?php foreach($categories as $c):$cid=(int)$c['id'];$cn=trim((string)($c['name']??''));$sel=($category_id!==null&&$category_id===$cid)?'selected':'';?><option value="<?=$cid?>"<?=$sel?>><?=h($cn!==''?$cn:'Category #'.$cid)?></option><?php endforeach;?></select><div class="small-hint">Categories group related passages. <a href="<?=h($catManageUrl)?>" style="font-weight:900;text-decoration:none">Manage categories</a></div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem">
-        <div style="display:grid;gap:.5rem"><label><strong>Shuffle questions</strong></label><select class="adam-input" name="shuffle_questions"><option value="1" <?=$shuffle_questions?'selected':''?>>Ya</option><option value="0">Tidak</option></select></div>
-        <div style="display:grid;gap:.5rem"><label><strong>Min questions</strong> (opsional)</label><input class="adam-input" name="min_questions" value="<?=h($min_questions)?>" placeholder="0/kosong"><div class="small-hint">Min 0, tidak boleh > Max.</div></div>
-        <div style="display:grid;gap:.5rem"><label><strong>Max questions</strong> (opsional)</label><input class="adam-input" name="max_questions" value="<?=h($max_questions)?>" placeholder="kosong = tak terbatas"><div class="small-hint">Jika diisi, minimal 1.</div></div>
+        <div style="display:grid;gap:.5rem"><label><strong>Shuffle questions</strong></label><select class="adam-input" name="shuffle_questions"><option value="1" <?=$shuffle_questions?'selected':''?>>Yes</option><option value="0">No</option></select></div>
+        <div style="display:grid;gap:.5rem"><label><strong>Minimum questions</strong> (optional)</label><input class="adam-input" name="min_questions" value="<?=h($min_questions)?>" placeholder="0 or blank"><div class="small-hint">Minimum 0; cannot exceed the maximum.</div></div>
+        <div style="display:grid;gap:.5rem"><label><strong>Maximum questions</strong> (optional)</label><input class="adam-input" name="max_questions" value="<?=h($max_questions)?>" placeholder="Blank = unlimited"><div class="small-hint">If set, the minimum value is 1.</div></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-        <div style="display:grid;gap:.5rem"><label><strong>Urutan</strong></label><div class="qz-order-note">Passage baru ditempatkan di akhir. Atur urutan melalui Master Builder.</div></div>
-        <div style="display:grid;gap:.5rem"><label><strong>Status</strong></label><select class="adam-input" name="is_active"><option value="1" <?=$is_active?'selected':''?>>Aktif</option><option value="0">Nonaktif</option></select></div>
+        <div style="display:grid;gap:.5rem"><label><strong>Order</strong></label><div class="qz-order-note">New passages are placed last. Change the order in Master Builder.</div></div>
+        <div style="display:grid;gap:.5rem"><label><strong>Status</strong></label><select class="adam-input" name="is_active"><option value="1" <?=$is_active?'selected':''?>>Active</option><option value="0">Inactive</option></select></div>
       </div>
     </div>
-    <div style="display:grid;gap:.5rem;margin-bottom:1rem"><label><strong>Passage Text (Markdown + Math)</strong></label><textarea class="adam-input" id="passageText" name="passage_text" rows="10" required><?=h($passage_text)?></textarea><div class="small-hint">Math: <code>$x^2$</code> / <code>$$\frac{a}{b}$$</code> · Markdown: <code>**bold**</code>, <code>- list</code>, dll.</div><div class="md-preview" id="passagePreview"></div></div>
-    <div style="margin:0 0 1rem 0"><label style="display:block;margin-bottom:.4rem"><strong>Gambar (opsional)</strong></label><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div class="attach-card" style="width:160px;height:100px;display:flex;align-items:center;justify-content:center"><img id="img_preview" src="" alt="Preview" style="width:100%;height:100%;object-fit:cover;display:none"><div id="img_placeholder" class="muted" style="font-size:.9rem">Tidak ada gambar</div></div><div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><button type="button" class="adam-button" id="btn_pick_image">Pilih dari Media</button><button type="button" class="adam-button ghost" id="btn_clear_image">Clear</button><span class="muted">Media ID: <span id="txt_media_id">-</span></span></div></div></div>
-    <div style="margin:0 0 1rem 0"><label style="display:block;margin-bottom:.4rem"><strong>File (opsional)</strong></label><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div class="file-pill" style="min-width:260px;max-width:520px"><div style="font-weight:700" id="file_label">Belum ada file</div><div class="muted">File ID: <span id="txt_file_id">-</span></div></div><div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><button type="button" class="adam-button" id="btn_pick_file">Pilih File</button><button type="button" class="adam-button ghost" id="btn_clear_file">Clear</button></div></div></div>
-    <div style="display:grid;gap:.5rem;margin-bottom:1rem"><label><strong>Link YouTube (opsional)</strong></label><input class="adam-input" name="youtube_url" value="<?=h($youtube_url)?>" placeholder="https://youtu.be/xxxx atau https://www.youtube.com/watch?v=xxxx"><div class="small-hint">Domain: youtube.com / youtu.be</div></div>
-    <div style="margin-top:1.2rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="adam-button" type="submit">Simpan Passage</button><a class="adam-button ghost" href="<?=h($backUrl)?>">Batal</a></div>
+    <div style="display:grid;gap:.5rem;margin-bottom:1rem"><label><strong>Passage Text (Markdown + Math)</strong></label><textarea class="adam-input" id="passageText" name="passage_text" rows="10" required><?=h($passage_text)?></textarea><div class="small-hint">Math: <code>$x^2$</code> / <code>$$\frac{a}{b}$$</code> · Markdown: <code>**bold**</code>, <code>- list</code>, etc.</div><div class="md-preview" id="passagePreview"></div></div>
+    <div style="margin:0 0 1rem 0"><label style="display:block;margin-bottom:.4rem"><strong>Image (optional)</strong></label><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div class="attach-card" style="width:160px;height:100px;display:flex;align-items:center;justify-content:center"><img id="img_preview" src="" alt="Preview" style="width:100%;height:100%;object-fit:cover;display:none"><div id="img_placeholder" class="muted" style="font-size:.9rem">No image selected</div></div><div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><button type="button" class="adam-button" id="btn_pick_image">Choose from Media</button><button type="button" class="adam-button ghost" id="btn_clear_image">Remove</button><span class="muted">Media ID: <span id="txt_media_id">-</span></span></div></div></div>
+    <div style="margin:0 0 1rem 0"><label style="display:block;margin-bottom:.4rem"><strong>File (optional)</strong></label><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div class="file-pill" style="min-width:260px;max-width:520px"><div style="font-weight:700" id="file_label">No file selected</div><div class="muted">File ID: <span id="txt_file_id">-</span></div></div><div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap"><button type="button" class="adam-button" id="btn_pick_file">Choose File</button><button type="button" class="adam-button ghost" id="btn_clear_file">Remove</button></div></div></div>
+    <div style="display:grid;gap:.5rem;margin-bottom:1rem"><label><strong>YouTube URL (optional)</strong></label><input class="adam-input" name="youtube_url" value="<?=h($youtube_url)?>" placeholder="https://youtu.be/xxxx or https://www.youtube.com/watch?v=xxxx"><div class="small-hint">Domain: youtube.com / youtu.be</div></div>
+    <div style="margin-top:1.2rem;display:flex;gap:.5rem;flex-wrap:wrap"><button class="adam-button" type="submit">Save Passage</button><a class="adam-button ghost" href="<?=h($backUrl)?>">Cancel</a></div>
   </form>
 </section>
 <script>
@@ -171,7 +171,7 @@ $masterUrl = "$base/?page=admin/quiz/master&quiz_id=$quiz_id";
         scripts.forEach(s=>{if(s.src)externals.push(s.src);});
         externals.forEach(src=>{if(!document.querySelector('script[src="'+src+'"]')){const el=document.createElement('script');el.src=src;el.async=false;document.head.appendChild(el);}});
         scripts.forEach(s=>{if(!s.src){const el=document.createElement('script');el.text=s.textContent;document.body.appendChild(el);}});
-      }catch(err){console.error(err);if(container)container.innerHTML='<div style="color:#c00">Gagal memuat konten.</div>';}
+      }catch(err){console.error(err);if(container)container.innerHTML='<div style="color:#c00">Could not load the content.</div>';}
     };
   }
   if(!window.adamModalOpen){
@@ -183,7 +183,7 @@ $masterUrl = "$base/?page=admin/quiz/master&quiz_id=$quiz_id";
       const box=document.createElement('div');box.id='adam-modal-box';const mw=(opts&&opts.maxWidth)?opts.maxWidth:'980px';box.style.cssText='background:'+bg+';color:'+txt+';border-radius:10px;max-width:'+mw+';width:100%;max-height:90vh;overflow:auto;box-shadow:0 8px 32px rgba(0,0,0,.25);position:relative';
       const close=document.createElement('button');close.type='button';close.innerText='×';close.style.cssText='position:absolute;right:10px;top:8px;border:0;background:transparent;font-size:20px;cursor:pointer';close.addEventListener('click',function(){window.adamModalClose();});box.appendChild(close);
       const content=document.createElement('div');content.id='adam-modal-content';content.style.padding='14px';box.appendChild(content);bd.appendChild(box);document.body.appendChild(bd);
-      fetch(url,{credentials:'include'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(html=>injectHtmlWithScriptsTo(content,html)).catch(err=>{content.innerHTML='<div style="color:#c00">Gagal memuat modal.</div>';console.error(err);});
+      fetch(url,{credentials:'include'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(html=>injectHtmlWithScriptsTo(content,html)).catch(err=>{content.innerHTML='<div style="color:#c00">Could not load the dialog.</div>';console.error(err);});
       bd.addEventListener('click',function(ev){if(ev.target===bd)window.adamModalClose();});
       function onKey(e){if(e.key==='Escape')window.adamModalClose();}
       document.addEventListener('keydown',onKey);bd.__esc=onKey;
@@ -204,7 +204,7 @@ $masterUrl = "$base/?page=admin/quiz/master&quiz_id=$quiz_id";
   function normalizeMedia(detail){if(!detail)return null;const m=(detail.media&&typeof detail.media==='object')?detail.media:detail;return{id:(m.id!=null)?(parseInt(m.id,10)||null):null,url:(m.url!=null)?String(m.url||''):''};}
   function normalizeFile(detail){if(!detail)return null;const f=(detail.file&&typeof detail.file==='object')?detail.file:detail;const id=(f.id!=null)?(parseInt(f.id,10)||null):null;const label=(f.filename||f.title||f.name||f.original_name||(id?'File #'+id:'')||'');return{id,label:String(label)};}
   function setImage(mid,url){document.getElementById('inp_image_media_id').value=mid?String(mid):'';document.getElementById('txt_media_id').textContent=mid?String(mid):'-';const img=document.getElementById('img_preview'),ph=document.getElementById('img_placeholder');if(url){img.src=url;img.style.display='block';if(ph)ph.style.display='none';}else{img.removeAttribute('src');img.style.display='none';if(ph)ph.style.display='block';}}
-  function setFile(fid,label){document.getElementById('inp_file_id').value=fid?String(fid):'';document.getElementById('txt_file_id').textContent=fid?String(fid):'-';document.getElementById('file_label').textContent=(fid?(label||'File #'+fid):'Belum ada file');}
+  function setFile(fid,label){document.getElementById('inp_file_id').value=fid?String(fid):'';document.getElementById('txt_file_id').textContent=fid?String(fid):'-';document.getElementById('file_label').textContent=(fid?(label||'File #'+fid):'No file selected');}
   document.getElementById('btn_pick_image')?.addEventListener('click',async function(){const d=await openSelector({url:BASE+'/admin/modal_img/list_modal.php?embedded=1',eventName:'media:insert',messageType:'media:insert',maxWidth:'980px'});const m=normalizeMedia(d);if(!m||!m.id)return;setImage(m.id,m.url||'');});
   document.getElementById('btn_clear_image')?.addEventListener('click',function(){setImage(null,'');});
   document.getElementById('btn_pick_file')?.addEventListener('click',async function(){const d=await openSelector({url:BASE+'/admin/modal_file/list_modal.php?embedded=1',eventName:'file:insert',messageType:'file:insert',maxWidth:'980px'});const f=normalizeFile(d);if(!f||!f.id)return;setFile(f.id,f.label||'File #'+f.id);});

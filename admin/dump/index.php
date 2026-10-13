@@ -114,7 +114,7 @@ if (!function_exists('qz_render_media_block')) {
       if ($url) {
         $htmlParts[] = '<img src="'.h($url).'" alt="Image">';
       } else {
-        $htmlParts[] = '<div class="qt-file"><div><b>Image</b> #'.(int)$imgId.'</div><small>URL tidak ditemukan (cek kolom media.url/path)</small></div>';
+        $htmlParts[] = '<div class="qt-file"><div><b>Image</b> #'.(int)$imgId.'</div><small>URL not found (check the media.url/path columns)</small></div>';
       }
     }
     if ($fileId) {
@@ -125,10 +125,10 @@ if (!function_exists('qz_render_media_block')) {
         if ($row && qz_is_pdf_row($row)) {
           $htmlParts[] = '<div class="qz-pdf"><iframe src="'.h($url).'"></iframe></div>';
         } else {
-          $htmlParts[] = '<div class="qt-file"><a href="'.h($url).'" target="_blank" rel="noopener">Download file</a><small>'.h($nm).'</small></div>';
+          $htmlParts[] = '<div class="qt-file"><a href="'.h($url).'" target="_blank" rel="noopener">Download File</a><small>'.h($nm).'</small></div>';
         }
       } else {
-        $htmlParts[] = '<div class="qt-file"><div><b>File</b> #'.(int)$fileId.'</div><small>URL tidak ditemukan (cek kolom file.url/path)</small></div>';
+        $htmlParts[] = '<div class="qt-file"><div><b>File</b> #'.(int)$fileId.'</div><small>URL not found (check the file.url/path columns)</small></div>';
       }
     }
     if (!$htmlParts) return '';
@@ -167,12 +167,12 @@ if (!empty($_GET['msg'])) $messages[] = urldecode($_GET['msg']);
 if (!empty($_GET['err'])) $errors[]   = urldecode($_GET['err']);
 
 if ($uid <= 0) {
-  $errors[] = 'Session user_id tidak ditemukan. Silakan login ulang.';
+  $errors[] = 'Session user_id was not found. Please sign in again.';
 }
 
 $quiz_id = (int)($_GET['quiz_id'] ?? 0);
 if ($quiz_id <= 0) {
-  echo '<div class="adam-alert error">Missing or invalid quiz_id</div>';
+  echo '<div class="adam-alert error">Missing or invalid quiz ID.</div>';
   return;
 }
 qz_require_quiz_access($pdo, $quiz_id);
@@ -422,7 +422,7 @@ try {
   }
 } catch (Throwable $e) {
   error_log("[admin/quiz/dump] " . $e->getMessage());
-  $errors[] = "DB error saat load dump. Cek error_log.";
+  $errors[] = "Database error while loading the quality check. Check error_log.";
 }
 
 $quizActive = ((int)($quiz['is_active'] ?? 0) === 1);
@@ -438,21 +438,21 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
       <div class="crumbs">
         <a href="<?= h($base) ?>/?page=admin/quiz/quizzes">Quiz</a>
         <span class="sep">›</span>
-        <span>Dump QC</span>
+        <span>Quality Check</span>
       </div>
       <h2 style="margin:6px 0 0">
-        Dump QC — Quiz #<?= (int)$quiz_id ?> · <?= h($quiz['title'] ?? '') ?>
+        Quality Check — Quiz #<?= (int)$quiz_id ?> · <?= h($quiz['title'] ?? '') ?>
       </h2>
       <div class="sub">
-        <?= $quizActive ? badge('Quiz Aktif','ok') : badge('Quiz Nonaktif','bad') ?>
-        <?= $isPrimary ? badge('PRIMARY','primary') : '' ?>
+        <?= $quizActive ? badge('Active Quiz','ok') : badge('Inactive Quiz','bad') ?>
+        <?= $isPrimary ? badge('PRIMARY QUIZ','primary') : '' ?>
         <?php if (!empty($quiz['description'])): ?>
           <span class="desc" title="<?= h((string)($quiz['description'] ?? '')) ?>"><?= h(cut((string)($quiz['description'] ?? ''), 140)) ?></span>
         <?php endif; ?>
       </div>
     </div>
     <div class="right">
-      <a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/master&quiz_id=<?= (int)$quiz_id ?>">← Kembali ke Master</a>
+      <a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/master&quiz_id=<?= (int)$quiz_id ?>">← Back to Master Builder</a>
     </div>
   </div>
 
@@ -474,15 +474,15 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
     <input type="hidden" name="quiz_id" value="<?= (int)$quiz_id ?>">
 
     <div class="frow">
-      <input class="adam-input" name="q" value="<?= h($q) ?>" placeholder="Cari: ID soal, isi soal, jawaban, nama category, title/teks passage..." />
+       <input class="adam-input" name="q" value="<?= h($q) ?>" placeholder="Search question ID, question text, answers, category name, or passage title/text..." />
 
       <select class="adam-input" name="cat_id">
-        <option value="">Semua Category</option>
+        <option value="">All Categories</option>
         <?php foreach ($categories as $c): ?>
           <?php
             $cid = (int)$c['id'];
             $nm = (string)$c['name'];
-            $act = ((int)$c['is_active'] === 1) ? 'Aktif' : 'Nonaktif';
+            $act = ((int)$c['is_active'] === 1) ? 'Active' : 'Inactive';
             $sel = ($cat_id !== '' && (int)$cat_id === $cid) ? 'selected' : '';
           ?>
           <option value="<?= $cid ?>" <?= $sel ?>>#<?= $cid ?> · <?= h($nm) ?> (<?= $act ?>)</option>
@@ -490,13 +490,13 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
       </select>
 
       <select class="adam-input" name="pass_id">
-        <option value="">Semua Passage</option>
+        <option value="">All Passages</option>
         <?php foreach ($passages as $p): ?>
           <?php
             $pid = (int)$p['id'];
             $ttl = trim((string)($p['title'] ?? ''));
             $ttl = $ttl !== '' ? $ttl : ('Passage #' . $pid);
-            $act = ((int)$p['is_active'] === 1) ? 'Aktif' : 'Nonaktif';
+            $act = ((int)$p['is_active'] === 1) ? 'Active' : 'Inactive';
             $sel = ($pass_id !== '' && (int)$pass_id === $pid) ? 'selected' : '';
           ?>
           <option value="<?= $pid ?>" <?= $sel ?>>#<?= $pid ?> · <?= h(cut($ttl, 70)) ?> (<?= $act ?>)</option>
@@ -506,33 +506,33 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
 
     <div class="frow">
       <select class="adam-input" name="q_status">
-        <option value="all" <?= $q_status==='all'?'selected':'' ?>>Soal: Semua Status</option>
-        <option value="1" <?= $q_status==='1'?'selected':'' ?>>Soal: Aktif</option>
-        <option value="0" <?= $q_status==='0'?'selected':'' ?>>Soal: Nonaktif</option>
+        <option value="all" <?= $q_status==='all'?'selected':'' ?>>Questions: All Statuses</option>
+        <option value="1" <?= $q_status==='1'?'selected':'' ?>>Questions: Active</option>
+        <option value="0" <?= $q_status==='0'?'selected':'' ?>>Questions: Inactive</option>
       </select>
 
       <select class="adam-input" name="a_status">
-        <option value="all" <?= $a_status==='all'?'selected':'' ?>>Jawaban: Semua Status</option>
-        <option value="1" <?= $a_status==='1'?'selected':'' ?>>Jawaban: Aktif</option>
-        <option value="0" <?= $a_status==='0'?'selected':'' ?>>Jawaban: Nonaktif</option>
+        <option value="all" <?= $a_status==='all'?'selected':'' ?>>Answers: All Statuses</option>
+        <option value="1" <?= $a_status==='1'?'selected':'' ?>>Answers: Active</option>
+        <option value="0" <?= $a_status==='0'?'selected':'' ?>>Answers: Inactive</option>
       </select>
 
       <select class="adam-input" name="q_type">
-        <option value="all" <?= $q_type==='all'?'selected':'' ?>>Tipe: Semua</option>
-        <option value="single_choice" <?= $q_type==='single_choice'?'selected':'' ?>>single_choice</option>
-        <option value="multiple_choice" <?= $q_type==='multiple_choice'?'selected':'' ?>>multiple_choice</option>
-        <option value="yesno" <?= $q_type==='yesno'?'selected':'' ?>>yesno</option>
-        <option value="text" <?= $q_type==='text'?'selected':'' ?>>text</option>
-        <option value="number" <?= $q_type==='number'?'selected':'' ?>>number</option>
+        <option value="all" <?= $q_type==='all'?'selected':'' ?>>Type: All</option>
+        <option value="single_choice" <?= $q_type==='single_choice'?'selected':'' ?>>Single Choice</option>
+        <option value="multiple_choice" <?= $q_type==='multiple_choice'?'selected':'' ?>>Multiple Choice</option>
+        <option value="yesno" <?= $q_type==='yesno'?'selected':'' ?>>Yes / No</option>
+        <option value="text" <?= $q_type==='text'?'selected':'' ?>>Text</option>
+        <option value="number" <?= $q_type==='number'?'selected':'' ?>>Number</option>
       </select>
 
-      <select class="adam-input" name="order" title="Urutan daftar">
-        <option value="master" <?= $order_mode==='master'?'selected':'' ?>>Urutan: Master (Posisi)</option>
-        <option value="cat" <?= $order_mode==='cat'?'selected':'' ?>>Urutan: Category → Passage</option>
+      <select class="adam-input" name="order" title="List order">
+        <option value="master" <?= $order_mode==='master'?'selected':'' ?>>Order: Master (Position)</option>
+        <option value="cat" <?= $order_mode==='cat'?'selected':'' ?>>Order: Category → Passage</option>
       </select>
 
       <select class="adam-input" name="per">
-        <?php $opts = ['25'=>'25/hal','50'=>'50/hal','100'=>'100/hal','200'=>'200/hal','all'=>'Semua (hati-hati berat)']; ?>
+        <?php $opts = ['25'=>'25/page','50'=>'50/page','100'=>'100/page','200'=>'200/page','all'=>'All (may be slow)']; ?>
         <?php foreach ($opts as $k => $lbl): ?>
           <option value="<?= h((string)$k) ?>" <?= ($per_raw===(string)$k)?'selected':'' ?>><?= h($lbl) ?></option>
         <?php endforeach; ?>
@@ -540,12 +540,12 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
 
       <label class="ck">
         <input type="checkbox" name="issue" value="1" <?= $only_issue?'checked':'' ?>>
-        Hanya masalah (pilihan tanpa jawaban aktif)
+        Issues only (choice questions without active answers)
       </label>
 
       <label class="ck">
         <input type="checkbox" name="show_passage" value="1" <?= $show_passage_text?'checked':'' ?>>
-        Tampilkan teks passage
+        Show passage text
       </label>
 
       <button class="adam-button" type="submit">Filter</button>
@@ -555,25 +555,25 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
 
   <div class="meta">
     <div>
-      <b><?= (int)$totalFiltered ?></b> soal ditemukan
+      <b><?= (int)$totalFiltered ?></b> questions found
       <?php if ($per > 0): ?>
-        · menampilkan <b><?= (int)$showFrom ?></b>-<b><?= (int)$showTo ?></b>
-        · halaman <b><?= (int)$page ?></b>/<b><?= (int)$totalPages ?></b>
+        · showing <b><?= (int)$showFrom ?></b>-<b><?= (int)$showTo ?></b>
+        · page <b><?= (int)$page ?></b>/<b><?= (int)$totalPages ?></b>
       <?php endif; ?>
-      · urutan: <b><?= $order_mode==='master' ? 'Master (Posisi)' : 'Category → Passage' ?></b>
+      · order: <b><?= $order_mode==='master' ? 'Master (Position)' : 'Category → Passage' ?></b>
     </div>
 
     <?php if ($per > 0 && $totalPages > 1): ?>
       <div class="pager">
         <?php $prev = max(1, $page - 1); $next = min($totalPages, $page + 1); ?>
-        <a class="pg <?= ($page<=1?'dis':'') ?>" href="<?= ($page<=1?'#':h(build_url(['p'=>$prev]))) ?>">‹ Prev</a>
+        <a class="pg <?= ($page<=1?'dis':'') ?>" href="<?= ($page<=1?'#':h(build_url(['p'=>$prev]))) ?>">‹ Previous</a>
         <a class="pg <?= ($page>=$totalPages?'dis':'') ?>" href="<?= ($page>=$totalPages?'#':h(build_url(['p'=>$next]))) ?>">Next ›</a>
       </div>
     <?php endif; ?>
   </div>
 
   <?php if (!$rows): ?>
-    <div class="empty">Tidak ada soal untuk filter ini.</div>
+    <div class="empty">No questions match these filters.</div>
   <?php else: ?>
 
     <?php
@@ -592,7 +592,7 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
 
         $passId  = (int)($r['passage_id'] ?? 0);
         $passTitle = trim((string)($r['passage_title'] ?? ''));
-        $passTitle = $passTitle !== '' ? $passTitle : ($passId > 0 ? 'Passage #'.$passId : 'Tanpa Passage');
+        $passTitle = $passTitle !== '' ? $passTitle : ($passId > 0 ? 'Passage #'.$passId : 'No Passage');
         $passAct = (int)($r['passage_is_active'] ?? 0);
 
         $qAct = (int)($r['is_active'] ?? 0);
@@ -618,9 +618,9 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
           $curCat = $catKey;
           $curPass = null;
 
-          $catLabel = ($catId > 0 && $catName !== '') ? ("#{$catId} · {$catName}") : "Tanpa Category";
+          $catLabel = ($catId > 0 && $catName !== '') ? ("#{$catId} · {$catName}") : "No Category";
           $catBadge = ($catId > 0)
-            ? (((int)$catAct===1) ? badge('Category Aktif','ok') : badge('Category Nonaktif','bad'))
+            ? (((int)$catAct===1) ? badge('Active Category','ok') : badge('Inactive Category','bad'))
             : badge('—','muted');
     ?>
       <div class="block cat">
@@ -636,7 +636,7 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
           $curPass = $passKey;
 
           $passBadge = ($passId > 0)
-            ? (((int)$passAct===1) ? badge('Passage Aktif','ok') : badge('Passage Nonaktif','bad'))
+            ? (((int)$passAct===1) ? badge('Active Passage','ok') : badge('Inactive Passage','bad'))
             : badge('—','muted');
 
           $ptext = (string)($r['passage_text'] ?? '');
@@ -675,26 +675,26 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
         <div class="q-top">
           <div class="q-left">
             <div class="q-no">
-              Pos <?= $pos !== null ? (int)$pos : '—' ?>
+              Position <?= $pos !== null ? (int)$pos : '—' ?>
               <span class="muted" style="margin-left:8px">(#<?= (int)$no ?>)</span>
             </div>
             <div class="q-meta">
               <span class="muted">QID:</span> <b><?= (int)$qid ?></b>
               <span class="dot">•</span>
-              <span class="muted">Type:</span> <b><?= h($qType) ?></b>
+               <span class="muted">Type:</span> <b><?= h(str_replace('_', ' ', ucwords($qType, '_'))) ?></b>
               <?php if ($pseq !== null): ?>
                 <span class="dot">•</span><span class="muted">passage_seq:</span> <b><?= (int)$pseq ?></b>
               <?php endif; ?>
             </div>
             <div class="q-links">
-              <a class="link" href="<?= h($questionEditorUrl) ?>" target="_blank" rel="noopener">Edit Soal &amp; Jawaban</a>
+              <a class="link" href="<?= h($questionEditorUrl) ?>" target="_blank" rel="noopener">Edit Question &amp; Answers</a>
             </div>
           </div>
 
           <div class="q-right">
-            <?= ($qAct===1) ? badge('Soal Aktif','ok') : badge('Soal Nonaktif','bad') ?>
+            <?= ($qAct===1) ? badge('Active Question','ok') : badge('Inactive Question','bad') ?>
             <?php if ($isProblem): ?>
-              <?= badge('⚠ Tidak ada jawaban aktif','warn') ?>
+              <?= badge('⚠ No active answers','warn') ?>
             <?php endif; ?>
           </div>
         </div>
@@ -711,12 +711,12 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
 
         <div class="ans">
           <div class="ans-head">
-            <b>Jawaban</b>
-            <span class="muted">· total: <?= (int)count($ans) ?> · aktif: <?= (int)$activeAnsCount ?></span>
+            <b>Answers</b>
+            <span class="muted">· total: <?= (int)count($ans) ?> · active: <?= (int)$activeAnsCount ?></span>
           </div>
 
           <?php if (!$ans): ?>
-            <div class="ans-empty"><?= badge('Tidak ada jawaban','warn') ?></div>
+            <div class="ans-empty"><?= badge('No answers','warn') ?></div>
           <?php else: ?>
             <ol class="ans-list">
               <?php foreach ($ans as $i => $a): ?>
@@ -736,11 +736,11 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
                   <div class="ans-meta">
                     <span class="muted">ID:</span> <b><?= $aid ?></b>
                     <span class="dot">•</span>
-                    <?= $aAct ? badge('Aktif','ok') : badge('Nonaktif','bad') ?>
+                    <?= $aAct ? badge('Active','ok') : badge('Inactive','bad') ?>
                     <span class="dot">•</span>
-                    <span class="muted">score:</span> <b><?= (int)$score ?></b>
+                    <span class="muted">Score:</span> <b><?= (int)$score ?></b>
                     <span class="dot">•</span>
-                    <span class="muted">sort:</span> <b><?= (int)($a['sort_order'] ?? 0) ?></b>
+                    <span class="muted">Order:</span> <b><?= (int)($a['sort_order'] ?? 0) ?></b>
                   </div>
                 </li>
               <?php endforeach; ?>
