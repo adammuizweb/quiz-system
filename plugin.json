@@ -1,6 +1,6 @@
 {
   "name": "quiz",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "title": "Quiz",
   "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
@@ -578,7 +578,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     },
     {
       "key": "plugin.quiz.attempts.view",
@@ -614,7 +614,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     },
     {
       "key": "plugin.quiz.attempt-responses.correct",
@@ -623,7 +623,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     },
     {
       "key": "plugin.quiz.attempts.operate",
@@ -641,7 +641,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     },
     {
       "key": "plugin.quiz.settings.manage",
@@ -650,7 +650,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     },
     {
       "key": "plugin.quiz.students.manage",
@@ -659,7 +659,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     },
     {
       "key": "plugin.quiz.primary.manage",
@@ -668,7 +668,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     },
     {
       "key": "plugin.quiz.content.manage-any",
@@ -677,7 +677,7 @@
       "default_roles": [
         "admin"
       ],
-      "delegable": false
+      "delegable": true
     }
   ]
 }

@@ -2,7 +2,10 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.10.0`.
+Current release: `1.10.1`.
+
+Quiz `1.10.1` allows Site Owners to grant each separate Quiz capability to
+purpose-built custom operational roles without assigning CMS Administrator.
 
 Quiz `1.10.0` redesigns Master Editor as a responsive question-authoring
 workspace. Desktop uses a bounded, independently scrolling question bank beside
@@ -117,7 +120,7 @@ inherit ownership from their question. The quiz owner and users with
 `plugin.quiz.content.manage-any` may manage all resources in the quiz.
 
 Quiz creation, configuration, duplication, status changes, and deletion require
-the nondelegable `plugin.quiz.quizzes.manage` permission. Collaborators do not
+the dedicated `plugin.quiz.quizzes.manage` permission. Collaborators do not
 receive it through workspace access.
 
 Existing category, passage, and question rows are assigned to their quiz owner

@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.10.0', 'plugin version must be 1.10.0');
+$check(($manifest['version'] ?? null) === '1.10.1', 'plugin version must be 1.10.1');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -83,18 +83,18 @@ $check(is_array($pages) && $pages !== [], 'manifest must declare admin routes');
 $permissionPolicies = [
     'plugin.quiz.dashboard.access' => [['admin', 'editor'], true],
     'plugin.quiz.workspace.access' => [['admin', 'editor'], true],
-    'plugin.quiz.quizzes.manage' => [['admin'], false],
+    'plugin.quiz.quizzes.manage' => [['admin'], true],
     'plugin.quiz.attempts.view' => [['admin'], true],
     'plugin.quiz.attempts.export' => [['admin'], true],
     'plugin.quiz.attempt-otp.view' => [['admin'], true],
-    'plugin.quiz.attempt-responses.view' => [['admin'], false],
-    'plugin.quiz.attempt-responses.correct' => [['admin'], false],
+    'plugin.quiz.attempt-responses.view' => [['admin'], true],
+    'plugin.quiz.attempt-responses.correct' => [['admin'], true],
     'plugin.quiz.attempts.operate' => [['admin'], true],
-    'plugin.quiz.attempts.delete' => [['admin'], false],
-    'plugin.quiz.settings.manage' => [['admin'], false],
-    'plugin.quiz.students.manage' => [['admin'], false],
-    'plugin.quiz.primary.manage' => [['admin'], false],
-    'plugin.quiz.content.manage-any' => [['admin'], false],
+    'plugin.quiz.attempts.delete' => [['admin'], true],
+    'plugin.quiz.settings.manage' => [['admin'], true],
+    'plugin.quiz.students.manage' => [['admin'], true],
+    'plugin.quiz.primary.manage' => [['admin'], true],
+    'plugin.quiz.content.manage-any' => [['admin'], true],
 ];
 $permissionDefinitions = [];
 foreach ($manifest['permissions'] ?? [] as $permission) {
@@ -175,7 +175,7 @@ foreach (['admin/quiz/settings', 'admin/quiz/students', 'admin/quiz/quizzes/set_
 $collaboratorRoute = $pagesByRoute['admin/quiz/quizzes/collaborators'] ?? [];
 $check(($collaboratorRoute['roles'] ?? null) === ['admin'], 'collaborator assignment must be admin-only');
 $check(($collaboratorRoute['hidden'] ?? null) === true, 'collaborator assignment route must be hidden');
-$check(($collaboratorRoute['permission'] ?? null) === 'plugin.quiz.content.manage-any', 'collaborator assignment must require nondelegable manage-any');
+$check(($collaboratorRoute['permission'] ?? null) === 'plugin.quiz.content.manage-any', 'collaborator assignment must require explicit manage-any access');
 $check(($pagesByRoute['admin/quiz']['roles'] ?? null) === ['admin', 'editor'], 'Quiz dashboard must allow its admin/editor defaults');
 foreach (['admin/quiz/attempts', 'admin/quiz/attempts/view', 'admin/quiz/attempts/export'] as $route) {
     $check(($pagesByRoute[$route]['roles'] ?? null) === ['admin'], "{$route} must use its admin-only default role gate");
@@ -191,7 +191,7 @@ $check(($correctionRoute['file'] ?? null) === 'admin/student/attempts/api/respon
     && ($correctionRoute['roles'] ?? null) === ['admin']
     && ($correctionRoute['hidden'] ?? null) === true
     && ($correctionRoute['permission'] ?? null) === 'plugin.quiz.attempt-responses.correct',
-    'response correction must use its exact in-plugin file, admin role default, hidden route, and nondelegable permission');
+    'response correction must use its exact in-plugin file, admin role default, hidden route, and dedicated permission');
 
 $copies = $manifest['static']['copy'] ?? [];
 $check(is_array($copies) && $copies !== [], 'manifest must declare static copies');
@@ -1045,7 +1045,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1095,7 +1095,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1115,7 +1115,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.0'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.1'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1139,7 +1139,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1231,7 +1231,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1259,7 +1259,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.0'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.1'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
