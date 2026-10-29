@@ -2,7 +2,14 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.11.1`.
+Current release: `1.12.0`.
+
+Quiz `1.12.0` adds a simple, print-friendly Word question-bank export alongside
+the complete Excel workbook. Both formats support all-category and
+category-specific scopes, preserve question, passage, answer, and score order,
+and run as protected pre-layout downloads. Quality Check now presents the
+format and category controls in a dedicated responsive export panel so they do
+not collide with navigation actions on narrow screens.
 
 Quiz `1.11.1` declares the question-bank export as a pre-layout download and
 retains the legacy action marker, preventing XLSX bytes from being rendered

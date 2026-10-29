@@ -52,6 +52,7 @@ if (!function_exists('qz_route_permission')) {
             'admin/quiz/passages/delete' => 'plugin.quiz.workspace.access',
             'admin/quiz/dump' => 'plugin.quiz.workspace.access',
             'admin/quiz/dump/export' => 'plugin.quiz.workspace.access',
+            'admin/quiz/dump/export-word' => 'plugin.quiz.workspace.access',
             'admin/quiz/master/api/questions_list' => 'plugin.quiz.workspace.access',
             'admin/quiz/master/api/question_get' => 'plugin.quiz.workspace.access',
             'admin/quiz/master/api/question_save' => 'plugin.quiz.workspace.access',

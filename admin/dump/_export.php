@@ -91,7 +91,7 @@ function qz_question_export_alpha_label(int $index): string {
     return $label;
 }
 
-function qz_question_export_plain_text(mixed $value): string {
+function qz_question_export_normalized_text(mixed $value): string {
     $text = (string)$value;
     if (!mb_check_encoding($text, 'UTF-8')) $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
     $text = str_replace("\0", '', $text);
@@ -101,8 +101,11 @@ function qz_question_export_plain_text(mixed $value): string {
     $text = preg_replace("/\r\n?|\n/u", "\n", $text) ?? $text;
     $text = preg_replace("/[ \t]+\n/u", "\n", $text) ?? $text;
     $text = preg_replace("/\n{3,}/u", "\n\n", $text) ?? $text;
-    $text = trim($text);
+    return trim($text);
+}
 
+function qz_question_export_plain_text(mixed $value): string {
+    $text = qz_question_export_normalized_text($value);
     $suffix = "\n[Content truncated for the Excel cell limit]";
     if (mb_strlen($text, 'UTF-8') > 32767) {
         $text = mb_substr($text, 0, 32767 - mb_strlen($suffix, 'UTF-8'), 'UTF-8') . $suffix;
@@ -329,4 +332,205 @@ function qz_question_export_workbook(array $questions, array $answers, array $qu
     qz_question_export_write_sheet($answerSheet, qz_answer_export_columns(), $answerRecords);
     $spreadsheet->setActiveSheetIndex(0);
     return $spreadsheet;
+}
+
+function qz_question_export_docx_support(): array {
+    $missing = [];
+    if (PHP_INT_SIZE !== 8) $missing[] = '64-bit PHP';
+    foreach (['mbstring', 'zlib'] as $extension) {
+        if (!extension_loaded($extension)) $missing[] = 'ext-' . $extension;
+    }
+    $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+    if (!is_file($autoload) || !is_readable($autoload)) $missing[] = 'bundled Composer autoloader';
+
+    return [
+        'available' => $missing === [],
+        'autoload' => $autoload,
+        'message' => $missing === [] ? '' : 'Missing ' . implode(', ', $missing) . '.',
+    ];
+}
+
+function qz_question_export_docx_xml(string $value): string {
+    if (!mb_check_encoding($value, 'UTF-8')) $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+    $value = preg_replace('/[^\x{0009}\x{000A}\x{000D}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]/u', '', $value) ?? '';
+    return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+}
+
+function qz_question_export_docx_runs(string $text): string {
+    $lines = explode("\n", $text);
+    $runs = '';
+    foreach ($lines as $index => $line) {
+        if ($index > 0) $runs .= '<w:r><w:br/></w:r>';
+        $runs .= '<w:r><w:t xml:space="preserve">' . qz_question_export_docx_xml($line) . '</w:t></w:r>';
+    }
+    return $runs;
+}
+
+function qz_question_export_docx_paragraph(string $text, string $style = ''): string {
+    $properties = $style !== '' ? '<w:pPr><w:pStyle w:val="' . qz_question_export_docx_xml($style) . '"/></w:pPr>' : '';
+    return '<w:p>' . $properties . qz_question_export_docx_runs($text) . '</w:p>';
+}
+
+function qz_question_export_docx_cell(string $text, int $width, string $style = '', int $span = 1, string $shade = ''): string {
+    $properties = '<w:tcW w:w="' . $width . '" w:type="dxa"/>';
+    if ($span > 1) $properties .= '<w:gridSpan w:val="' . $span . '"/>';
+    if ($shade !== '') $properties .= '<w:shd w:val="clear" w:color="auto" w:fill="' . qz_question_export_docx_xml($shade) . '"/>';
+    $properties .= '<w:vAlign w:val="center"/>';
+    return '<w:tc><w:tcPr>' . $properties . '</w:tcPr>' . qz_question_export_docx_paragraph($text, $style) . '</w:tc>';
+}
+
+function qz_question_export_docx_score(mixed $score): string {
+    if (!is_numeric($score)) return trim((string)$score);
+    $number = (float)$score;
+    if (is_finite($number) && floor($number) === $number) return (string)(int)$number;
+    return rtrim(rtrim(number_format($number, 4, '.', ''), '0'), '.');
+}
+
+function qz_question_export_docx_document(array $questions, array $answers, array $quiz, ?array $category = null): string {
+    $answersByQuestion = [];
+    foreach ($answers as $answer) {
+        $questionId = (int)($answer['question_id'] ?? 0);
+        if ($questionId > 0) $answersByQuestion[$questionId][] = $answer;
+    }
+
+    $title = trim((string)($quiz['title'] ?? '')) ?: 'Quiz';
+    $scope = $category !== null
+        ? 'Category: ' . (trim((string)($category['name'] ?? '')) ?: '#' . (int)($category['id'] ?? 0))
+        : 'All categories';
+    $body = qz_question_export_docx_paragraph($title, 'Title');
+    $body .= qz_question_export_docx_paragraph('Question Bank · ' . $scope, 'Subtitle');
+
+    $currentCategory = null;
+    $currentPassage = null;
+    foreach ($questions as $index => $question) {
+        $categoryId = (int)($question['category_id'] ?? 0);
+        $categoryName = trim((string)($question['category_name'] ?? '')) ?: 'Uncategorized';
+        $categoryKey = $categoryId > 0 ? 'id:' . $categoryId : 'name:' . $categoryName;
+        if ($categoryKey !== $currentCategory) {
+            $currentCategory = $categoryKey;
+            $currentPassage = null;
+            $body .= qz_question_export_docx_paragraph($categoryName, 'Heading1');
+        }
+
+        $passageKind = (string)($question['passage_kind'] ?? 'none');
+        if ($passageKind === 'passage') {
+            $passageId = (int)($question['passage_id'] ?? 0);
+            $passageTitle = trim((string)($question['passage_title'] ?? '')) ?: 'Passage';
+            $passageText = qz_question_export_normalized_text($question['passage_text'] ?? '');
+            $passageKey = $passageId > 0 ? 'id:' . $passageId : hash('sha256', $passageTitle . "\0" . $passageText);
+            if ($passageKey !== $currentPassage) {
+                $currentPassage = $passageKey;
+                $body .= qz_question_export_docx_paragraph($passageTitle, 'Heading2');
+                if ($passageText !== '') $body .= qz_question_export_docx_paragraph($passageText, 'Passage');
+            }
+        } else {
+            $currentPassage = null;
+        }
+
+        $questionId = (int)($question['question_id'] ?? 0);
+        $questionText = qz_question_export_normalized_text($question['question_text'] ?? '');
+        if ((int)($question['question_is_active'] ?? 0) !== 1) $questionText .= ' [Inactive]';
+        $body .= '<w:tbl><w:tblPr>'
+            . '<w:tblW w:w="9000" w:type="dxa"/>'
+            . '<w:tblBorders><w:top w:val="single" w:sz="6" w:color="CBD5E1"/>'
+            . '<w:left w:val="single" w:sz="6" w:color="CBD5E1"/><w:bottom w:val="single" w:sz="6" w:color="CBD5E1"/>'
+            . '<w:right w:val="single" w:sz="6" w:color="CBD5E1"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/>'
+            . '<w:insideV w:val="single" w:sz="4" w:color="E2E8F0"/></w:tblBorders>'
+            . '<w:tblLayout w:type="fixed"/>'
+            . '<w:tblCellMar><w:top w:w="100" w:type="dxa"/><w:left w:w="120" w:type="dxa"/>'
+            . '<w:bottom w:w="100" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar>'
+            . '</w:tblPr><w:tblGrid><w:gridCol w:w="700"/><w:gridCol w:w="7500"/><w:gridCol w:w="800"/></w:tblGrid>';
+        $body .= '<w:tr>'
+            . qz_question_export_docx_cell((string)($index + 1), 700, 'QuestionNumber', 1, 'DBEAFE')
+            . qz_question_export_docx_cell($questionText, 8300, 'Question', 2, 'EFF6FF')
+            . '</w:tr>';
+
+        $questionAnswers = $answersByQuestion[$questionId] ?? [];
+        if ($questionAnswers === []) {
+            $body .= '<w:tr>'
+                . qz_question_export_docx_cell('—', 700, 'AnswerLabel')
+                . qz_question_export_docx_cell('No predefined answers', 7500, 'Muted')
+                . qz_question_export_docx_cell('—', 800, 'Score')
+                . '</w:tr>';
+        } else {
+            foreach ($questionAnswers as $answerIndex => $answer) {
+                $answerText = qz_question_export_normalized_text($answer['answer_text'] ?? '');
+                if ((int)($answer['answer_is_active'] ?? 0) !== 1) $answerText .= ' [Inactive]';
+                $body .= '<w:tr>'
+                    . qz_question_export_docx_cell(qz_question_export_alpha_label($answerIndex), 700, 'AnswerLabel')
+                    . qz_question_export_docx_cell($answerText, 7500, 'Answer')
+                    . qz_question_export_docx_cell(qz_question_export_docx_score($answer['score'] ?? 0), 800, 'Score')
+                    . '</w:tr>';
+            }
+        }
+        $body .= '</w:tbl><w:p><w:pPr><w:spacing w:after="100"/></w:pPr></w:p>';
+    }
+
+    if ($questions === []) $body .= qz_question_export_docx_paragraph('No questions were found for this scope.', 'Muted');
+
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        . '<w:body>' . $body
+        . '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>'
+        . '</w:body></w:document>';
+}
+
+function qz_question_export_docx($stream, array $questions, array $answers, array $quiz, ?array $category = null): void {
+    if (!is_resource($stream)) throw new InvalidArgumentException('Word export stream is invalid.');
+    if (!class_exists(\ZipStream\ZipStream::class)) throw new RuntimeException('ZipStream is unavailable.');
+
+    $title = trim((string)($quiz['title'] ?? '')) ?: 'Quiz';
+    $created = gmdate('Y-m-d\TH:i:s\Z');
+    $files = [
+        '[Content_Types].xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            . '<Default Extension="xml" ContentType="application/xml"/>'
+            . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            . '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+            . '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+            . '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+            . '</Types>',
+        '_rels/.rels' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+            . '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+            . '</Relationships>',
+        'word/_rels/document.xml.rels' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            . '</Relationships>',
+        'word/document.xml' => qz_question_export_docx_document($questions, $answers, $quiz, $category),
+        'word/styles.xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            . '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="en-US"/></w:rPr></w:rPrDefault>'
+            . '<w:pPrDefault><w:pPr><w:spacing w:after="80" w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+            . '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="80"/></w:pPr><w:rPr><w:b/><w:color w:val="0F172A"/><w:sz w:val="36"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="260"/></w:pPr><w:rPr><w:color w:val="64748B"/><w:sz w:val="20"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="220" w:after="100"/></w:pPr><w:rPr><w:b/><w:color w:val="1D4ED8"/><w:sz w:val="28"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="140" w:after="50"/></w:pPr><w:rPr><w:b/><w:color w:val="334155"/><w:sz w:val="23"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Passage"><w:name w:val="Passage"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="120"/><w:ind w:left="180"/></w:pPr><w:rPr><w:i/><w:color w:val="475569"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="QuestionNumber"><w:name w:val="Question Number"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:b/><w:color w:val="1D4ED8"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Question"><w:name w:val="Question"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:color w:val="0F172A"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="AnswerLabel"><w:name w:val="Answer Label"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:b/><w:color w:val="475569"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Answer"><w:name w:val="Answer"/><w:basedOn w:val="Normal"/></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Score"><w:name w:val="Score"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:b/><w:color w:val="166534"/></w:rPr></w:style>'
+            . '<w:style w:type="paragraph" w:styleId="Muted"><w:name w:val="Muted"/><w:basedOn w:val="Normal"/><w:rPr><w:i/><w:color w:val="64748B"/></w:rPr></w:style>'
+            . '</w:styles>',
+        'docProps/core.xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+            . '<dc:title>' . qz_question_export_docx_xml($title . ' Question Bank') . '</dc:title><dc:creator>Jyavani Quiz</dc:creator>'
+            . '<cp:lastModifiedBy>Jyavani Quiz</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">' . $created . '</dcterms:created>'
+            . '<dcterms:modified xsi:type="dcterms:W3CDTF">' . $created . '</dcterms:modified></cp:coreProperties>',
+        'docProps/app.xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            . '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+            . '<Application>Jyavani Quiz</Application><AppVersion>1.0</AppVersion></Properties>',
+    ];
+
+    $zip = new \ZipStream\ZipStream(outputStream: $stream, enableZip64: false, sendHttpHeaders: false);
+    foreach ($files as $name => $contents) $zip->addFile(fileName: $name, data: $contents);
+    $zip->finish();
+    rewind($stream);
 }

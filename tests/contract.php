@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.11.1', 'plugin version must be 1.11.1');
+$check(($manifest['version'] ?? null) === '1.12.0', 'plugin version must be 1.12.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -58,6 +58,7 @@ $vendorAutoload = $pluginRoot . '/vendor/autoload.php';
 $check(is_file($vendorAutoload), 'release source must bundle the Composer vendor autoloader for shared hosting');
 if (is_file($vendorAutoload)) require_once $vendorAutoload;
 $check(class_exists(\PhpOffice\PhpSpreadsheet\Spreadsheet::class), 'bundled vendor tree must load PhpSpreadsheet');
+$check(class_exists(\ZipStream\ZipStream::class), 'bundled vendor tree must load ZipStream for Word exports');
 
 $coreVersion = trim((string)file_get_contents($coreRoot . '/VERSION'));
 $check(version_compare($coreVersion, '2.3.91', '>='), 'current Core must support exact frontend routes');
@@ -114,7 +115,7 @@ foreach ([
     'admin/quiz/quizzes', 'admin/quiz/questions', 'admin/quiz/questions/bulk', 'admin/quiz/master',
     'admin/quiz/categories/index', 'admin/quiz/categories/add', 'admin/quiz/categories/edit', 'admin/quiz/categories/delete',
     'admin/quiz/passages/index', 'admin/quiz/passages/add', 'admin/quiz/passages/edit', 'admin/quiz/passages/delete',
-    'admin/quiz/dump', 'admin/quiz/dump/export',
+    'admin/quiz/dump', 'admin/quiz/dump/export', 'admin/quiz/dump/export-word',
     'admin/quiz/master/api/questions_list', 'admin/quiz/master/api/question_get', 'admin/quiz/master/api/question_save',
     'admin/quiz/master/api/question_delete', 'admin/quiz/master/api/questions_reorder',
     'admin/quiz/master/api/answer_save', 'admin/quiz/master/api/answer_delete', 'admin/quiz/master/api/answers_reorder',
@@ -1045,7 +1046,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1095,7 +1096,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1115,7 +1116,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.1'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.12.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1139,7 +1140,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1231,7 +1232,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1259,7 +1260,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.1'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.12.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -1887,21 +1888,38 @@ foreach (['selected_answer_id', 'answer_text', 'question_text', 'computed_score'
 }
 $questionQc = (string)file_get_contents($pluginRoot . '/admin/dump/index.php');
 $questionExport = (string)file_get_contents($pluginRoot . '/admin/dump/export.php');
+$questionWordExport = (string)file_get_contents($pluginRoot . '/admin/dump/export_word.php');
 $questionExportHelper = (string)file_get_contents($pluginRoot . '/admin/dump/_export.php');
 $check(str_contains($questionQc, 'page=admin/quiz/dump/export')
+    && str_contains($questionQc, 'page=admin/quiz/dump/export-word')
     && str_contains($questionQc, 'method="post"')
     && str_contains($questionQc, 'name="action" value="export"')
     && str_contains($questionQc, 'name="csrf_token"')
     && str_contains($questionQc, 'name="category_id"')
-    && str_contains($questionQc, 'Export Questions &amp; Answers'),
-    'Quality Check must offer a POST-based all-category or category-specific question-bank export');
+    && str_contains($questionQc, 'Export Excel')
+    && str_contains($questionQc, 'Export Word'),
+    'Quality Check must offer POST-based Excel and Word exports for all categories or one category');
+$check(str_contains($questionQc, 'class="qz-export-panel"')
+    && str_contains($questionQc, 'class="qz-export-form"')
+    && str_contains($questionQc, 'class="right qz-qc-head-actions"')
+    && str_contains($adminCss, '.qz-export-panel{display:grid;')
+    && str_contains($adminCss, '.qz-export-form{display:grid;')
+    && str_contains($adminCss, '.qz-export-actions{display:grid;')
+    && str_contains($adminCss, '.adam-card.qz-quality-check{width:auto;min-width:0;max-width:100%}')
+    && str_contains($adminCss, '#adam-main .qz-export-form{grid-template-columns:1fr}'),
+    'Quality Check export and navigation actions must use separate responsive layouts');
 $questionExportRoute = null;
+$questionWordExportRoute = null;
 foreach ($manifest['admin']['pages'] ?? [] as $adminPage) {
     if (($adminPage['route'] ?? null) === 'admin/quiz/dump/export') $questionExportRoute = $adminPage;
+    if (($adminPage['route'] ?? null) === 'admin/quiz/dump/export-word') $questionWordExportRoute = $adminPage;
 }
 $check(is_array($questionExportRoute) && ($questionExportRoute['response'] ?? null) === 'download'
     && ($questionExportRoute['hidden'] ?? false) === true,
-    'question-bank export must declare a hidden pre-layout download route');
+    'question-bank Excel export must declare a hidden pre-layout download route');
+$check(is_array($questionWordExportRoute) && ($questionWordExportRoute['response'] ?? null) === 'download'
+    && ($questionWordExportRoute['hidden'] ?? false) === true,
+    'question-bank Word export must declare a hidden pre-layout download route');
 $check(str_contains($questionExport, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.quiz.workspace.access')")
     && str_contains($questionExport, "REQUEST_METHOD'] ?? '') !== 'POST'")
     && str_contains($questionExport, 'quiz_csrf_check();')
@@ -1918,6 +1936,18 @@ $check(str_contains($questionExport, "preg_match('/^[1-9][0-9]*$/D', \$quizIdInp
     && str_contains($questionExport, '$exportStream = tmpfile()')
     && str_contains($questionExport, 'fpassthru($exportStream)'),
     'question-bank export must validate IDs, read one consistent snapshot, and fully serialize hardened XLSX before output');
+$check(str_contains($questionWordExport, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.quiz.workspace.access')")
+    && str_contains($questionWordExport, "REQUEST_METHOD'] ?? '') !== 'POST'")
+    && str_contains($questionWordExport, 'quiz_csrf_check();')
+    && str_contains($questionWordExport, 'qz_require_quiz_access($pdo, $quizId)')
+    && str_contains($questionWordExport, 'qz_require_category_access($pdo, $quizId, $categoryId)')
+    && str_contains($questionWordExport, '$pdo->beginTransaction()')
+    && str_contains($questionWordExport, '$pdo->commit()')
+    && str_contains($questionWordExport, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    && str_contains($questionWordExport, "header('X-Content-Type-Options: nosniff')")
+    && str_contains($questionWordExport, '$exportStream = tmpfile()')
+    && str_contains($questionWordExport, 'fpassthru($exportStream)'),
+    'Word export must preserve the XLSX authorization, snapshot, buffering, and download boundaries');
 $check(str_contains($questionExportHelper, "q.quiz_id=:quiz_id")
     && str_contains($questionExportHelper, '= :category_id')
     && str_contains($questionExportHelper, "'__CATEGORY_CONTAINER__'")
@@ -1932,6 +1962,14 @@ $check(str_contains($questionExportHelper, 'setCellValueExplicit')
     && str_contains($questionExportHelper, "freezePane('A2')")
     && str_contains($questionExportHelper, 'Active Scoring Option'),
     'question-bank workbook must use explicit strings and readable Questions and Answers sheets');
+$check(str_contains($questionExportHelper, 'qz_question_export_docx_support')
+    && str_contains($questionExportHelper, 'new \\ZipStream\\ZipStream')
+    && str_contains($questionExportHelper, "'[Content_Types].xml'")
+    && str_contains($questionExportHelper, "'word/document.xml'")
+    && str_contains($questionExportHelper, "'word/styles.xml'")
+    && str_contains($questionExportHelper, 'qz_question_export_docx_score')
+    && str_contains($questionExportHelper, 'No predefined answers'),
+    'Word export must build a complete simple DOCX with question, answer, and score rows');
 $questionExportScript = <<<'PHP'
 define('DASHBOARD_CONTEXT', true);
 require $argv[1];
@@ -1986,6 +2024,40 @@ $loaded = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp);
 if ($loaded->getSheetByName('Questions')->getCell('M2')->getValue() !== '=SUM(1,1)') exit(70);
 if ($loaded->getSheetByName('Questions')->getCell('M2')->getDataType() !== \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING) exit(71);
 $loaded->disconnectWorksheets();
+$docx = tmpfile();
+if ($docx === false) exit(72);
+$docxAnswers = $answers;
+$docxAnswers[0]['answer_text'] .= "\u{FFFE}";
+qz_question_export_docx($docx, $questions, $docxAnswers, ['title'=>'Accreditation & Review'], ['id'=>3, 'name'=>'Logic']);
+$docxMeta = stream_get_meta_data($docx);
+$docxPath = (string)($docxMeta['uri'] ?? '');
+$docxZip = new ZipArchive();
+if ($docxPath === '' || $docxZip->open($docxPath) !== true) exit(73);
+$documentXml = $docxZip->getFromName('word/document.xml');
+$stylesXml = $docxZip->getFromName('word/styles.xml');
+if (!is_string($documentXml) || !is_string($stylesXml)) exit(74);
+if (!str_contains($documentXml, 'Accreditation &amp; Review') || !str_contains($documentXml, '=SUM(1,1)')) exit(75);
+if (!str_contains($documentXml, '=HYPERLINK(&quot;https://example.test&quot;)') || !str_contains($documentXml, '>50<')) exit(76);
+if (substr_count($documentXml, '>Reading<') !== 1 || !str_contains($documentXml, 'Question without answers [Inactive]')) exit(77);
+if (!str_contains($documentXml, 'No predefined answers') || !str_contains($stylesXml, 'w:styleId="Score"') || str_contains($documentXml, "\u{FFFE}")) exit(78);
+foreach (['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'docProps/core.xml', 'docProps/app.xml'] as $part) {
+    if ($docxZip->locateName($part) === false) exit(79);
+}
+foreach (['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'word/document.xml', 'word/styles.xml', 'docProps/core.xml', 'docProps/app.xml'] as $part) {
+    $xml = $docxZip->getFromName($part);
+    $dom = new DOMDocument();
+    if (!is_string($xml) || !$dom->loadXML($xml, LIBXML_NONET)) exit(80);
+}
+if (strpos($documentXml, '<w:tblBorders>') > strpos($documentXml, '<w:tblLayout')) exit(81);
+$docxZip->close();
+fclose($docx);
+$longQuestion = rtrim(str_repeat('Long question content ', 2200));
+$longDocument = qz_question_export_docx_document([[
+    'question_id'=>1, 'question_text'=>$longQuestion, 'question_type'=>'text', 'question_is_active'=>1,
+    'passage_kind'=>'none', 'category_id'=>1, 'category_name'=>'Long Content', 'category_is_active'=>1,
+]], [], ['title'=>'Long Content'], null);
+if (!str_contains($longDocument, qz_question_export_docx_xml($longQuestion))
+    || str_contains($longDocument, 'Excel cell limit')) exit(82);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $questionExportScript, $pluginRoot . '/vendor/autoload.php', $pluginRoot . '/admin/dump/_export.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 $questionExportStatus = -1;
@@ -1996,7 +2068,7 @@ if (is_resource($process)) {
     fclose($pipes[2]);
     $questionExportStatus = proc_close($process);
 }
-$check($questionExportStatus === 0, 'question-bank workbook must preserve rows, answer keys, AA labels, and formula-like text through XLSX serialization');
+$check($questionExportStatus === 0, 'question-bank XLSX and DOCX exports must preserve ordered content and valid serialization (status ' . $questionExportStatus . ')');
 $check(str_contains($attemptView, "if (\$user['can_view_attempt_responses'])")
     && str_contains($attemptView, "\$user['can_correct_attempt_responses']")
     && str_contains($attemptView, "\$user['can_view_attempt_otp']")
@@ -2394,6 +2466,7 @@ $sensitiveGuards = [
     'admin/student/attempts/view.php' => 'plugin.quiz.attempts.view',
     'admin/student/attempts/export.php' => 'plugin.quiz.attempts.export',
     'admin/dump/export.php' => 'plugin.quiz.workspace.access',
+    'admin/dump/export_word.php' => 'plugin.quiz.workspace.access',
     'admin/student/attempts/action_generate_otp.php' => 'plugin.quiz.attempts.operate',
     'admin/student/attempts/action_update_delivery_mode.php' => 'plugin.quiz.attempts.operate',
     'admin/student/attempts/action_verify_manual.php' => 'plugin.quiz.attempts.operate',
