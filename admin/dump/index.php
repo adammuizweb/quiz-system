@@ -452,8 +452,26 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
       </div>
     </div>
     <div class="right">
+      <form method="post" action="<?= h($base) ?>/?page=admin/quiz/dump/export" class="qz-form-actions" aria-label="Export questions and answers">
+        <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+        <input type="hidden" name="quiz_id" value="<?= (int)$quiz_id ?>">
+        <select class="adam-input" name="category_id" aria-label="Export category">
+          <option value="">Export all categories (grouped)</option>
+          <?php foreach ($categories as $category): ?>
+            <?php $exportCategoryId = (int)($category['id'] ?? 0); ?>
+            <option value="<?= $exportCategoryId ?>" <?= ($cat_id !== '' && (int)$cat_id === $exportCategoryId) ? 'selected' : '' ?>>
+              #<?= $exportCategoryId ?> · <?= h((string)($category['name'] ?? '')) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+        <button class="adam-button" type="submit">Export Questions &amp; Answers</button>
+      </form>
       <a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/master&quiz_id=<?= (int)$quiz_id ?>">← Back to Master Builder</a>
     </div>
+  </div>
+
+  <div class="meta">
+    Excel export includes active and inactive questions and answers, scores, answer keys, passages, and public attachment URLs. It is ordered by category and passage; choose one category above to create a category-specific file.
   </div>
 
   <?php if ($messages): ?>

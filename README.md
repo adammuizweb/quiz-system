@@ -2,7 +2,14 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.10.1`.
+Current release: `1.11.0`.
+
+Quiz `1.11.0` adds a category-aware Excel export to Quality Check for academic
+review and accreditation. Staff can export the complete question bank or one
+category in stable category, passage, question, and answer order. The workbook
+includes readable question/answer summaries, normalized answer rows, scoring
+keys, statuses, and public attachment references. It also updates the bundled
+PhpSpreadsheet dependency to the security-patched `5.10.0` release.
 
 Quiz `1.10.1` allows Site Owners to grant each separate Quiz capability to
 purpose-built custom operational roles without assigning CMS Administrator.
@@ -62,7 +69,7 @@ Install the plugin as `plugins/quiz`. Jyavani copies the declared assets to
 next validated Quiz admin request. Public requests fail closed until that
 installation succeeds.
 
-The release bundle includes PhpSpreadsheet 5.8 and its optimized Composer
+The release bundle includes PhpSpreadsheet 5.10 and its optimized Composer
 autoload tree, so production and shared-hosting servers do not need Composer or
 shell access. Excel export additionally needs the PHP extensions required by
 PhpSpreadsheet on 64-bit PHP (`ctype`, `dom`, `fileinfo`, `filter`, `gd`, `iconv`, `libxml`,
@@ -118,6 +125,13 @@ Collaborators can read the assigned quiz's shared bank, create categories,
 passages, questions, and answers, and mutate only resources they own. Answers
 inherit ownership from their question. The quiz owner and users with
 `plugin.quiz.content.manage-any` may manage all resources in the quiz.
+
+The Quality Check page can export the complete question bank to Excel for
+review and accreditation. Staff may export all categories in category/passage
+order or select one category. The workbook contains a readable Questions sheet
+with answer options and scoring keys plus a normalized Answers sheet with each
+answer's status, order, and score. Active and inactive records are retained so
+the export is an auditable representation of the bank.
 
 Quiz creation, configuration, duplication, status changes, and deletion require
 the dedicated `plugin.quiz.quizzes.manage` permission. Collaborators do not

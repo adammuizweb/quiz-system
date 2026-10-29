@@ -5,7 +5,7 @@
   "license": "MIT",
   "require": {
     "php": ">=8.3",
-    "phpoffice/phpspreadsheet": "~5.8.1"
+    "phpoffice/phpspreadsheet": "~5.10.0"
   },
   "config": {
     "optimize-autoloader": true,

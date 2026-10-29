@@ -1,6 +1,6 @@
 {
   "name": "quiz",
-  "version": "1.10.1",
+  "version": "1.11.0",
   "title": "Quiz",
   "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
@@ -334,6 +334,17 @@
           "admin",
           "editor"
         ],
+        "permission": "plugin.quiz.workspace.access"
+      },
+      {
+        "route": "admin/quiz/dump/export",
+        "file": "admin/dump/export.php",
+        "title": "Export Quiz Questions and Answers",
+        "roles": [
+          "admin",
+          "editor"
+        ],
+        "hidden": true,
         "permission": "plugin.quiz.workspace.access"
       },
       {

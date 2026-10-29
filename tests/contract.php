@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.10.1', 'plugin version must be 1.10.1');
+$check(($manifest['version'] ?? null) === '1.11.0', 'plugin version must be 1.11.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -47,12 +47,12 @@ $composerJson = json_decode((string)file_get_contents($pluginRoot . '/composer.j
 $composerLock = json_decode((string)file_get_contents($pluginRoot . '/composer.lock'), true);
 $check(is_array($composerJson)
     && ($composerJson['require']['php'] ?? null) === '>=8.3'
-    && ($composerJson['require']['phpoffice/phpspreadsheet'] ?? null) === '~5.8.1', 'Composer must match the PHP 8.3 plugin baseline and pin PhpSpreadsheet 5.8');
+    && ($composerJson['require']['phpoffice/phpspreadsheet'] ?? null) === '~5.10.0', 'Composer must match the PHP 8.3 plugin baseline and pin patched PhpSpreadsheet 5.10');
 $lockedPackages = [];
 foreach (is_array($composerLock['packages'] ?? null) ? $composerLock['packages'] : [] as $package) {
     if (is_array($package)) $lockedPackages[(string)($package['name'] ?? '')] = (string)($package['version'] ?? '');
 }
-$check(($lockedPackages['phpoffice/phpspreadsheet'] ?? null) === '5.8.1', 'composer.lock must freeze PhpSpreadsheet 5.8.1');
+$check(($lockedPackages['phpoffice/phpspreadsheet'] ?? null) === '5.10.0', 'composer.lock must freeze PhpSpreadsheet 5.10.0');
 $check(($lockedPackages['maennchen/zipstream-php'] ?? null) === '3.2.2', 'composer.lock must freeze the PHP 8.3-compatible ZipStream release');
 $vendorAutoload = $pluginRoot . '/vendor/autoload.php';
 $check(is_file($vendorAutoload), 'release source must bundle the Composer vendor autoloader for shared hosting');
@@ -114,7 +114,7 @@ foreach ([
     'admin/quiz/quizzes', 'admin/quiz/questions', 'admin/quiz/questions/bulk', 'admin/quiz/master',
     'admin/quiz/categories/index', 'admin/quiz/categories/add', 'admin/quiz/categories/edit', 'admin/quiz/categories/delete',
     'admin/quiz/passages/index', 'admin/quiz/passages/add', 'admin/quiz/passages/edit', 'admin/quiz/passages/delete',
-    'admin/quiz/dump',
+    'admin/quiz/dump', 'admin/quiz/dump/export',
     'admin/quiz/master/api/questions_list', 'admin/quiz/master/api/question_get', 'admin/quiz/master/api/question_save',
     'admin/quiz/master/api/question_delete', 'admin/quiz/master/api/questions_reorder',
     'admin/quiz/master/api/answer_save', 'admin/quiz/master/api/answer_delete', 'admin/quiz/master/api/answers_reorder',
@@ -1045,7 +1045,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1095,7 +1095,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1115,7 +1115,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.1'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1139,7 +1139,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1231,7 +1231,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.10.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1259,7 +1259,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.10.1'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -1885,6 +1885,110 @@ foreach (['email_verification_code', 'otp_email_sent_at', 'otp_wa_sent_at', 'ip_
 foreach (['selected_answer_id', 'answer_text', 'question_text', 'computed_score'] as $responseColumn) {
     $check(!str_contains($attemptExport, $responseColumn) && !str_contains($attemptExportHelper, $responseColumn), "attempt exports must exclude response field {$responseColumn}");
 }
+$questionQc = (string)file_get_contents($pluginRoot . '/admin/dump/index.php');
+$questionExport = (string)file_get_contents($pluginRoot . '/admin/dump/export.php');
+$questionExportHelper = (string)file_get_contents($pluginRoot . '/admin/dump/_export.php');
+$check(str_contains($questionQc, 'page=admin/quiz/dump/export')
+    && str_contains($questionQc, 'method="post"')
+    && str_contains($questionQc, 'name="csrf_token"')
+    && str_contains($questionQc, 'name="category_id"')
+    && str_contains($questionQc, 'Export Questions &amp; Answers'),
+    'Quality Check must offer a POST-based all-category or category-specific question-bank export');
+$check(str_contains($questionExport, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.quiz.workspace.access')")
+    && str_contains($questionExport, "REQUEST_METHOD'] ?? '') !== 'POST'")
+    && str_contains($questionExport, 'quiz_csrf_check();')
+    && str_contains($questionExport, 'qz_require_quiz_access($pdo, $quizId)')
+    && str_contains($questionExport, 'qz_require_category_access($pdo, $quizId, $categoryId)'),
+    'question-bank export must require workspace permission, POST, CSRF, and quiz/category-scoped access');
+$check(str_contains($questionExport, "preg_match('/^[1-9][0-9]*$/D', \$quizIdInput)")
+    && str_contains($questionExport, "preg_match('/^[1-9][0-9]*$/D', \$categoryInput)")
+    && str_contains($questionExport, '$pdo->beginTransaction()')
+    && str_contains($questionExport, '$pdo->commit()')
+    && str_contains($questionExport, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    && str_contains($questionExport, "header('X-Content-Type-Options: nosniff')")
+    && str_contains($questionExport, 'setPreCalculateFormulas(false)')
+    && str_contains($questionExport, '$exportStream = tmpfile()')
+    && str_contains($questionExport, 'fpassthru($exportStream)'),
+    'question-bank export must validate IDs, read one consistent snapshot, and fully serialize hardened XLSX before output');
+$check(str_contains($questionExportHelper, "q.quiz_id=:quiz_id")
+    && str_contains($questionExportHelper, '= :category_id')
+    && str_contains($questionExportHelper, "'__CATEGORY_CONTAINER__'")
+    && str_contains($questionExportHelper, 'qz_question_export_category_sql')
+    && str_contains($questionExportHelper, "(qa.sort_order <= 0) ASC")
+    && str_contains($questionExportHelper, "qm.visibility='public'")
+    && str_contains($questionExportHelper, "qf.is_downloadable=1"),
+    'question-bank queries must scope by quiz/category, preserve effective categories, canonical answer order, and public attachments');
+$check(str_contains($questionExportHelper, 'setCellValueExplicit')
+    && str_contains($questionExportHelper, "setTitle('Questions')")
+    && str_contains($questionExportHelper, "setTitle('Answers')")
+    && str_contains($questionExportHelper, "freezePane('A2')")
+    && str_contains($questionExportHelper, 'Active Scoring Option'),
+    'question-bank workbook must use explicit strings and readable Questions and Answers sheets');
+$questionExportScript = <<<'PHP'
+define('DASHBOARD_CONTEXT', true);
+require $argv[1];
+require $argv[2];
+$questions = [[
+    'question_id'=>10, 'question_text'=>'<p>=SUM(1,1)</p>', 'question_type'=>'multiple_choice',
+    'question_sort_order'=>1, 'question_is_active'=>1, 'passage_id'=>5, 'passage_seq'=>1,
+    'passage_title'=>'Reading', 'passage_text'=>'<p>Passage text</p>', 'passage_is_active'=>1,
+    'passage_kind'=>'passage', 'category_id'=>3, 'category_name'=>'Logic', 'category_is_active'=>1,
+], [
+    'question_id'=>11, 'question_text'=>'Question without answers', 'question_type'=>'text',
+    'question_sort_order'=>2, 'question_is_active'=>0, 'passage_id'=>null, 'passage_seq'=>null,
+    'passage_kind'=>'none', 'category_id'=>3, 'category_name'=>'Logic', 'category_is_active'=>1,
+]];
+$answers = [[
+    'answer_id'=>20, 'question_id'=>10, 'answer_text'=>'<strong>=HYPERLINK("https://example.test")</strong>',
+    'score'=>50, 'answer_sort_order'=>1, 'answer_is_active'=>1,
+]];
+for ($number = 3; $number <= 680; $number++) {
+    $questionId = $number + 9;
+    $questions[] = [
+        'question_id'=>$questionId, 'question_text'=>'Question ' . $number, 'question_type'=>'single_choice',
+        'question_sort_order'=>$number, 'question_is_active'=>1, 'passage_id'=>null, 'passage_seq'=>null,
+        'passage_kind'=>'none', 'category_id'=>(int)ceil($number / 68),
+        'category_name'=>'Category ' . (int)ceil($number / 68), 'category_is_active'=>1,
+    ];
+    for ($option = 1; $option <= 4; $option++) {
+        $answers[] = [
+            'answer_id'=>(($number - 1) * 4) + $option, 'question_id'=>$questionId,
+            'answer_text'=>'Answer ' . $option, 'score'=>$option === 1 ? 100 : 0,
+            'answer_sort_order'=>$option, 'answer_is_active'=>1,
+        ];
+    }
+}
+$book = qz_question_export_workbook($questions, $answers, ['title'=>'Accreditation Test'], ['name'=>'Logic']);
+if ($book->getSheetNames() !== ['Questions', 'Answers']) exit(61);
+if ($book->getSheetByName('Questions')->getHighestRow() !== 681) exit(62);
+if ($book->getSheetByName('Answers')->getHighestRow() !== 2714) exit(63);
+if ($book->getSheetByName('Questions')->getCell('M2')->getValue() !== '=SUM(1,1)') exit(64);
+if ($book->getSheetByName('Questions')->getCell('M2')->getDataType() !== \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING) exit(65);
+if ($book->getSheetByName('Questions')->getCell('P2')->getValue() !== 'A (50)') exit(66);
+if ($book->getSheetByName('Answers')->getCell('K2')->getValue() !== '=HYPERLINK("https://example.test")') exit(67);
+if ($book->getSheetByName('Answers')->getCell('K2')->getDataType() !== \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING) exit(68);
+if (qz_question_export_alpha_label(25) !== 'Z' || qz_question_export_alpha_label(26) !== 'AA') exit(69);
+$tmp = tempnam(sys_get_temp_dir(), 'quiz-export-');
+$writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($book);
+$writer->setPreCalculateFormulas(false);
+$writer->save($tmp);
+$book->disconnectWorksheets();
+$loaded = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp);
+@unlink($tmp);
+if ($loaded->getSheetByName('Questions')->getCell('M2')->getValue() !== '=SUM(1,1)') exit(70);
+if ($loaded->getSheetByName('Questions')->getCell('M2')->getDataType() !== \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING) exit(71);
+$loaded->disconnectWorksheets();
+PHP;
+$process = proc_open([PHP_BINARY, '-r', $questionExportScript, $pluginRoot . '/vendor/autoload.php', $pluginRoot . '/admin/dump/_export.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+$questionExportStatus = -1;
+if (is_resource($process)) {
+    stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $questionExportStatus = proc_close($process);
+}
+$check($questionExportStatus === 0, 'question-bank workbook must preserve rows, answer keys, AA labels, and formula-like text through XLSX serialization');
 $check(str_contains($attemptView, "if (\$user['can_view_attempt_responses'])")
     && str_contains($attemptView, "\$user['can_correct_attempt_responses']")
     && str_contains($attemptView, "\$user['can_view_attempt_otp']")
@@ -2281,6 +2385,7 @@ $sensitiveGuards = [
     'admin/student/attempts/index.php' => 'plugin.quiz.attempts.view',
     'admin/student/attempts/view.php' => 'plugin.quiz.attempts.view',
     'admin/student/attempts/export.php' => 'plugin.quiz.attempts.export',
+    'admin/dump/export.php' => 'plugin.quiz.workspace.access',
     'admin/student/attempts/action_generate_otp.php' => 'plugin.quiz.attempts.operate',
     'admin/student/attempts/action_update_delivery_mode.php' => 'plugin.quiz.attempts.operate',
     'admin/student/attempts/action_verify_manual.php' => 'plugin.quiz.attempts.operate',
