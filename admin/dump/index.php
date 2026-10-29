@@ -453,6 +453,7 @@ $totalPages = ($per > 0) ? max(1, (int)ceil($totalFiltered / $per)) : 1;
     </div>
     <div class="right">
       <form method="post" action="<?= h($base) ?>/?page=admin/quiz/dump/export" class="qz-form-actions" aria-label="Export questions and answers">
+        <input type="hidden" name="action" value="export">
         <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
         <input type="hidden" name="quiz_id" value="<?= (int)$quiz_id ?>">
         <select class="adam-input" name="category_id" aria-label="Export category">

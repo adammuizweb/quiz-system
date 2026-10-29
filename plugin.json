@@ -1,6 +1,6 @@
 {
   "name": "quiz",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "title": "Quiz",
   "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
@@ -345,6 +345,7 @@
           "editor"
         ],
         "hidden": true,
+        "response": "download",
         "permission": "plugin.quiz.workspace.access"
       },
       {

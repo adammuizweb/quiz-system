@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.11.0', 'plugin version must be 1.11.0');
+$check(($manifest['version'] ?? null) === '1.11.1', 'plugin version must be 1.11.1');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -1045,7 +1045,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1095,7 +1095,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1115,7 +1115,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.0'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.1'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1139,7 +1139,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1231,7 +1231,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.11.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.11.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1259,7 +1259,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.0'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.11.1'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -1890,10 +1890,18 @@ $questionExport = (string)file_get_contents($pluginRoot . '/admin/dump/export.ph
 $questionExportHelper = (string)file_get_contents($pluginRoot . '/admin/dump/_export.php');
 $check(str_contains($questionQc, 'page=admin/quiz/dump/export')
     && str_contains($questionQc, 'method="post"')
+    && str_contains($questionQc, 'name="action" value="export"')
     && str_contains($questionQc, 'name="csrf_token"')
     && str_contains($questionQc, 'name="category_id"')
     && str_contains($questionQc, 'Export Questions &amp; Answers'),
     'Quality Check must offer a POST-based all-category or category-specific question-bank export');
+$questionExportRoute = null;
+foreach ($manifest['admin']['pages'] ?? [] as $adminPage) {
+    if (($adminPage['route'] ?? null) === 'admin/quiz/dump/export') $questionExportRoute = $adminPage;
+}
+$check(is_array($questionExportRoute) && ($questionExportRoute['response'] ?? null) === 'download'
+    && ($questionExportRoute['hidden'] ?? false) === true,
+    'question-bank export must declare a hidden pre-layout download route');
 $check(str_contains($questionExport, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.quiz.workspace.access')")
     && str_contains($questionExport, "REQUEST_METHOD'] ?? '') !== 'POST'")
     && str_contains($questionExport, 'quiz_csrf_check();')

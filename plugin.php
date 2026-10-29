@@ -519,8 +519,8 @@ add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
     $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
     $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
-    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.11.0';
-    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.11.0';
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.11.1';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.11.1';
     echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
     echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });

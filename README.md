@@ -2,7 +2,11 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.11.0`.
+Current release: `1.11.1`.
+
+Quiz `1.11.1` declares the question-bank export as a pre-layout download and
+retains the legacy action marker, preventing XLSX bytes from being rendered
+inside the Adiwira dashboard shell on older Core releases.
 
 Quiz `1.11.0` adds a category-aware Excel export to Quality Check for academic
 review and accreditation. Staff can export the complete question bank or one
