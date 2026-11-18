@@ -1370,6 +1370,7 @@
       ? '<span class="badge badge--ok">Active</span>'
       : '<span class="badge badge--muted">Inactive</span>';
     if (d.is_primary) statusBadge += ' <span class="badge badge--primary">PRIMARY QUIZ</span>';
+    statusBadge += ' <span class="badge badge--muted">REV ' + d.revision_number + ' ' + escHtml(String(d.revision_state).toUpperCase()) + '</span>';
 
     var badHtml = '';
     if (d.badzero > 0) {
@@ -1387,6 +1388,7 @@
       '<div class="qdm-grid">' +
         '<div class="qdm-section">' +
           '<div class="qdm-field"><span class="qdm-label">ID</span><span>#' + d.id + '</span></div>' +
+          '<div class="qdm-field"><span class="qdm-label">Revision</span><span>' + d.revision_number + ' &middot; ' + escHtml(d.revision_state) + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Status</span><span class="qdm-badge-stack">' + statusBadge + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Owner</span><span>' + escHtml(d.owner) + '</span></div>' +
           '<div class="qdm-field"><span class="qdm-label">Visual theme</span><span>' + escHtml(d.visual_theme) + ' <small class="qdm-source">' + escHtml(d.visual_theme_source) + '</small></span></div>' +
@@ -1432,12 +1434,26 @@
           '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
           '<button type="submit" class="btn-soft" data-confirm="Duplicate this Quiz? All Categories, Passages, Questions, and Answers will be copied. Attempts are not included.">Duplicate</button>' +
         '</form>';
+      if (d.can_revise) {
+        quizManageActions += '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/revise" class="qdm-inline-form">' +
+          '<input type="hidden" name="id" value="' + d.id + '">' +
+          '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
+          '<button type="submit" class="btn-soft" data-confirm="Create a draft revision? The Question bank and settings will be copied without Attempts.">Create Revision</button>' +
+        '</form>';
+      }
+      if (d.can_publish_revision) {
+        quizManageActions += '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/publish_revision" class="qdm-inline-form">' +
+          '<input type="hidden" name="id" value="' + d.id + '">' +
+          '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
+          '<button type="submit" class="adam-button" data-confirm="Publish this revision? New participants will use it while historical Attempts remain on their original revision.">Publish Revision</button>' +
+        '</form>';
+      }
     }
     if (d.can_delete) {
       quizManageActions += '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/delete" class="qdm-inline-form">' +
           '<input type="hidden" name="id" value="' + d.id + '">' +
           '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +
-          '<button type="submit" class="btn-danger" data-confirm="Delete this Quiz? Its Questions and Answers will also be deleted." data-confirm-variant="danger">Delete</button>' +
+          '<button type="submit" class="btn-danger" data-confirm="Delete this unused Quiz revision? Its Question bank will also be deleted. Revisions with Attempts or publication history cannot be deleted." data-confirm-variant="danger">Delete</button>' +
         '</form>';
     }
 

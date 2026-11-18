@@ -31,7 +31,7 @@ function columnExists(PDO $pdo, string $table, string $col): bool {
 try {
   $pdo->beginTransaction();
 
-  $srcQuiz = qz_lock_quiz_for_workspace_mutation($pdo, $id, $uid);
+  $srcQuiz = qz_lock_quiz_for_workspace_mutation($pdo, $id, $uid, false);
 
   $newTitle = (string)$srcQuiz['title'];
   $newTitle = mb_substr($newTitle, 0, 180, 'UTF-8') . " (Copy)";
@@ -241,6 +241,8 @@ try {
 
   $up = $pdo->prepare("UPDATE quizzes SET question_pool_size=:n WHERE id=:id");
   $up->execute([':n'=>$pool, ':id'=>$newQuizId]);
+
+  quiz_create_initial_instrument($pdo, $newQuizId, $uid);
 
   $pdo->commit();
 

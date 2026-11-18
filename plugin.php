@@ -96,6 +96,44 @@ function quiz_upgrade_schema(\PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS quiz_instruments (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      created_by INT UNSIGNED NULL,
+      public_prefix VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL,
+      current_quiz_id INT UNSIGNED NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_quiz_instruments_public_prefix (public_prefix),
+      UNIQUE KEY uq_quiz_instruments_current_quiz (current_quiz_id),
+      KEY idx_quiz_instruments_owner (created_by),
+      CONSTRAINT fk_quiz_instruments_owner FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL,
+      CONSTRAINT fk_quiz_instruments_current_quiz FOREIGN KEY (current_quiz_id) REFERENCES quizzes (id) ON DELETE RESTRICT
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS quiz_instrument_revisions (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      instrument_id INT UNSIGNED NOT NULL,
+      quiz_id INT UNSIGNED NOT NULL,
+      revision_number INT UNSIGNED NOT NULL,
+      state ENUM('draft','current','retired') NOT NULL,
+      current_marker TINYINT UNSIGNED NULL,
+      supersedes_quiz_id INT UNSIGNED NULL,
+      created_by INT UNSIGNED NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      published_at DATETIME NULL,
+      retired_at DATETIME NULL,
+      UNIQUE KEY uq_quiz_instrument_revision_number (instrument_id, revision_number),
+      UNIQUE KEY uq_quiz_instrument_revision_quiz (quiz_id),
+      UNIQUE KEY uq_quiz_instrument_current_marker (instrument_id, current_marker),
+      KEY idx_quiz_instrument_revisions_state (instrument_id, state, revision_number),
+      KEY idx_quiz_instrument_revisions_supersedes (supersedes_quiz_id),
+      KEY idx_quiz_instrument_revisions_owner (created_by),
+      CONSTRAINT fk_quiz_instrument_revisions_instrument FOREIGN KEY (instrument_id) REFERENCES quiz_instruments (id) ON DELETE CASCADE,
+      CONSTRAINT fk_quiz_instrument_revisions_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes (id) ON DELETE RESTRICT,
+      CONSTRAINT fk_quiz_instrument_revisions_supersedes FOREIGN KEY (supersedes_quiz_id) REFERENCES quizzes (id) ON DELETE RESTRICT,
+      CONSTRAINT fk_quiz_instrument_revisions_owner FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
     $column = $pdo->prepare(
         "SELECT COUNT(*) FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quiz_attempts' AND COLUMN_NAME = 'delivery_mode'"
@@ -160,6 +198,7 @@ function quiz_upgrade_schema(\PDO $pdo): void {
     $addColumn('quizzes', 'timer_warning_seconds', 'VARCHAR(255) NULL AFTER shuffle_answers');
     $addColumn('quizzes', 'allow_mark_for_review', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER timer_warning_seconds');
     $addColumn('quizzes', 'result_visibility', "ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden' AFTER allow_mark_for_review");
+    quiz_backfill_instrument_revisions($pdo);
     $addColumn('quiz_attempts', 'elapsed_seconds', 'INT UNSIGNED NULL AFTER submitted_at');
     $addColumn('attempt_questions', 'marked_for_review', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER seq');
     $addColumn('attempt_questions', 'marked_at', 'DATETIME NULL AFTER marked_for_review');
@@ -248,6 +287,79 @@ function quiz_upgrade_schema(\PDO $pdo): void {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 }
 
+function quiz_backfill_instrument_revisions(\PDO $pdo): void {
+    $missing = $pdo->query("SELECT q.id FROM quizzes q
+        LEFT JOIN quiz_instrument_revisions revision ON revision.quiz_id=q.id
+        WHERE revision.id IS NULL ORDER BY q.id ASC");
+    if ($missing === false) throw new \RuntimeException('Quiz revision backfill could not inspect existing Quizzes.');
+
+    foreach (array_map('intval', $missing->fetchAll(\PDO::FETCH_COLUMN) ?: []) as $quizId) {
+        if (!$pdo->beginTransaction()) throw new \RuntimeException('Quiz revision backfill transaction could not start.');
+        try {
+            $quizStmt = $pdo->prepare('SELECT q.id, q.created_by, q.public_prefix,
+                CASE WHEN owner.id IS NULL THEN NULL ELSE q.created_by END AS instrument_created_by
+                FROM quizzes q LEFT JOIN users owner ON owner.id=q.created_by
+                WHERE q.id=:id LIMIT 1 FOR UPDATE');
+            $quizStmt->execute([':id' => $quizId]);
+            $quiz = $quizStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$quiz) throw new \RuntimeException('Quiz disappeared during revision backfill.');
+
+            $existing = $pdo->prepare('SELECT instrument_id FROM quiz_instrument_revisions WHERE quiz_id=:quiz_id LIMIT 1 FOR UPDATE');
+            $existing->execute([':quiz_id' => $quizId]);
+            if ($existing->fetchColumn() === false) {
+                $insertInstrument = $pdo->prepare('INSERT INTO quiz_instruments
+                    (created_by, public_prefix, current_quiz_id) VALUES (:created_by, :public_prefix, :quiz_id)');
+                $insertInstrument->execute([
+                    ':created_by' => $quiz['instrument_created_by'] === null ? null : (int)$quiz['instrument_created_by'],
+                    ':public_prefix' => $quiz['public_prefix'],
+                    ':quiz_id' => $quizId,
+                ]);
+                $instrumentId = (int)$pdo->lastInsertId();
+                $insertRevision = $pdo->prepare("INSERT INTO quiz_instrument_revisions
+                    (instrument_id, quiz_id, revision_number, state, current_marker, supersedes_quiz_id, created_by, published_at)
+                    VALUES (:instrument_id, :quiz_id, 1, 'current', 1, NULL, :created_by, NOW())");
+                $insertRevision->execute([
+                    ':instrument_id' => $instrumentId,
+                    ':quiz_id' => $quizId,
+                    ':created_by' => $quiz['instrument_created_by'] === null ? null : (int)$quiz['instrument_created_by'],
+                ]);
+            }
+            if (!$pdo->commit()) throw new \RuntimeException('Quiz revision backfill transaction could not commit.');
+        } catch (\Throwable $error) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $error;
+        }
+    }
+
+    quiz_verify_instrument_revisions($pdo);
+}
+
+function quiz_verify_instrument_revisions(\PDO $pdo): void {
+    $invalidQuiz = $pdo->query("SELECT q.id FROM quizzes q
+        LEFT JOIN quiz_instrument_revisions revision ON revision.quiz_id=q.id
+        GROUP BY q.id HAVING COUNT(revision.id)<>1 LIMIT 1");
+    if ($invalidQuiz === false || $invalidQuiz->fetchColumn() !== false) {
+        throw new \RuntimeException('Every Quiz must belong to exactly one instrument revision.');
+    }
+    $invalidInstrument = $pdo->query("SELECT instrument.id
+        FROM quiz_instruments instrument
+        LEFT JOIN quiz_instrument_revisions revision ON revision.instrument_id=instrument.id
+        GROUP BY instrument.id, instrument.current_quiz_id
+        HAVING SUM(CASE WHEN revision.state='current' AND revision.current_marker=1
+            AND revision.quiz_id=instrument.current_quiz_id THEN 1 ELSE 0 END)<>1
+          OR SUM(CASE WHEN revision.current_marker=1 THEN 1 ELSE 0 END)<>1
+        LIMIT 1");
+    if ($invalidInstrument === false || $invalidInstrument->fetchColumn() !== false) {
+        throw new \RuntimeException('Quiz instrument current revisions are inconsistent.');
+    }
+    $prefixMismatch = $pdo->query("SELECT instrument.id FROM quiz_instruments instrument
+        JOIN quizzes q ON q.id=instrument.current_quiz_id
+        WHERE NOT (instrument.public_prefix <=> q.public_prefix) LIMIT 1");
+    if ($prefixMismatch === false || $prefixMismatch->fetchColumn() !== false) {
+        throw new \RuntimeException('Quiz instrument public prefixes are inconsistent.');
+    }
+}
+
 function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshotAttempt = null, int $batchSize = 100): void {
     try {
         if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'mysql') return;
@@ -318,7 +430,7 @@ function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshot
 // --- Idempotent schema installation on Quiz requests ---
 function quiz_install_schema(\PDO $pdo): bool {
     try {
-        $schemaRevision = '20261012-answer-corrections';
+        $schemaRevision = '20261118-quiz-instrument-revisions';
         $manifest = plugin_manifest('quiz');
         $version = is_array($manifest) && is_string($manifest['version'] ?? null)
             ? $manifest['version']
@@ -364,12 +476,14 @@ function quiz_schema_is_ready(\PDO $pdo): bool {
     $version = is_array($manifest) ? (string)($manifest['version'] ?? '') : '';
     return $version !== ''
         && settings_get($pdo, 'quiz_test_version', '') === $version
-        && settings_get($pdo, 'quiz_schema_revision', '') === '20261012-answer-corrections';
+        && settings_get($pdo, 'quiz_schema_revision', '') === '20261118-quiz-instrument-revisions';
 }
 
 // Shared helpers are required before public routes are registered.
 $helperFile = __DIR__ . '/includes/helpers.php';
 if (is_file($helperFile)) require_once $helperFile;
+$revisionFile = __DIR__ . '/includes/revisions.php';
+if (is_file($revisionFile)) require_once $revisionFile;
 $extensionFile = __DIR__ . '/includes/extensions.php';
 if (is_file($extensionFile)) require_once $extensionFile;
 
@@ -416,7 +530,7 @@ function quiz_frontend_entrypoint(string $route): ?string {
     return $file;
 }
 
-function quiz_register_public_prefix(string $prefix, ?int $quizId = null): bool {
+function quiz_register_public_prefix(string $prefix, ?int $quizId = null, ?int $instrumentId = null): bool {
     $prefix = trim($prefix, '/');
     if ($prefix === '') return false;
     $paths = [];
@@ -439,13 +553,13 @@ function quiz_register_public_prefix(string $prefix, ?int $quizId = null): bool 
 
     foreach (quiz_frontend_routes() as $route => $_relative) {
         $path = $prefix . ($route === '' ? '' : '/' . $route);
-        $handler = static function (\PDO $pdo) use ($prefix, $quizId, $route): void {
+        $handler = static function (\PDO $pdo) use ($prefix, $quizId, $instrumentId, $route): void {
             if (!quiz_schema_is_ready($pdo)) {
                 http_response_code(503);
                 echo 'Quiz is not ready. An authorized administrator must open the Quiz dashboard first.';
                 return;
             }
-            quiz_set_public_route_context($prefix, $quizId);
+            quiz_set_public_route_context($prefix, $quizId, $instrumentId);
             $entrypoint = quiz_frontend_entrypoint($route);
             if ($entrypoint === null) quiz_render_core_404();
             require $entrypoint;
@@ -454,6 +568,7 @@ function quiz_register_public_prefix(string $prefix, ?int $quizId = null): bool 
         $GLOBALS['quiz_public_route_paths'][$path] = true;
     }
     if (($quizId ?? 0) > 0) $GLOBALS['quiz_public_registered_quiz_prefixes'][$quizId] = $prefix;
+    if (($instrumentId ?? 0) > 0) $GLOBALS['quiz_public_registered_instrument_prefixes'][$instrumentId] = $prefix;
     return true;
 }
 
@@ -470,12 +585,16 @@ function quiz_register_public_routes(): void {
                 && quiz_register_public_prefix($globalPrefix)) {
                 $GLOBALS['quiz_public_registered_global_prefix'] = $globalPrefix;
             }
-            $prefixes = $routePdo->query("SELECT id, public_prefix FROM quizzes WHERE public_prefix IS NOT NULL AND public_prefix<>'' ORDER BY id ASC");
+            $prefixes = $routePdo->query("SELECT instrument.id AS instrument_id,
+              instrument.current_quiz_id AS id, instrument.public_prefix
+              FROM quiz_instruments instrument
+              WHERE instrument.public_prefix IS NOT NULL AND instrument.public_prefix<>''
+              ORDER BY instrument.id ASC");
             foreach ($prefixes !== false ? $prefixes->fetchAll(\PDO::FETCH_ASSOC) : [] as $row) {
                 try {
                     $prefix = quiz_normalize_public_prefix($row['public_prefix'] ?? null);
                     if ($prefix !== null && quiz_public_prefix_conflict($routePdo, $prefix, (int)$row['id'], false, false) === null) {
-                        quiz_register_public_prefix($prefix, (int)$row['id']);
+                        quiz_register_public_prefix($prefix, (int)$row['id'], (int)$row['instrument_id']);
                     }
                 } catch (\InvalidArgumentException) {
                     error_log('[quiz] Ignored an invalid stored public prefix.');
@@ -519,8 +638,8 @@ add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
     $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
     $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
-    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.12.0';
-    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.12.0';
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.13.0';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.13.0';
     echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
     echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });
@@ -600,6 +719,8 @@ add_action('plugin_uninstall', function(string $name): void {
         'question_categories',
         'quiz_attempts',
         'quiz_collaborators',
+        'quiz_instrument_revisions',
+        'quiz_instruments',
         'quizzes',
         'students'
     ];

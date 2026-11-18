@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.12.0', 'plugin version must be 1.12.0');
+$check(($manifest['version'] ?? null) === '1.13.0', 'plugin version must be 1.13.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -126,7 +126,8 @@ foreach ([
 ] as $route) $routePermissions[$route] = 'plugin.quiz.workspace.access';
 foreach ([
     'admin/quiz/quizzes/add', 'admin/quiz/quizzes/edit', 'admin/quiz/quizzes/delete',
-    'admin/quiz/quizzes/duplicate', 'admin/quiz/quizzes/bulk_status',
+    'admin/quiz/quizzes/duplicate', 'admin/quiz/quizzes/revise',
+    'admin/quiz/quizzes/publish_revision', 'admin/quiz/quizzes/bulk_status',
 ] as $route) $routePermissions[$route] = 'plugin.quiz.quizzes.manage';
 $routePermissions += [
     'admin/quiz' => 'plugin.quiz.dashboard.access',
@@ -255,6 +256,25 @@ $check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bo
     'new installs must support nullable per-Quiz verification and proctor overrides');
 $check(str_contains($schemaSource, '`visual_theme_override` VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL'),
     'new installs must support a nullable allowlisted per-Quiz visual theme override');
+$check(str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `quiz_instruments`')
+    && str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `quiz_instrument_revisions`')
+    && str_contains($schemaSource, 'UNIQUE KEY `uq_quiz_instruments_public_prefix` (`public_prefix`)')
+    && str_contains($schemaSource, 'UNIQUE KEY `uq_quiz_instrument_revision_number` (`instrument_id`, `revision_number`)')
+    && str_contains($schemaSource, 'UNIQUE KEY `uq_quiz_instrument_revision_quiz` (`quiz_id`)')
+    && str_contains($schemaSource, 'UNIQUE KEY `uq_quiz_instrument_current_marker` (`instrument_id`, `current_marker`)'),
+    'new installs must model stable Quiz instruments with one unique numbered revision and one nullable current marker');
+$check(str_contains($schemaSource, "`state` ENUM('draft','current','retired') NOT NULL")
+    && str_contains($schemaSource, 'CONSTRAINT `fk_quiz_instrument_revisions_instrument`')
+    && str_contains($schemaSource, 'REFERENCES `quiz_instruments` (`id`) ON DELETE CASCADE')
+    && str_contains($schemaSource, 'CONSTRAINT `fk_quiz_instrument_revisions_quiz`')
+    && str_contains($schemaSource, 'REFERENCES `quizzes` (`id`) ON DELETE RESTRICT'),
+    'revision metadata must preserve historical Quiz rows while cascading only instrument metadata');
+preg_match('/CREATE TABLE IF NOT EXISTS `quiz_instruments` \((.*?)\n\) ENGINE=/s', $schemaSource, $instrumentTableMatch);
+$instrumentTableSchema = (string)($instrumentTableMatch[1] ?? '');
+$check(str_contains($instrumentTableSchema, '`created_by` INT UNSIGNED NULL')
+    && str_contains($schemaSource, 'CONSTRAINT `fk_quiz_instruments_owner` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL')
+    && str_contains($schemaSource, 'CONSTRAINT `fk_quiz_instrument_revisions_owner` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL'),
+    'instrument audit owners must tolerate deleted or dangling legacy Quiz owners');
 $check(str_contains($schemaSource, '`elapsed_seconds` INT UNSIGNED NULL')
     && str_contains($schemaSource, '`marked_for_review` TINYINT(1) NOT NULL DEFAULT 0')
     && str_contains($schemaSource, '`revision_count` INT UNSIGNED NOT NULL DEFAULT 0'), 'attempt readiness columns must use backward-compatible defaults');
@@ -286,6 +306,7 @@ $check(str_contains($revisionTableSchema, 'KEY `idx_attempt_answer_revisions_act
 $pluginSource = (string)file_get_contents($pluginRoot . '/plugin.php');
 $extensionSource = (string)file_get_contents($pluginRoot . '/includes/extensions.php');
 $helperSource = (string)file_get_contents($pluginRoot . '/includes/helpers.php');
+$revisionSource = (string)file_get_contents($pluginRoot . '/includes/revisions.php');
 $takeScriptSource = (string)file_get_contents($pluginRoot . '/public/take/_take_js.php');
 $check(!str_contains($takeScriptSource, '<?=')
     && str_contains($takeScriptSource, '$apiGetJson      = json_encode(quiz_public_url(')
@@ -293,6 +314,7 @@ $check(!str_contains($takeScriptSource, '<?=')
     && str_contains($takeScriptSource, 'const PROCTOR_API = {$proctorApiJson};'),
     'participant script must interpolate pre-encoded API URLs without literal PHP tags');
 require_once $pluginRoot . '/includes/helpers.php';
+require_once $pluginRoot . '/includes/revisions.php';
 require_once $pluginRoot . '/includes/extensions.php';
 require_once $pluginRoot . '/public/api/_timer_helper.php';
 $check(quiz_extension_api_version() === '1.1.0'
@@ -333,10 +355,14 @@ unset($GLOBALS['quiz_public_route_context']);
 $prefixPdo = new PDO('sqlite::memory:');
 $prefixPdo->exec('CREATE TABLE settings (`key` TEXT PRIMARY KEY, `value` TEXT)');
 $prefixPdo->exec('CREATE TABLE quizzes (id INTEGER PRIMARY KEY, public_prefix TEXT)');
+$prefixPdo->exec('CREATE TABLE quiz_instruments (id INTEGER PRIMARY KEY, created_by INTEGER, public_prefix TEXT, current_quiz_id INTEGER)');
+$prefixPdo->exec('CREATE TABLE quiz_instrument_revisions (id INTEGER PRIMARY KEY, instrument_id INTEGER, quiz_id INTEGER, revision_number INTEGER, state TEXT, current_marker INTEGER)');
 $prefixPdo->exec('CREATE TABLE content_routes (id INTEGER PRIMARY KEY, post_id INTEGER, locale TEXT, path TEXT, is_canonical INTEGER)');
 $prefixPdo->exec('CREATE TABLE posts (id INTEGER PRIMARY KEY, slug TEXT, type TEXT, is_deleted INTEGER)');
 $prefixPdo->exec("INSERT INTO settings (`key`, `value`) VALUES ('quiz_global_title', 'Exam')");
-$prefixPdo->exec("INSERT INTO quizzes (id, public_prefix) VALUES (901, 'unavailable')");
+$prefixPdo->exec("INSERT INTO quizzes (id, public_prefix) VALUES (901, NULL), (902, 'unavailable')");
+$prefixPdo->exec("INSERT INTO quiz_instruments (id, created_by, public_prefix, current_quiz_id) VALUES (90, 1, 'unavailable', 902)");
+$prefixPdo->exec("INSERT INTO quiz_instrument_revisions (id, instrument_id, quiz_id, revision_number, state, current_marker) VALUES (1, 90, 901, 1, 'retired', NULL), (2, 90, 902, 2, 'current', 1)");
 $prefixPdo->exec("INSERT INTO content_routes (id, post_id, locale, path, is_canonical) VALUES (1, 1, '', 'training', 1)");
 $GLOBALS['quiz_public_routes_initialized'] = true;
 $GLOBALS['quiz_public_registered_global_prefix'] = 'quiz';
@@ -345,10 +371,16 @@ $check(quiz_public_prefix_conflict($prefixPdo, 'training') !== null
     && quiz_public_url_for_quiz($prefixPdo, 901, 'register') === '/quiz/register/'
     && quiz_public_url_for_quiz($prefixPdo, 901, 'register') === '/quiz/register/',
     'public prefixes must reject Core/content collisions and unavailable stored routes must fall back to /quiz');
+$GLOBALS['quiz_public_registered_instrument_prefixes'][90] = 'unavailable';
+quiz_set_public_route_context('unavailable', 902, 90);
+$check(quiz_public_route_accepts_quiz(901, $prefixPdo)
+    && quiz_public_url_for_quiz($prefixPdo, 901, 'take', ['a' => 'a_history']) === '/unavailable/take/?a=a_history',
+    'a stable instrument route must accept and generate URLs for its retired revision Attempts');
 $check(quiz_public_title($prefixPdo) === 'Exam', 'participant terminology must resolve the configured Global Title');
 $prefixPdo->exec("UPDATE settings SET `value`='<script>' WHERE `key`='quiz_global_title'");
 $check(quiz_public_title($prefixPdo) === 'Quiz', 'invalid stored Global Title values must fail closed to Quiz');
-unset($GLOBALS['quiz_public_routes_initialized'], $GLOBALS['quiz_public_registered_global_prefix'], $GLOBALS['quiz_public_registered_quiz_prefixes']);
+unset($GLOBALS['quiz_public_route_context'], $GLOBALS['quiz_public_routes_initialized'], $GLOBALS['quiz_public_registered_global_prefix'],
+    $GLOBALS['quiz_public_registered_quiz_prefixes'], $GLOBALS['quiz_public_registered_instrument_prefixes']);
 $check(quiz_normalize_timer_warning_seconds('60,300,60') === [300, 60]
     && quiz_timer_warning_minutes_to_seconds('5, 1') === [300, 60]
     && quiz_serialize_timer_warning_seconds([]) === null, 'timer warning helpers must normalize, deduplicate, sort, and preserve empty defaults');
@@ -849,9 +881,56 @@ $check(str_contains($extensionSource, 'function quiz_extension_subscribe')
 $check(str_contains($pluginSource, "require_once \$extensionFile")
     && !str_contains($pluginSource, "do_action('quiz_loaded'")
     && !str_contains($pluginSource, "do_action_isolated('quiz_loaded'"), 'Quiz publishes a load-order-safe callable extension API');
-$check(str_contains($pluginSource, "\$schemaRevision = '20261012-answer-corrections'")
-    && str_contains($pluginSource, "settings_get(\$pdo, 'quiz_schema_revision', '') === '20261012-answer-corrections'"),
-    'the answer-corrections schema revision must gate both migration and frontend readiness');
+$check(str_contains($pluginSource, "\$schemaRevision = '20261118-quiz-instrument-revisions'")
+    && str_contains($pluginSource, "settings_get(\$pdo, 'quiz_schema_revision', '') === '20261118-quiz-instrument-revisions'"),
+    'the Quiz instrument revision schema must gate both migration and frontend readiness');
+$publicPrefixUpgrade = strpos($pluginSource, "\$addColumn('quizzes', 'public_prefix'");
+$instrumentBackfill = strpos($pluginSource, 'quiz_backfill_instrument_revisions($pdo)');
+$check($publicPrefixUpgrade !== false && $instrumentBackfill !== false && $publicPrefixUpgrade < $instrumentBackfill,
+    'legacy upgrades must add the Quiz public-prefix column before instrument metadata is backfilled');
+$check(str_contains($revisionSource, 'function quiz_create_revision')
+    && str_contains($revisionSource, 'function quiz_publish_revision')
+    && str_contains($revisionSource, "VALUES (:instrument_id, :quiz_id, :revision_number, 'draft', NULL")
+    && str_contains($revisionSource, "SET state='retired', current_marker=NULL")
+    && str_contains($revisionSource, "SET state='current', current_marker=1")
+    && str_contains($revisionSource, 'UPDATE quiz_instruments SET current_quiz_id=:quiz_id'),
+    'revision services must create drafts and atomically retire/current the instrument lineage during publication');
+$check(str_contains($revisionSource, 'INSERT INTO question_categories')
+    && str_contains($revisionSource, 'INSERT INTO question_passages')
+    && str_contains($revisionSource, 'INSERT INTO questions')
+    && str_contains($revisionSource, 'INSERT INTO question_answers')
+    && !str_contains($revisionSource, 'INSERT INTO quiz_attempts'),
+    'revision cloning must copy the Question bank without copying historical Attempts');
+$check(str_contains($revisionSource, "Published Quiz revisions with Attempts are read-only. Create a new revision.")
+    && str_contains($revisionSource, 'Quiz revisions with Attempts cannot be deleted.')
+    && str_contains($revisionSource, 'Only a draft Quiz revision can be published.')
+    && str_contains($revisionSource, 'The public URL prefix is locked after this Quiz instrument receives an Attempt.'),
+    'revision services must keep attempted and historical revisions immutable');
+$confirmSource = (string)file_get_contents($pluginRoot . '/public/start/confirm/index.php');
+$attemptInsert = strpos($confirmSource, 'INSERT INTO quiz_attempts');
+$attemptRevisionLock = strpos($confirmSource, 'quiz_lock_current_revision_for_attempt($pdo, $quiz_id)');
+$check($attemptRevisionLock !== false && $attemptInsert !== false && $attemptRevisionLock < $attemptInsert
+    && str_contains($confirmSource, '$isHistoricalRevision && !$attempt')
+    && str_contains($confirmSource, 'quiz_public_route_accepts_quiz($quiz_id, $pdo)'),
+    'attempt confirmation must lock the current revision only before insertion and admit historical routes only for existing Attempts');
+$resumeSource = (string)file_get_contents($pluginRoot . '/public/_guard_resume.php');
+$check(str_contains($resumeSource, "(string)\$att['status'] === 'registered'")
+    && str_contains($resumeSource, "quiz_public_route_context()['instrument_id']")
+    && str_contains($resumeSource, 'quiz_instrument_revisions')
+    && str_contains($resumeSource, "'start/confirm', ['quiz' => \$quizId]"),
+    'stable instrument routes must resume a registered historical Attempt before selecting the new current revision');
+$reviseRouteSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/revise.php');
+$publishRouteSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/publish_revision.php');
+$check(str_contains($reviseRouteSource, "qz_user_can(\$pdo, (int)\$user['id'], 'plugin.quiz.quizzes.manage')")
+    && str_contains($publishRouteSource, "qz_user_can(\$pdo, (int)\$user['id'], 'plugin.quiz.quizzes.manage')"),
+    'revision creation and publication must reauthorize Quiz management inside their transactions');
+$uninstallSource = substr($pluginSource, (int)strpos($pluginSource, "add_action('plugin_uninstall'"));
+$uninstallRevision = strpos($uninstallSource, "'quiz_instrument_revisions'");
+$uninstallInstrument = strpos($uninstallSource, "'quiz_instruments'");
+$uninstallQuizzes = strpos($uninstallSource, "'quizzes'");
+$check($uninstallRevision !== false && $uninstallInstrument !== false && $uninstallQuizzes !== false
+    && $uninstallRevision < $uninstallInstrument && $uninstallInstrument < $uninstallQuizzes,
+    'uninstall must drop revision and instrument metadata before the referenced Quiz rows');
 $check(str_contains($pluginSource, "'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title'")
     && str_contains($pluginSource, 'ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)'), 'existing installs must add and uniquely index the optional public prefix');
 $check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid && str_contains($pluginSource, "'{$column}', 'TINYINT(1) NULL"), true),
@@ -990,9 +1069,13 @@ function settings_get(PDO $pdo, string $key, ?string $default = null): ?string {
 $pdo = new PDO('sqlite::memory:');
 $pdo->exec('CREATE TABLE settings (`key` TEXT PRIMARY KEY, `value` TEXT)');
 $pdo->exec('CREATE TABLE quizzes (id INTEGER PRIMARY KEY, public_prefix TEXT)');
+$pdo->exec('CREATE TABLE quiz_instruments (id INTEGER PRIMARY KEY, created_by INTEGER, public_prefix TEXT, current_quiz_id INTEGER)');
+$pdo->exec('CREATE TABLE quiz_instrument_revisions (id INTEGER PRIMARY KEY, instrument_id INTEGER, quiz_id INTEGER, revision_number INTEGER, state TEXT, current_marker INTEGER)');
 $pdo->exec('CREATE TABLE content_routes (id INTEGER PRIMARY KEY, post_id INTEGER, locale TEXT, path TEXT, is_canonical INTEGER)');
 $pdo->exec('CREATE TABLE posts (id INTEGER PRIMARY KEY, slug TEXT, type TEXT, is_deleted INTEGER)');
 $pdo->exec("INSERT INTO quizzes VALUES (8, 'training'), (9, 'certification'), (10, 'portal')");
+$pdo->exec("INSERT INTO quiz_instruments VALUES (80, 1, 'training', 8), (90, 1, 'certification', 9), (100, 1, 'portal', 10)");
+$pdo->exec("INSERT INTO quiz_instrument_revisions VALUES (1, 80, 8, 1, 'current', 1), (2, 90, 9, 1, 'current', 1), (3, 100, 10, 1, 'current', 1)");
 $pdo->exec("INSERT INTO settings VALUES ('quiz_global_public_prefix', 'assessment')");
 $pdo->exec("INSERT INTO content_routes VALUES (1, 1, '', 'training/register', 1)");
 $GLOBALS['pdo'] = $pdo;
@@ -1017,8 +1100,12 @@ if (resolve_frontend_route('portal/register', 'GET') === null) {
     fwrite(STDERR, (string)quiz_public_prefix_conflict($pdo, 'portal', 10));
     exit(33);
 }
-if (quiz_public_url_for_quiz($pdo, 8, 'register') !== '/assessment/register/'
-    || quiz_global_public_url($pdo, 'start') !== '/assessment/start/') exit(34);
+$trainingUrl = quiz_public_url_for_quiz($pdo, 8, 'register');
+$globalStartUrl = quiz_global_public_url($pdo, 'start');
+if ($trainingUrl !== '/assessment/register/' || $globalStartUrl !== '/assessment/start/') {
+    fwrite(STDERR, 'training=' . $trainingUrl . ' global=' . $globalStartUrl);
+    exit(34);
+}
 if (quiz_public_url_for_quiz($pdo, 10, 'register') !== '/portal/register/') exit(35);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $prefixRouteScript, $coreRoot, $pluginRoot], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1031,7 +1118,7 @@ if (is_resource($process)) {
     $prefixRouteStatus = proc_close($process);
 }
 $check($prefixRouteStatus === 0, 'dedicated Quiz routes must yield to existing content/plugin routes and unavailable prefixes must generate compatibility URLs'
-    . ($prefixRouteOutput !== '' ? ': ' . $prefixRouteOutput : ' (status ' . $prefixRouteStatus . ')'));
+    . ' (status ' . $prefixRouteStatus . ')' . ($prefixRouteOutput !== '' ? ': ' . $prefixRouteOutput : ''));
 
 $publicIndex = (string)file_get_contents($pluginRoot . '/public/index.php');
 $check(str_contains($publicIndex, "quiz_public_url('start')"), 'Quiz root must redirect within the active public prefix');
@@ -1046,7 +1133,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1096,7 +1183,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1116,14 +1203,14 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.12.0'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.13.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
 if ($pdo->executions !== 2) exit(23);
 unset($GLOBALS['contract_settings']['quiz_schema_revision']);
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
+if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
     || $pdo->executions !== 2) exit(24);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1140,7 +1227,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1232,7 +1319,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.12.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1260,8 +1347,8 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.12.0'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261012-answer-corrections'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.13.0'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationGateScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);

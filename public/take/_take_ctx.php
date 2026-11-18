@@ -776,7 +776,8 @@ $alias = trim((string)($_GET['a'] ?? ''));
 $quizParam = (int)($_GET['quiz'] ?? 0);
 $boundQuizId = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
 if ($boundQuizId > 0) {
-  if ($quizParam > 0 && $quizParam !== $boundQuizId) quiz_render_core_404();
+  if ($quizParam > 0 && $quizParam !== $boundQuizId
+      && !quiz_public_route_accepts_quiz($quizParam, $pdo)) quiz_render_core_404();
   if ($alias === '') $quizParam = $boundQuizId;
 }
 
@@ -873,12 +874,6 @@ if (!$quiz) {
   return;
 }
 
-$now = date('Y-m-d H:i:s');
-if (!quiz_is_open($quiz, $now)) {
-  $content_html = '<div class="container" style="padding:40px 16px;max-width:760px;margin:0 auto">' . h($publicTitle) . ' not available.</div>';
-  $ctx = null;
-  return;
-}
 $quiz['visual_theme'] = quiz_safe_visual_theme_override($quiz['visual_theme_override'] ?? null)
   ?? quiz_safe_visual_theme(settings_get($pdo, 'quiz_visual_theme', 'default'));
 

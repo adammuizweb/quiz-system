@@ -2,7 +2,14 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.12.0`.
+Current release: `1.13.0`.
+
+Quiz `1.13.0` adds immutable Quiz instrument revisions. Administrators can
+clone the current settings and question bank into a draft, edit it without
+copying Attempts, and publish it behind the same stable public URL. Publication
+retires the previous revision while preserving its participant access, answer
+snapshots, scores, and audit history. Attempted and retired revisions are
+read-only, and legacy Quizzes are backfilled as Revision 1.
 
 Quiz `1.12.0` adds a simple, print-friendly Word question-bank export alongside
 the complete Excel workbook. Both formats support all-category and

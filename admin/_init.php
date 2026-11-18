@@ -28,6 +28,8 @@ if (!function_exists('qz_route_permission')) {
             'admin/quiz/quizzes/edit' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/delete' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/duplicate' => 'plugin.quiz.quizzes.manage',
+            'admin/quiz/quizzes/revise' => 'plugin.quiz.quizzes.manage',
+            'admin/quiz/quizzes/publish_revision' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/bulk_status' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/attempts' => 'plugin.quiz.attempts.view',
             'admin/quiz/attempts/view' => 'plugin.quiz.attempts.view',
@@ -195,7 +197,7 @@ if (!function_exists('qz_quiz_access_sql')) {
 }
 
 if (!function_exists('qz_lock_quiz_for_workspace_mutation')) {
-    function qz_lock_quiz_for_workspace_mutation(PDO $pdo, int $quizId, int $userId): array {
+    function qz_lock_quiz_for_workspace_mutation(PDO $pdo, int $quizId, int $userId, bool $requireMutable = true): array {
         if (!$pdo->inTransaction()) throw new RuntimeException('Quiz mutation authorization requires a transaction.');
         qz_require_workspace_mutation_access($pdo, $userId);
 
@@ -203,18 +205,22 @@ if (!function_exists('qz_lock_quiz_for_workspace_mutation')) {
         $stmt->execute([':id' => $quizId]);
         $quiz = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$quiz) throw new RuntimeException('Quiz not found or unauthorized.');
-        if (qz_can_manage_any($pdo, $userId) || (int)$quiz['created_by'] === $userId) return $quiz;
+        if (qz_can_manage_any($pdo, $userId) || (int)$quiz['created_by'] === $userId) {
+            if ($requireMutable) quiz_assert_revision_mutable($pdo, $quizId);
+            return $quiz;
+        }
 
         $collaborator = $pdo->prepare('SELECT user_id FROM quiz_collaborators WHERE quiz_id=:quiz_id AND user_id=:user_id LIMIT 1 FOR UPDATE');
         $collaborator->execute([':quiz_id' => $quizId, ':user_id' => $userId]);
         if (!$collaborator->fetchColumn()) throw new RuntimeException('Quiz not found or unauthorized.');
+        if ($requireMutable) quiz_assert_revision_mutable($pdo, $quizId);
         return $quiz;
     }
 }
 
 if (!function_exists('qz_lock_quiz_for_owner_mutation')) {
-    function qz_lock_quiz_for_owner_mutation(PDO $pdo, int $quizId, int $userId): array {
-        $quiz = qz_lock_quiz_for_workspace_mutation($pdo, $quizId, $userId);
+    function qz_lock_quiz_for_owner_mutation(PDO $pdo, int $quizId, int $userId, bool $requireMutable = true): array {
+        $quiz = qz_lock_quiz_for_workspace_mutation($pdo, $quizId, $userId, $requireMutable);
         if ((int)$quiz['created_by'] !== $userId && !qz_can_manage_any($pdo, $userId)) {
             throw new RuntimeException('Only the quiz owner may perform this action.');
         }

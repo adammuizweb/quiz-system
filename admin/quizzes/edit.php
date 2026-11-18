@@ -37,11 +37,17 @@ if (!$quiz) {
   http_response_code(404);
   exit('Quiz not found');
 }
+$revisionMeta = quiz_revision_for_quiz($pdo, $id);
+if (!$revisionMeta) {
+  http_response_code(503);
+  exit('Quiz revision metadata is unavailable.');
+}
+$revisionState = (string)$revisionMeta['state'];
 
 $errors = [];
 
 $title = (string)($quiz['title'] ?? '');
-$public_prefix = (string)($quiz['public_prefix'] ?? '');
+$public_prefix = (string)($revisionMeta['instrument_public_prefix'] ?? '');
 $description = (string)($quiz['description'] ?? '');
 $questions_per_attempt = (int)($quiz['questions_per_attempt'] ?? 25);
 $duration_minutes = ($quiz['duration_minutes'] !== null) ? (string)$quiz['duration_minutes'] : '';
@@ -92,11 +98,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $allow_mark_for_review = quiz_normalize_bool($_POST['allow_mark_for_review'] ?? null, 0);
     $result_visibility = quiz_normalize_result_visibility($_POST['result_visibility'] ?? '');
     $timerWarningSeconds = quiz_timer_warning_minutes_to_seconds($timer_warning_minutes);
-    $normalizedPublicPrefix = quiz_validate_public_prefix(
+    $normalizedPublicPrefix = $revisionState === 'draft' ? null : quiz_validate_public_prefix(
       $pdo,
       $public_prefix,
       $id,
-      quiz_normalize_public_prefix($quiz['public_prefix'] ?? null)
+      quiz_normalize_public_prefix($revisionMeta['instrument_public_prefix'] ?? null)
     );
   } catch (InvalidArgumentException $error) {
     $errors[] = $error->getMessage();
@@ -118,12 +124,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $prefixLocked = true;
       $pdo->beginTransaction();
       qz_lock_quiz_for_workspace_mutation($pdo, $id, (int)$routeUser['id']);
-      $normalizedPublicPrefix = quiz_validate_public_prefix(
+      $lockedRevision = quiz_revision_for_quiz($pdo, $id, true);
+      if (!$lockedRevision) throw new RuntimeException('Quiz revision metadata is unavailable.');
+      $normalizedPublicPrefix = (string)$lockedRevision['state'] === 'draft' ? null : quiz_validate_public_prefix(
         $pdo,
         $public_prefix,
         $id,
-        quiz_normalize_public_prefix($quiz['public_prefix'] ?? null)
+        quiz_normalize_public_prefix($lockedRevision['instrument_public_prefix'] ?? null)
       );
+      if ((string)$lockedRevision['state'] === 'current') {
+        quiz_assert_instrument_prefix_mutable($pdo, $lockedRevision, $normalizedPublicPrefix);
+      }
 
       $stmt = $pdo->prepare("
         UPDATE quizzes
@@ -160,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':timer_warnings' => quiz_serialize_timer_warning_seconds($timerWarningSeconds),
         ':allow_review' => $allow_mark_for_review,
         ':result_visibility' => $result_visibility,
-        ':act' => ($is_active ? 1 : 0),
+        ':act' => (string)$lockedRevision['state'] === 'draft' ? 0 : ($is_active ? 1 : 0),
         ':start_at' => ($start_at === '' ? null : $start_at),
         ':end_at' => ($end_at === '' ? null : $end_at),
         ':verification_required_override' => $overrides['verification_required_override'] === '' ? null : (int)$overrides['verification_required_override'],
@@ -175,6 +186,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ];
       $stmt->execute($params);
       if ($stmt->rowCount() > 1) throw new RuntimeException('Quiz update affected an unexpected number of rows.');
+      if ((string)$lockedRevision['state'] === 'current') {
+        $updateInstrument = $pdo->prepare('UPDATE quiz_instruments SET public_prefix=:public_prefix
+          WHERE id=:instrument_id AND current_quiz_id=:quiz_id');
+        $updateInstrument->execute([
+          ':public_prefix' => $normalizedPublicPrefix,
+          ':instrument_id' => (int)$lockedRevision['instrument_id'],
+          ':quiz_id' => $id,
+        ]);
+        if ($updateInstrument->rowCount() > 1) throw new RuntimeException('Quiz instrument update affected an unexpected number of rows.');
+      }
       $pdo->commit();
       quiz_public_prefix_unlock($pdo);
       $prefixLocked = false;
@@ -202,7 +223,7 @@ $ownerLine = ($owner !== '' || $oemail !== '')
       <div class="qz-eyebrow qz-kicker">Quiz settings</div>
       <h1 class="qz-page-title">Edit Quiz</h1>
       <p class="qz-page-description qz-context">Update the Attempt and publication settings for <strong><?= h($title) ?></strong>.</p>
-      <div class="qz-meta">ID: <strong><?= (int)$id ?></strong><span class="dot">&bull;</span>Owner: <strong><?= h($ownerLine) ?></strong><?php if ((int)($quiz['is_primary'] ?? 0) === 1): ?><span class="dot">&bull;</span><span class="badge ok">PRIMARY QUIZ</span><?php endif; ?></div>
+      <div class="qz-meta">ID: <strong><?= (int)$id ?></strong><span class="dot">&bull;</span>Revision: <strong><?= (int)$revisionMeta['revision_number'] ?></strong> <span class="badge"><?= h(strtoupper($revisionState)) ?></span><span class="dot">&bull;</span>Owner: <strong><?= h($ownerLine) ?></strong><?php if ((int)($quiz['is_primary'] ?? 0) === 1): ?><span class="dot">&bull;</span><span class="badge ok">PRIMARY QUIZ</span><?php endif; ?></div>
     </div>
     <div class="qz-page-actions qz-toolbar">
       <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/questions&amp;quiz_id=<?= (int)$id ?>">Manage Questions</a>
@@ -234,8 +255,9 @@ $ownerLine = ($owner !== '' || $oemail !== '')
         </div>
         <div class="qz-field">
           <label for="quiz-public-prefix"><strong>Public URL Prefix</strong> <span class="muted">(optional)</span></label>
-          <input class="adam-input" id="quiz-public-prefix" name="public_prefix" value="<?= h($public_prefix) ?>" placeholder="Example: example-quiz" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
-          <div class="small-hint" id="quiz-public-prefix-help">Creates a dedicated namespace such as <code>/example-quiz/register/</code>. Changing it changes every public URL for this Quiz.</div>
+          <input class="adam-input" id="quiz-public-prefix" <?= $revisionState === 'draft' ? 'disabled' : 'name="public_prefix"' ?> value="<?= h($public_prefix) ?>" placeholder="Example: example-quiz" maxlength="63" pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?" aria-describedby="quiz-public-prefix-help">
+          <?php if ($revisionState === 'draft'): ?><input type="hidden" name="public_prefix" value=""><?php endif; ?>
+          <div class="small-hint" id="quiz-public-prefix-help"><?= $revisionState === 'draft' ? 'The stable public URL belongs to the Quiz instrument and transfers when this draft is published.' : 'Creates a stable namespace such as /example-quiz/register/ for every revision.' ?></div>
         </div>
       </div>
     </fieldset>
@@ -326,11 +348,12 @@ $ownerLine = ($owner !== '' || $oemail !== '')
       <div class="small-hint qz-student-form-name" id="quiz-schedule-help">Use server time in YYYY-MM-DD HH:MM:SS format. Leave blank for no schedule limit.</div>
       <div class="qz-field qz-student-form-name">
       <label for="quiz-status"><strong>Quiz Status</strong></label>
-      <select class="adam-input" id="quiz-status" name="is_active" aria-describedby="quiz-status-help">
+      <select class="adam-input" id="quiz-status" name="is_active" aria-describedby="quiz-status-help" <?= $revisionState === 'draft' ? 'disabled' : '' ?>>
         <option value="1" <?= ((int)$is_active===1?'selected':'') ?>>Active</option>
         <option value="0" <?= ((int)$is_active===0?'selected':'') ?>>Inactive</option>
       </select>
-      <div class="small-hint" id="quiz-status-help">Inactive Quizzes are unavailable for new Attempts.</div>
+      <?php if ($revisionState === 'draft'): ?><input type="hidden" name="is_active" value="0"><?php endif; ?>
+      <div class="small-hint" id="quiz-status-help"><?= $revisionState === 'draft' ? 'Draft revisions remain inactive until publication.' : 'Inactive Quizzes are unavailable for new Attempts.' ?></div>
       </div>
       </div>
     </fieldset>

@@ -22,9 +22,24 @@ if (!csrf_check($csrf)) {
 }
 try {
   $pdo->beginTransaction();
-  $quiz = qz_lock_quiz_for_owner_mutation($pdo, $id, (int)$routeUser['id']);
+  $quiz = qz_lock_quiz_for_owner_mutation($pdo, $id, (int)$routeUser['id'], false);
+  $revision = quiz_assert_quiz_deletable($pdo, $id);
   $params = [':id' => $id];
   $title = (string)$quiz['title'];
+
+  if ((string)$revision['state'] === 'current') {
+    $clearCurrent = $pdo->prepare('UPDATE quiz_instruments SET current_quiz_id=NULL WHERE id=:instrument_id AND current_quiz_id=:quiz_id');
+    $clearCurrent->execute([':instrument_id' => (int)$revision['instrument_id'], ':quiz_id' => $id]);
+    if ($clearCurrent->rowCount() !== 1) throw new RuntimeException('Quiz instrument changed during deletion.');
+    $deleteInstrument = $pdo->prepare('DELETE FROM quiz_instruments WHERE id=:instrument_id LIMIT 1');
+    $deleteInstrument->execute([':instrument_id' => (int)$revision['instrument_id']]);
+    if ($deleteInstrument->rowCount() !== 1) throw new RuntimeException('Quiz instrument deletion failed.');
+  } else {
+    $deleteRevision = $pdo->prepare("DELETE FROM quiz_instrument_revisions
+      WHERE id=:revision_id AND quiz_id=:quiz_id AND state='draft' LIMIT 1");
+    $deleteRevision->execute([':revision_id' => (int)$revision['id'], ':quiz_id' => $id]);
+    if ($deleteRevision->rowCount() !== 1) throw new RuntimeException('Quiz draft revision deletion failed.');
+  }
 
   $stmt = $pdo->prepare("DELETE FROM quizzes WHERE id = :id LIMIT 1");
   $stmt->execute($params);

@@ -95,6 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':start_at' => ($start_at === '' ? null : $start_at),
         ':end_at' => ($end_at === '' ? null : $end_at),
       ]);
+      $newQuizId = (int)$pdo->lastInsertId();
+      quiz_create_initial_instrument($pdo, $newQuizId, $uid);
       $pdo->commit();
       quiz_public_prefix_unlock($pdo);
       $prefixLocked = false;

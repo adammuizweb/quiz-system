@@ -60,7 +60,7 @@ try {
     $where[] = qz_quiz_access_sql($pdo, $user['id'], $params, 'q', 'list_uid');
   }
   if ($q !== '') {
-    $where[] = '(q.title LIKE :q OR q.description LIKE :q OR q.public_prefix LIKE :q OR CAST(q.id AS CHAR) = :qid)';
+    $where[] = '(q.title LIKE :q OR q.description LIKE :q OR instrument.public_prefix LIKE :q OR CAST(q.id AS CHAR) = :qid)';
     $params[':q'] = '%' . $q . '%';
     $params[':qid'] = $q;
   }
@@ -74,7 +74,9 @@ try {
   }
   $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
-  $listCount = $pdo->prepare('SELECT COUNT(*) FROM quizzes q' . $whereSql);
+  $listCount = $pdo->prepare('SELECT COUNT(*) FROM quizzes q
+    JOIN quiz_instrument_revisions revision ON revision.quiz_id=q.id
+    JOIN quiz_instruments instrument ON instrument.id=revision.instrument_id' . $whereSql);
   $listCount->execute($params);
   $totalRows = (int)$listCount->fetchColumn();
   $totalPages = max(1, (int)ceil($totalRows / $perPage));
@@ -83,12 +85,16 @@ try {
 
   $sql = "
     SELECT
-      q.id, q.title, q.public_prefix, q.description, q.visual_theme_override,
+      q.id, q.title, instrument.public_prefix, q.description, q.visual_theme_override,
       q.is_active, q.is_primary,
       q.questions_per_attempt, q.duration_minutes,
       q.start_at, q.end_at, q.created_at,
       q.created_by,
+      revision.instrument_id, revision.revision_number, revision.state AS revision_state,
+      revision.supersedes_quiz_id, instrument.current_quiz_id,
       u.name AS owner_name, u.email AS owner_email,
+      (SELECT COUNT(*) FROM quiz_instrument_revisions family WHERE family.instrument_id=revision.instrument_id) AS revision_count,
+      (SELECT COUNT(*) FROM quiz_attempts attempt WHERE attempt.quiz_id=q.id) AS attempt_count,
       (SELECT COUNT(*) FROM questions qq WHERE qq.quiz_id = q.id) AS question_count,
       (SELECT COUNT(*)
        FROM question_answers qa
@@ -109,6 +115,8 @@ try {
          )
       ) AS choice_no_answer_count
     FROM quizzes q
+    JOIN quiz_instrument_revisions revision ON revision.quiz_id=q.id
+    JOIN quiz_instruments instrument ON instrument.id=revision.instrument_id
     LEFT JOIN users u ON u.id = q.created_by
     {$whereSql}
     ORDER BY q.id DESC
@@ -262,12 +270,17 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       $badZero  = (int)($qz['choice_no_answer_count'] ?? 0);
       $missingAns = ($badZero > 0);
       $publicPrefix = trim((string)($qz['public_prefix'] ?? ''));
-      $publicUrl = $publicPrefix !== '' ? '/' . $publicPrefix . '/register/' : '';
+      $revisionState = (string)($qz['revision_state'] ?? 'current');
+      $revisionNumber = (int)($qz['revision_number'] ?? 1);
+      $publicUrl = $revisionState === 'current' && $publicPrefix !== '' ? '/' . $publicPrefix . '/register/' : '';
       $visualThemeOverride = quiz_safe_visual_theme_override($qz['visual_theme_override'] ?? null);
       $visualTheme = $visualThemeOverride ?? $globalVisualTheme;
       $visualThemeLabel = $visualThemeLabels[$visualTheme] ?? 'Default';
       $visualThemeSource = $visualThemeOverride === null ? 'Global' : 'Override';
-      $canDelete = $user['can_manage_quizzes'] && ($user['can_manage_any'] || (int)$qz['created_by'] === (int)$user['id']);
+      $ownsInstrument = $user['can_manage_any'] || (int)$qz['created_by'] === (int)$user['id'];
+      $canDelete = $user['can_manage_quizzes'] && $ownsInstrument
+        && (int)($qz['attempt_count'] ?? 0) === 0
+        && ($revisionState === 'draft' || ($revisionState === 'current' && (int)($qz['revision_count'] ?? 0) === 1));
 
       $quizJson = h((string)json_encode([
         'id' => $qid,
@@ -277,10 +290,15 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         'owner' => $ownerLine,
         'is_active' => $isActive,
         'is_primary' => $isPrimary,
-        'can_set_primary' => $canManagePrimary,
+        'can_set_primary' => $canManagePrimary && $revisionState === 'current',
         'can_manage_collaborators' => $user['can_manage_any'],
         'can_manage_quizzes' => $user['can_manage_quizzes'],
         'can_delete' => $canDelete,
+        'can_revise' => $user['can_manage_quizzes'] && $ownsInstrument && $revisionState === 'current',
+        'can_publish_revision' => $user['can_manage_quizzes'] && $ownsInstrument && $revisionState === 'draft',
+        'revision_number' => $revisionNumber,
+        'revision_state' => $revisionState,
+        'attempts' => (int)($qz['attempt_count'] ?? 0),
         'visual_theme' => $visualThemeLabel,
         'visual_theme_source' => $visualThemeSource,
         'questions' => (int)$qz['question_count'],
@@ -299,6 +317,7 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       <td class="qz-row-body qz-question-cell" data-label="Quiz">
         <div class="qz-row-title"><?= h($qz['title']) ?></div>
         <div class="qz-row-sub">
+          <span class="badge mini"><?= h('REV ' . $revisionNumber . ' ' . strtoupper($revisionState)) ?></span>
           <span class="qz-row-owner"><?= h($ownerLine) ?></span>
           <span class="qz-row-theme" data-theme="<?= h($visualTheme) ?>" title="<?= h($visualThemeLabel . ' visual theme, ' . strtolower($visualThemeSource)) ?>">
             <i aria-hidden="true"></i><span><?= h($visualThemeLabel) ?></span><small><?= h($visualThemeSource) ?></small>

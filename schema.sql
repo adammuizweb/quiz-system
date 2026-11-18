@@ -28,6 +28,44 @@ CREATE TABLE IF NOT EXISTS `quizzes` (
   UNIQUE KEY `uq_quizzes_public_prefix` (`public_prefix`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `quiz_instruments` (
+  `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `created_by` INT UNSIGNED NULL,
+  `public_prefix` VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  `current_quiz_id` INT UNSIGNED NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uq_quiz_instruments_public_prefix` (`public_prefix`),
+  UNIQUE KEY `uq_quiz_instruments_current_quiz` (`current_quiz_id`),
+  KEY `idx_quiz_instruments_owner` (`created_by`),
+  CONSTRAINT `fk_quiz_instruments_owner` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_quiz_instruments_current_quiz` FOREIGN KEY (`current_quiz_id`) REFERENCES `quizzes` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `quiz_instrument_revisions` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `instrument_id` INT UNSIGNED NOT NULL,
+  `quiz_id` INT UNSIGNED NOT NULL,
+  `revision_number` INT UNSIGNED NOT NULL,
+  `state` ENUM('draft','current','retired') NOT NULL,
+  `current_marker` TINYINT UNSIGNED NULL,
+  `supersedes_quiz_id` INT UNSIGNED NULL,
+  `created_by` INT UNSIGNED NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `published_at` DATETIME NULL,
+  `retired_at` DATETIME NULL,
+  UNIQUE KEY `uq_quiz_instrument_revision_number` (`instrument_id`, `revision_number`),
+  UNIQUE KEY `uq_quiz_instrument_revision_quiz` (`quiz_id`),
+  UNIQUE KEY `uq_quiz_instrument_current_marker` (`instrument_id`, `current_marker`),
+  KEY `idx_quiz_instrument_revisions_state` (`instrument_id`, `state`, `revision_number`),
+  KEY `idx_quiz_instrument_revisions_supersedes` (`supersedes_quiz_id`),
+  KEY `idx_quiz_instrument_revisions_owner` (`created_by`),
+  CONSTRAINT `fk_quiz_instrument_revisions_instrument` FOREIGN KEY (`instrument_id`) REFERENCES `quiz_instruments` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_quiz_instrument_revisions_quiz` FOREIGN KEY (`quiz_id`) REFERENCES `quizzes` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_quiz_instrument_revisions_supersedes` FOREIGN KEY (`supersedes_quiz_id`) REFERENCES `quizzes` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_quiz_instrument_revisions_owner` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `quiz_collaborators` (
   `quiz_id` INT UNSIGNED NOT NULL,
   `user_id` INT UNSIGNED NOT NULL,

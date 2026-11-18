@@ -107,6 +107,13 @@ if (!function_exists('qz_guard_resume')) {
     if ($sid <= 0) return;
 
     $uaHash = qz_ua_hash();
+    $requestedQuizId = (int)($_GET['quiz'] ?? 0);
+    $instrumentId = (int)(quiz_public_route_context()['instrument_id'] ?? 0);
+    if ($instrumentId <= 0 && $requestedQuizId > 0) {
+      $instrument = $pdo->prepare('SELECT instrument_id FROM quiz_instrument_revisions WHERE quiz_id=:quiz_id LIMIT 1');
+      $instrument->execute([':quiz_id' => $requestedQuizId]);
+      $instrumentId = (int)($instrument->fetchColumn() ?: 0);
+    }
 
     $isActive = function(array $att) use ($uaHash): bool {
       if (!isset($att['status'], $att['user_agent_hash'], $att['quiz_id'], $att['token_hash'])) return false;
@@ -143,6 +150,18 @@ if (!function_exists('qz_guard_resume')) {
         return;
       }
 
+      if ((string)$att['status'] === 'registered') {
+        $quizId = (int)$att['quiz_id'];
+        if ($instrumentId > 0 && $requestedQuizId !== $quizId) {
+          $revision = $pdo->prepare('SELECT 1 FROM quiz_instrument_revisions
+            WHERE instrument_id=:instrument_id AND quiz_id=:quiz_id LIMIT 1');
+          $revision->execute([':instrument_id' => $instrumentId, ':quiz_id' => $quizId]);
+          if ($revision->fetchColumn() !== false) {
+            qz_redirect(quiz_public_url_for_quiz($pdo, $quizId, 'start/confirm', ['quiz' => $quizId]));
+          }
+        }
+      }
+
       // kalau memang ACTIVE, baru lakukan redirect resume (butuh token match)
       if ($isActive($att)) {
         $quizId  = (int)$att['quiz_id'];
@@ -159,6 +178,24 @@ if (!function_exists('qz_guard_resume')) {
 
       // status masih registered/dll -> JANGAN clear, JANGAN redirect
       // biarkan flow verify/otp menggunakan cookie ini.
+    }
+
+    // Recover a registered revision even when the alias cookie was lost.
+    if ($instrumentId > 0) {
+      $registered = $pdo->prepare("SELECT attempt.attempt_alias, attempt.quiz_id
+        FROM quiz_attempts attempt
+        JOIN quiz_instrument_revisions revision ON revision.quiz_id=attempt.quiz_id
+        WHERE attempt.student_id=:student_id AND revision.instrument_id=:instrument_id
+          AND attempt.status='registered'
+        ORDER BY attempt.updated_at DESC, attempt.id DESC LIMIT 1");
+      $registered->execute([':student_id' => $sid, ':instrument_id' => $instrumentId]);
+      $registeredAttempt = $registered->fetch(PDO::FETCH_ASSOC);
+      if ($registeredAttempt && $requestedQuizId !== (int)$registeredAttempt['quiz_id']) {
+        qz_cookie_set('quiz_attempt', (string)$registeredAttempt['attempt_alias']);
+        qz_redirect(quiz_public_url_for_quiz($pdo, (int)$registeredAttempt['quiz_id'], 'start/confirm', [
+          'quiz' => (int)$registeredAttempt['quiz_id'],
+        ]));
+      }
     }
 
     // 2) fallback: attempt terakhir yang masih aktif (verified / in_progress)

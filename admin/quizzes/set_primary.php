@@ -42,6 +42,9 @@ if ($id <= 0) {
 }
 try {
   $pdo->beginTransaction();
+  if (!qz_user_can($pdo, $uid, 'plugin.quiz.primary.manage')) {
+    throw new RuntimeException('Primary Quiz permission is no longer valid.');
+  }
 
   $select = $pdo->prepare("SELECT id, title, is_primary FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE");
   $select->execute([':id' => $id]);
@@ -49,6 +52,11 @@ try {
   if (!$q) {
     $pdo->rollBack();
     go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Quiz not found.'), 'Failed');
+  }
+  $revision = quiz_revision_for_quiz($pdo, $id, true);
+  if (!$revision || (string)$revision['state'] !== 'current'
+      || (int)$revision['current_quiz_id'] !== $id || (int)$revision['current_marker'] !== 1) {
+    throw new RuntimeException('Only the current Quiz revision can be Primary.');
   }
   if ((int)$q['is_primary'] === 1) {
     $pdo->rollBack();

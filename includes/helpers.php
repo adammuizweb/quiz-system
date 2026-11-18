@@ -176,6 +176,31 @@ function quiz_public_prefix_conflict(PDO $pdo, string $prefix, ?int $excludeQuiz
   $duplicate->execute($params);
   if ($duplicate->fetchColumn() !== false) return 'This public URL prefix is already assigned to another Quiz.';
 
+  $excludeInstrumentId = 0;
+  if (($excludeQuizId ?? 0) > 0) {
+    try {
+      $instrument = $pdo->prepare('SELECT instrument_id FROM quiz_instrument_revisions WHERE quiz_id=:quiz_id LIMIT 1');
+      $instrument->execute([':quiz_id' => $excludeQuizId]);
+      $excludeInstrumentId = (int)($instrument->fetchColumn() ?: 0);
+    } catch (Throwable) {
+      $excludeInstrumentId = 0;
+    }
+  }
+  try {
+    $instrumentSql = 'SELECT id FROM quiz_instruments WHERE public_prefix=:prefix';
+    $instrumentParams = [':prefix' => $prefix];
+    if ($excludeInstrumentId > 0) {
+      $instrumentSql .= ' AND id<>:instrument_id';
+      $instrumentParams[':instrument_id'] = $excludeInstrumentId;
+    }
+    $instrumentSql .= ' LIMIT 1';
+    $instrument = $pdo->prepare($instrumentSql);
+    $instrument->execute($instrumentParams);
+    if ($instrument->fetchColumn() !== false) return 'This public URL prefix is already assigned to another Quiz.';
+  } catch (Throwable) {
+    return 'This public URL prefix could not be validated against Quiz instruments.';
+  }
+
   if (function_exists('get_frontend_route_definitions')) {
     foreach (get_frontend_route_definitions() as $definition) {
       $path = trim((string)($definition['path'] ?? ''), '/');
@@ -246,16 +271,17 @@ function quiz_public_prefix_unlock(PDO $pdo): void {
   }
 }
 
-function quiz_set_public_route_context(string $prefix, ?int $quizId): void {
+function quiz_set_public_route_context(string $prefix, ?int $quizId, ?int $instrumentId = null): void {
   $GLOBALS['quiz_public_route_context'] = [
     'prefix' => $prefix,
     'quiz_id' => ($quizId ?? 0) > 0 ? $quizId : null,
+    'instrument_id' => ($instrumentId ?? 0) > 0 ? $instrumentId : null,
   ];
 }
 
 function quiz_public_route_context(): array {
   $context = $GLOBALS['quiz_public_route_context'] ?? null;
-  return is_array($context) ? $context : ['prefix' => 'quiz', 'quiz_id' => null];
+  return is_array($context) ? $context : ['prefix' => 'quiz', 'quiz_id' => null, 'instrument_id' => null];
 }
 
 function quiz_public_base(): string {
@@ -287,18 +313,36 @@ function quiz_public_prefix_for_quiz(PDO $pdo, int $quizId): ?string {
   static $cache = [];
   if (!array_key_exists($quizId, $cache)) {
     try {
-      $stmt = $pdo->prepare('SELECT public_prefix FROM quizzes WHERE id=:id LIMIT 1');
+      $stmt = $pdo->prepare('SELECT instrument.public_prefix, instrument.id AS instrument_id
+        FROM quiz_instrument_revisions revision
+        JOIN quiz_instruments instrument ON instrument.id=revision.instrument_id
+        WHERE revision.quiz_id=:id LIMIT 1');
       $stmt->execute([':id' => $quizId]);
-      $value = $stmt->fetchColumn();
-      $cache[$quizId] = $value === false ? null : quiz_normalize_public_prefix($value);
+      $row = $stmt->fetch(PDO::FETCH_ASSOC);
+      if (!$row) {
+        $fallback = $pdo->prepare('SELECT public_prefix FROM quizzes WHERE id=:id LIMIT 1');
+        $fallback->execute([':id' => $quizId]);
+        $value = $fallback->fetchColumn();
+        $cache[$quizId] = ['prefix' => $value === false ? null : quiz_normalize_public_prefix($value), 'instrument_id' => null];
+      } else {
+        $cache[$quizId] = [
+          'prefix' => quiz_normalize_public_prefix($row['public_prefix'] ?? null),
+          'instrument_id' => (int)$row['instrument_id'],
+        ];
+      }
     } catch (Throwable) {
-      $cache[$quizId] = null;
+      $cache[$quizId] = ['prefix' => null, 'instrument_id' => null];
     }
   }
-  $prefix = $cache[$quizId];
+  $prefix = $cache[$quizId]['prefix'];
   if ($prefix !== null) {
     if (($GLOBALS['quiz_public_routes_initialized'] ?? false) === true) {
-      if (($GLOBALS['quiz_public_registered_quiz_prefixes'][$quizId] ?? null) !== $prefix) return null;
+      $instrumentId = (int)($cache[$quizId]['instrument_id'] ?? 0);
+      if ($instrumentId > 0) {
+        if (($GLOBALS['quiz_public_registered_instrument_prefixes'][$instrumentId] ?? null) !== $prefix) return null;
+      } elseif (($GLOBALS['quiz_public_registered_quiz_prefixes'][$quizId] ?? null) !== $prefix) {
+        return null;
+      }
     } elseif (quiz_public_prefix_conflict($pdo, $prefix, $quizId) !== null) {
       return null;
     }
@@ -308,11 +352,19 @@ function quiz_public_prefix_for_quiz(PDO $pdo, int $quizId): ?string {
 
 function quiz_public_url_for_quiz(PDO $pdo, int $quizId, string $route = '', array $query = []): string {
   $context = quiz_public_route_context();
-  if ((int)($context['quiz_id'] ?? 0) === $quizId && $quizId > 0) return quiz_public_url($route, $query);
+  $contextIsBound = (int)($context['quiz_id'] ?? 0) > 0 || (int)($context['instrument_id'] ?? 0) > 0;
+  if ($quizId > 0 && $contextIsBound && quiz_public_route_accepts_quiz($quizId, $pdo)) {
+    return quiz_public_url($route, $query);
+  }
   $dedicatedPrefix = quiz_public_prefix_for_quiz($pdo, $quizId);
   $prefix = $dedicatedPrefix ?? quiz_global_public_prefix($pdo);
+  $revision = function_exists('quiz_revision_for_quiz') ? quiz_revision_for_quiz($pdo, $quizId) : null;
   $previous = $GLOBALS['quiz_public_route_context'] ?? null;
-  quiz_set_public_route_context($prefix, $dedicatedPrefix !== null ? $quizId : null);
+  quiz_set_public_route_context(
+    $prefix,
+    $dedicatedPrefix !== null ? (int)($revision['current_quiz_id'] ?? $quizId) : null,
+    $dedicatedPrefix !== null ? (int)($revision['instrument_id'] ?? 0) : null
+  );
   try {
     return quiz_public_url($route, $query);
   } finally {
@@ -321,9 +373,23 @@ function quiz_public_url_for_quiz(PDO $pdo, int $quizId, string $route = '', arr
   }
 }
 
-function quiz_public_route_accepts_quiz(int $quizId): bool {
-  $bound = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
-  return $quizId > 0 && ($bound <= 0 || $bound === $quizId);
+function quiz_public_route_accepts_quiz(int $quizId, ?PDO $pdo = null): bool {
+  if ($quizId <= 0) return false;
+  $context = quiz_public_route_context();
+  $bound = (int)($context['quiz_id'] ?? 0);
+  if ($bound <= 0 || $bound === $quizId) return true;
+  $instrumentId = (int)($context['instrument_id'] ?? 0);
+  if ($instrumentId <= 0) return false;
+  $pdo ??= $GLOBALS['pdo'] ?? null;
+  if (!$pdo instanceof PDO) return false;
+  try {
+    $stmt = $pdo->prepare('SELECT 1 FROM quiz_instrument_revisions
+      WHERE instrument_id=:instrument_id AND quiz_id=:quiz_id LIMIT 1');
+    $stmt->execute([':instrument_id' => $instrumentId, ':quiz_id' => $quizId]);
+    return $stmt->fetchColumn() !== false;
+  } catch (Throwable) {
+    return false;
+  }
 }
 
 function quiz_render_core_404(): never {

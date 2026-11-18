@@ -55,7 +55,13 @@ $idSql = implode(',', $placeholders);
 try {
   $pdo->beginTransaction();
   sort($ids, SORT_NUMERIC);
-  foreach ($ids as $id) qz_lock_quiz_for_workspace_mutation($pdo, $id, $user['id']);
+  foreach ($ids as $id) {
+    qz_lock_quiz_for_workspace_mutation($pdo, $id, $user['id']);
+    $revision = quiz_revision_for_quiz($pdo, $id, true);
+    if (!$revision || (string)$revision['state'] !== 'current') {
+      throw new RuntimeException('Only current Quiz revisions can change publication status.');
+    }
+  }
   $select = $pdo->prepare("SELECT id, is_primary FROM quizzes WHERE id IN ({$idSql}) FOR UPDATE");
   $select->execute($params);
   $rows = $select->fetchAll(PDO::FETCH_ASSOC) ?: [];

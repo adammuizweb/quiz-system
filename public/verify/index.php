@@ -56,8 +56,11 @@ function ua_hash(): string {
 $quiz_id = (int)($_GET['quiz'] ?? 0);
 $boundQuizId = (int)(quiz_public_route_context()['quiz_id'] ?? 0);
 if ($boundQuizId > 0) {
-  if ($quiz_id > 0 && $quiz_id !== $boundQuizId) quiz_render_core_404();
-  $quiz_id = $boundQuizId;
+  if ($quiz_id > 0 && $quiz_id !== $boundQuizId) {
+    if (!quiz_public_route_accepts_quiz($quiz_id, $pdo)) quiz_render_core_404();
+  } else {
+    $quiz_id = $boundQuizId;
+  }
 }
 if ($quiz_id <= 0) {
   http_response_code(400);
@@ -80,8 +83,10 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([':id' => $quiz_id]);
 $quiz = $stmt->fetch(PDO::FETCH_ASSOC);
+$quizRevision = quiz_revision_for_quiz($pdo, $quiz_id);
+$isHistoricalRevision = is_array($quizRevision) && (string)$quizRevision['state'] === 'retired';
 
-if (!$quiz || !quiz_is_open($quiz, $now)) {
+if (!$quiz || (!$isHistoricalRevision && !quiz_is_open($quiz, $now))) {
   http_response_code(404);
   $content_html = '<div class="container" style="padding:40px 16px">' . h($publicTitle) . ' not available.</div>';
   require __DIR__ . '/../layout.php';
