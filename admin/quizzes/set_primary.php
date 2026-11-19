@@ -41,41 +41,16 @@ if ($id <= 0) {
   go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Invalid Quiz ID.'), 'Failed');
 }
 try {
-  $pdo->beginTransaction();
-  if (!qz_user_can($pdo, $uid, 'plugin.quiz.primary.manage')) {
-    throw new RuntimeException('Primary Quiz permission is no longer valid.');
-  }
-
-  $select = $pdo->prepare("SELECT id, title, is_primary FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE");
-  $select->execute([':id' => $id]);
-  $q = $select->fetch(PDO::FETCH_ASSOC);
-  if (!$q) {
-    $pdo->rollBack();
-    go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Quiz not found.'), 'Failed');
-  }
-  $revision = quiz_revision_for_quiz($pdo, $id, true);
-  if (!$revision || (string)$revision['state'] !== 'current'
-      || (int)$revision['current_quiz_id'] !== $id || (int)$revision['current_marker'] !== 1) {
-    throw new RuntimeException('Only the current Quiz revision can be Primary.');
-  }
-  if ((int)$q['is_primary'] === 1) {
-    $pdo->rollBack();
+  $result = quiz_set_primary($pdo, $id, static function () use ($pdo, $uid): void {
+      if (!qz_user_can($pdo, $uid, 'plugin.quiz.primary.manage')) {
+        throw new RuntimeException('Primary Quiz permission is no longer valid.');
+      }
+  });
+  $q = $result['quiz'];
+  if (!$result['changed']) {
     go($base . '/?page=admin/quiz/quizzes&msg=' . rawurlencode('Already the Primary Quiz: ' . (string)$q['title']), 'OK');
   }
-
-  $pdo->exec("UPDATE quizzes SET is_primary=0 WHERE is_primary=1");
-
-  $stmt = $pdo->prepare("UPDATE quizzes SET is_primary=1 WHERE id=:id LIMIT 1");
-  $stmt->execute([':id' => $id]);
-
-  if ($stmt->rowCount() < 1) {
-    $pdo->rollBack();
-    go($base . '/?page=admin/quiz/quizzes&err=' . rawurlencode('Failed to set the Primary Quiz.'), 'Failed');
-  }
-
-  $pdo->commit();
   go($base . '/?page=admin/quiz/quizzes&msg=' . rawurlencode('Primary Quiz set: ' . (string)$q['title']), 'Success');
-
 } catch (\Throwable $e) {
   if ($pdo->inTransaction()) $pdo->rollBack();
   error_log("[admin/quiz/quizzes/set_primary] " . $e->getMessage());

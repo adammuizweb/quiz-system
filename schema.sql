@@ -25,8 +25,16 @@ CREATE TABLE IF NOT EXISTS `quizzes` (
   `end_at` DATETIME NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY `uq_quizzes_public_prefix` (`public_prefix`)
+  UNIQUE KEY `uq_quizzes_public_prefix` (`public_prefix`),
+  KEY `idx_quizzes_primary` (`is_primary`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `quiz_operation_locks` (
+  `lock_key` VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  PRIMARY KEY (`lock_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `quiz_operation_locks` (`lock_key`) VALUES ('primary');
 
 CREATE TABLE IF NOT EXISTS `quiz_instruments` (
   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

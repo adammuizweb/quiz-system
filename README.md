@@ -2,7 +2,11 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.14.0`.
+Current release: `1.14.1`.
+
+Quiz `1.14.1` prevents the global Primary Quiz action from changing a published
+or attempted revision, keeping revision immutability consistent across every
+administrative mutation.
 
 Quiz `1.14.0` adds a dedicated Revision History workspace with visible draft,
 publish, and restore controls on the Quiz List and Edit Quiz screens. Historical

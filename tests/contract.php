@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.14.0', 'plugin version must be 1.14.0');
+$check(($manifest['version'] ?? null) === '1.14.1', 'plugin version must be 1.14.1');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -939,6 +939,15 @@ $check($uninstallRevision !== false && $uninstallInstrument !== false && $uninst
     'uninstall must drop revision and instrument metadata before the referenced Quiz rows');
 $check(str_contains($pluginSource, "'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title'")
     && str_contains($pluginSource, 'ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)'), 'existing installs must add and uniquely index the optional public prefix');
+$check(str_contains($schemaSource, 'KEY `idx_quizzes_primary` (`is_primary`, `id`)')
+    && str_contains($pluginSource, "if (!\$indexExists('quizzes', 'idx_quizzes_primary'))")
+    && str_contains($pluginSource, 'ADD KEY idx_quizzes_primary (is_primary, id)'),
+    'fresh and existing installs must index the global Primary Quiz locking lookup');
+$check(str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `quiz_operation_locks`')
+    && str_contains($schemaSource, "VALUES ('primary')")
+    && str_contains($pluginSource, 'CREATE TABLE IF NOT EXISTS quiz_operation_locks')
+    && str_contains($pluginSource, 'INSERT IGNORE INTO quiz_operation_locks'),
+    'fresh and existing installs must seed the transactional Primary Quiz operation lock');
 $check(array_reduce($overrideColumns, static fn(bool $valid, string $column): bool => $valid && str_contains($pluginSource, "'{$column}', 'TINYINT(1) NULL"), true),
     'existing installs must add every nullable per-Quiz override');
 $check(str_contains($pluginSource, "'visual_theme_override', 'VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL"),
@@ -1139,7 +1148,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1189,7 +1198,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1209,7 +1218,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.0'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.1'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1233,7 +1242,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1325,7 +1334,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1353,7 +1362,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.0'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.1'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -2751,6 +2760,18 @@ $check(str_contains($quizIndex, 'Revision History') && str_contains($quizIndex, 
 $check(str_contains($quizIndex, 'Historical or attempted revisions are read-only')
     && str_contains($adminJs, "filter(function(item){ return !item.disabled; })"),
     'bulk status selection must exclude immutable historical or attempted revisions');
+$setPrimarySource = (string)file_get_contents($pluginRoot . '/admin/quizzes/set_primary.php');
+$check(str_contains($quizIndex, "'can_set_primary' => \$canManagePrimary && \$primarySelectionMutable && \$isRowMutable")
+    && str_contains($setPrimarySource, 'quiz_set_primary($pdo, $id, static function')
+    && str_contains($revisionSource, 'function quiz_set_primary(')
+    && strpos($revisionSource, 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
+        < strpos($revisionSource, 'if ($authorize !== null) $authorize();')
+    && str_contains($revisionSource, "quiz_operation_locks WHERE lock_key='primary' FOR UPDATE")
+    && str_contains($revisionSource, 'SELECT id FROM quizzes WHERE is_primary=1 ORDER BY id FOR UPDATE')
+    && !str_contains($revisionSource, 'FOR UPDATE NOWAIT')
+    && strpos($revisionSource, '$assertMutable($primaryId)')
+        < strpos($revisionSource, "UPDATE quizzes SET is_primary=0"),
+    'Primary Quiz mutation must reject immutable target and previous primary revisions while their Quiz rows are locked');
 $check(str_contains($quizEditSource, 'qz-revision-form-lock') && str_contains($quizEditSource, "revisionState === 'retired'")
     && str_contains($quizRevisionsSource, 'Published revisions remain immutable'),
     'historical Quiz revisions must be visibly read-only in administration');

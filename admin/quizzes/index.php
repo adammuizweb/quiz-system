@@ -35,6 +35,7 @@ $pageNum = max(1, (int)($_GET['p'] ?? 1));
 
 $quizzes = [];
 $primaryCount = 0;
+$primarySelectionMutable = true;
 $totalRows = 0;
 $totalPages = 1;
 $offset = 0;
@@ -53,6 +54,15 @@ try {
   $stmt = $pdo->prepare($countSql);
   $stmt->execute($countParams);
   $primaryCount = (int)$stmt->fetchColumn();
+  if ($canManagePrimary) {
+    $primaryIds = $pdo->query('SELECT id FROM quizzes WHERE is_primary=1')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    foreach ($primaryIds as $primaryId) {
+      if (!qz_quiz_revision_is_mutable($pdo, (int)$primaryId)) {
+        $primarySelectionMutable = false;
+        break;
+      }
+    }
+  }
 
   $params = [];
   $where = [];
@@ -294,7 +304,7 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         'owner' => $ownerLine,
         'is_active' => $isActive,
         'is_primary' => $isPrimary,
-        'can_set_primary' => $canManagePrimary && $revisionState === 'current',
+        'can_set_primary' => $canManagePrimary && $primarySelectionMutable && $isRowMutable,
         'can_manage_collaborators' => $user['can_manage_any'],
         'can_manage_quizzes' => $user['can_manage_quizzes'],
         'can_manage_revisions' => $user['can_manage_quizzes'] && $ownsInstrument,

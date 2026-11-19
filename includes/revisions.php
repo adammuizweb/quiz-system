@@ -56,6 +56,79 @@ function quiz_assert_revision_mutable(PDO $pdo, int $quizId): array {
   return $revision;
 }
 
+function quiz_set_primary(PDO $pdo, int $targetQuizId, ?callable $authorize = null): array {
+  if ($pdo->inTransaction()) throw new RuntimeException('Primary Quiz mutation owns its transaction.');
+
+  for ($transactionAttempt = 0; $transactionAttempt < 3; $transactionAttempt++) {
+    try {
+      $pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+      $pdo->beginTransaction();
+      if ($authorize !== null) $authorize();
+
+      $operationLock = $pdo->query("SELECT lock_key FROM quiz_operation_locks WHERE lock_key='primary' FOR UPDATE");
+      if (!$operationLock || $operationLock->fetchColumn() !== 'primary') {
+        throw new RuntimeException('Primary Quiz operation lock is unavailable.');
+      }
+
+      $targetStmt = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+      $targetStmt->execute([':id' => $targetQuizId]);
+      $targetQuiz = $targetStmt->fetch(PDO::FETCH_ASSOC);
+      if (!$targetQuiz) throw new RuntimeException('Quiz not found.');
+      if ((int)$targetQuiz['is_primary'] === 1) {
+        $pdo->rollBack();
+        return ['quiz' => $targetQuiz, 'changed' => false];
+      }
+
+      $primaryIds = array_map('intval', $pdo->query(
+        'SELECT id FROM quizzes WHERE is_primary=1 ORDER BY id FOR UPDATE'
+      )->fetchAll(PDO::FETCH_COLUMN) ?: []);
+
+      // Quiz row locks block publication and new Attempt inserts while these current reads run.
+      $assertMutable = static function (int $quizId) use ($pdo): void {
+        $revision = quiz_revision_for_quiz($pdo, $quizId);
+        if (!$revision || (string)$revision['state'] !== 'current'
+            || (int)$revision['current_quiz_id'] !== $quizId
+            || (int)$revision['current_marker'] !== 1) {
+          throw new RuntimeException('Only the current Quiz revision can be Primary.');
+        }
+        if ((int)$revision['revision_number'] > 1) {
+          throw new RuntimeException('Published Quiz revisions are read-only. Create a new revision.');
+        }
+        $attempt = $pdo->prepare('SELECT 1 FROM quiz_attempts WHERE quiz_id=:quiz_id LIMIT 1');
+        $attempt->execute([':quiz_id' => $quizId]);
+        if ($attempt->fetchColumn() !== false) {
+          throw new RuntimeException('Published Quiz revisions with Attempts are read-only. Create a new revision.');
+        }
+      };
+      $assertMutable($targetQuizId);
+      foreach ($primaryIds as $primaryId) $assertMutable($primaryId);
+
+      foreach ($primaryIds as $primaryId) {
+        $clear = $pdo->prepare('UPDATE quizzes SET is_primary=0 WHERE id=:id AND is_primary=1');
+        $clear->execute([':id' => $primaryId]);
+        if ($clear->rowCount() !== 1) throw new RuntimeException('The Primary Quiz changed before it could be updated.');
+      }
+      $set = $pdo->prepare('UPDATE quizzes SET is_primary=1 WHERE id=:id AND is_primary=0');
+      $set->execute([':id' => $targetQuizId]);
+      if ($set->rowCount() !== 1) throw new RuntimeException('Failed to set the Primary Quiz.');
+      $targetQuiz['is_primary'] = 1;
+      $pdo->commit();
+
+      return ['quiz' => $targetQuiz, 'changed' => true];
+    } catch (Throwable $error) {
+      if ($pdo->inTransaction()) $pdo->rollBack();
+      $driverCode = $error instanceof PDOException ? (int)($error->errorInfo[1] ?? 0) : 0;
+      if ($transactionAttempt < 2 && $error instanceof PDOException
+          && ($error->getCode() === '40001' || in_array($driverCode, [1205, 1213], true))) {
+        usleep(50000 * ($transactionAttempt + 1));
+        continue;
+      }
+      throw $error;
+    }
+  }
+  throw new RuntimeException('Primary Quiz mutation did not complete.');
+}
+
 function quiz_lock_current_revision_for_attempt(PDO $pdo, int $quizId): array {
   if (!$pdo->inTransaction()) throw new RuntimeException('Quiz attempt revision validation requires a transaction.');
   $revision = quiz_revision_for_quiz($pdo, $quizId, true);

@@ -37,6 +37,8 @@ try {
     if (!is_string($schema) || trim($schema) === '' || $pdo->exec($schema) === false) {
         throw new RuntimeException('Quiz schema could not be installed.');
     }
+    $pdo->exec('ALTER TABLE quizzes DROP INDEX idx_quizzes_primary');
+    $pdo->exec('DROP TABLE quiz_operation_locks');
     $pdo->exec("INSERT INTO users (id, name) VALUES (1, 'Owner'), (2, 'Former Collaborator'), (3, 'Current Collaborator')");
     $pdo->exec('DROP TABLE quiz_instrument_revisions');
     $pdo->exec('DROP TABLE quiz_instruments');
@@ -44,6 +46,8 @@ try {
         VALUES (9, 'Legacy Orphan', 999, 0, 1)");
     $pdo->exec("INSERT INTO quizzes (id, title, public_prefix, created_by, is_active, questions_per_attempt)
         VALUES (10, 'Versioned Quiz', 'versioned-quiz', 1, 1, 1)");
+    $pdo->exec("INSERT INTO quizzes (id, title, created_by, is_active, is_primary, questions_per_attempt)
+        VALUES (11, 'Primary A', 1, 1, 1, 1), (12, 'Primary B', 1, 1, 0, 1)");
     $pdo->exec("INSERT INTO question_categories
         (quiz_id, created_by, name, shuffle_passages, shuffle_questions, is_active)
         VALUES (10, 1, 'Domain', 0, 0, 1)");
@@ -62,6 +66,11 @@ try {
 
     require_once $pluginRoot . '/plugin.php';
     quiz_upgrade_schema($pdo);
+    $assert((int)$pdo->query("SELECT COUNT(*) FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='quizzes' AND INDEX_NAME='idx_quizzes_primary'")->fetchColumn() === 2,
+        'Upgrade must add the Primary Quiz lookup index to an existing quizzes table.');
+    $assert((string)$pdo->query("SELECT lock_key FROM quiz_operation_locks WHERE lock_key='primary'")->fetchColumn() === 'primary',
+        'Upgrade must create and seed the transactional Primary Quiz operation lock.');
     $instrumentId = (int)$pdo->query('SELECT instrument_id FROM quiz_instrument_revisions WHERE quiz_id=10')->fetchColumn();
     $assert($instrumentId > 0, 'Legacy Quiz must be backfilled as Revision 1.');
     $assert($pdo->query('SELECT instrument.created_by FROM quiz_instruments instrument
@@ -69,12 +78,43 @@ try {
         WHERE revision.quiz_id=9')->fetchColumn() === null,
         'A dangling legacy owner must be normalized to nullable instrument audit metadata.');
 
+    $primaryChanged = quiz_set_primary($pdo, 12);
+    $assert($primaryChanged['changed'] === true
+        && (int)$pdo->query('SELECT is_primary FROM quizzes WHERE id=11')->fetchColumn() === 0
+        && (int)$pdo->query('SELECT is_primary FROM quizzes WHERE id=12')->fetchColumn() === 1
+        && (int)$pdo->query('SELECT COUNT(*) FROM quizzes WHERE is_primary=1')->fetchColumn() === 1,
+        'Primary selection must atomically move between mutable Revision 1 Quizzes.');
+
     $pdo->exec("INSERT INTO students (id, cookie_id, name) VALUES
         (1, '11111111-1111-4111-8111-111111111111', 'Participant')");
     $pdo->exec("INSERT INTO quiz_attempts
         (attempt_alias, quiz_id, student_id, token_hash, user_agent_hash, status)
         VALUES ('a_historical', 10, 1, 'token', 'agent', 'registered')");
     $historicalAttemptId = (int)$pdo->lastInsertId();
+    $pdo->exec("INSERT INTO quiz_attempts
+        (attempt_alias, quiz_id, student_id, token_hash, user_agent_hash, status)
+        VALUES ('a_primary', 12, 1, 'token', 'agent', 'registered')");
+
+    $immutableTargetRejected = false;
+    try {
+        quiz_set_primary($pdo, 10);
+    } catch (RuntimeException) {
+        $immutableTargetRejected = true;
+    }
+    $assert($immutableTargetRejected
+        && (int)$pdo->query('SELECT is_primary FROM quizzes WHERE id=12')->fetchColumn() === 1,
+        'Primary selection must reject an attempted target without changing the existing Primary Quiz.');
+
+    $immutablePrimaryRejected = false;
+    try {
+        quiz_set_primary($pdo, 11);
+    } catch (RuntimeException) {
+        $immutablePrimaryRejected = true;
+    }
+    $assert($immutablePrimaryRejected
+        && (int)$pdo->query('SELECT is_primary FROM quizzes WHERE id=11')->fetchColumn() === 0
+        && (int)$pdo->query('SELECT is_primary FROM quizzes WHERE id=12')->fetchColumn() === 1,
+        'Primary selection must preserve an attempted Primary Quiz when replacement is rejected.');
 
     $pdo->beginTransaction();
     $draft = quiz_create_revision($pdo, 10, 1);

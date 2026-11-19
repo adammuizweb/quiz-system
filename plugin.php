@@ -96,6 +96,12 @@ function quiz_upgrade_schema(\PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS quiz_operation_locks (
+      lock_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      PRIMARY KEY (lock_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("INSERT IGNORE INTO quiz_operation_locks (lock_key) VALUES ('primary')");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS quiz_instruments (
       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       created_by INT UNSIGNED NULL,
@@ -194,6 +200,9 @@ function quiz_upgrade_schema(\PDO $pdo): void {
     $addColumn('quizzes', 'visual_theme_override', 'VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER show_exam_badge_override');
     if (!$indexExists('quizzes', 'uq_quizzes_public_prefix')) {
         $pdo->exec('ALTER TABLE quizzes ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)');
+    }
+    if (!$indexExists('quizzes', 'idx_quizzes_primary')) {
+        $pdo->exec('ALTER TABLE quizzes ADD KEY idx_quizzes_primary (is_primary, id)');
     }
     $addColumn('quizzes', 'timer_warning_seconds', 'VARCHAR(255) NULL AFTER shuffle_answers');
     $addColumn('quizzes', 'allow_mark_for_review', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER timer_warning_seconds');
@@ -638,8 +647,8 @@ add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
     $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
     $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
-    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.14.0';
-    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.14.0';
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.14.1';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.14.1';
     echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
     echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });
@@ -721,6 +730,7 @@ add_action('plugin_uninstall', function(string $name): void {
         'quiz_collaborators',
         'quiz_instrument_revisions',
         'quiz_instruments',
+        'quiz_operation_locks',
         'quizzes',
         'students'
     ];
