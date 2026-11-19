@@ -43,8 +43,43 @@ if (!$revisionMeta) {
   exit('Quiz revision metadata is unavailable.');
 }
 $revisionState = (string)$revisionMeta['state'];
+$editRevisionToken = static function (array $quizRow, array $revisionRow): string {
+  $fields = [
+    'title', 'public_prefix', 'description', 'questions_per_attempt', 'duration_minutes',
+    'shuffle_answers', 'timer_warning_seconds', 'allow_mark_for_review', 'result_visibility',
+    'is_active', 'start_at', 'end_at', 'verification_required_override',
+    'require_fullscreen_override', 'pause_when_blur_override', 'block_context_menu_override',
+    'block_shortcuts_override', 'devtools_detect_override', 'show_exam_badge_override',
+    'visual_theme_override', 'updated_at',
+  ];
+  $values = [];
+  foreach ($fields as $field) $values[$field] = $quizRow[$field] ?? null;
+  return hash('sha256', json_encode([
+    'revision_id' => (int)($revisionRow['id'] ?? 0),
+    'revision_number' => (int)($revisionRow['revision_number'] ?? 0),
+    'state' => (string)($revisionRow['state'] ?? ''),
+    'quiz' => $values,
+  ], JSON_THROW_ON_ERROR));
+};
+$expectedEditToken = $editRevisionToken($quiz, $revisionMeta);
+$attemptStmt = $pdo->prepare('SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id=:quiz_id');
+$attemptStmt->execute([':quiz_id' => $id]);
+$attemptCount = (int)$attemptStmt->fetchColumn();
+$draftStmt = $pdo->prepare("SELECT quiz_id, revision_number FROM quiz_instrument_revisions
+  WHERE instrument_id=:instrument_id AND state='draft' LIMIT 1");
+$draftStmt->execute([':instrument_id' => (int)$revisionMeta['instrument_id']]);
+$familyDraft = $draftStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+$ownsInstrument = $routeUser['can_manage_any']
+  || (int)($revisionMeta['instrument_created_by'] ?? 0) === (int)$routeUser['id'];
+$canManageRevisions = $routeUser['can_manage_quizzes'] && $ownsInstrument;
+$isReadOnly = $revisionState === 'retired'
+  || ($revisionState === 'current' && ((int)$revisionMeta['revision_number'] > 1 || $attemptCount > 0));
+$readOnlyReason = $revisionState === 'retired'
+  ? 'Retired revisions are immutable historical records. Restore this revision as a new draft to reuse its settings and Questions.'
+  : ($isReadOnly ? 'Published revisions are read-only. Create a draft to make changes safely.' : '');
 
 $errors = [];
+$message = trim((string)($_GET['msg'] ?? ''));
 
 $title = (string)($quiz['title'] ?? '');
 $public_prefix = (string)($revisionMeta['instrument_public_prefix'] ?? '');
@@ -123,9 +158,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!quiz_public_prefix_lock($pdo)) throw new RuntimeException('Public URL namespace is busy.');
       $prefixLocked = true;
       $pdo->beginTransaction();
-      qz_lock_quiz_for_workspace_mutation($pdo, $id, (int)$routeUser['id']);
+      $lockedQuiz = qz_lock_quiz_for_workspace_mutation($pdo, $id, (int)$routeUser['id']);
       $lockedRevision = quiz_revision_for_quiz($pdo, $id, true);
       if (!$lockedRevision) throw new RuntimeException('Quiz revision metadata is unavailable.');
+      if ((string)($_POST['expected_revision_state'] ?? '') !== (string)$lockedRevision['state']
+          || (int)($_POST['expected_revision_number'] ?? 0) !== (int)$lockedRevision['revision_number']) {
+        throw new RuntimeException('Quiz revision state changed. Reload before editing.');
+      }
+      $submittedEditToken = (string)($_POST['expected_edit_token'] ?? '');
+      if ($submittedEditToken === '' || !hash_equals($editRevisionToken($lockedQuiz, $lockedRevision), $submittedEditToken)) {
+        throw new RuntimeException('Quiz settings changed. Reload before editing.');
+      }
       $normalizedPublicPrefix = (string)$lockedRevision['state'] === 'draft' ? null : quiz_validate_public_prefix(
         $pdo,
         $public_prefix,
@@ -226,10 +269,34 @@ $ownerLine = ($owner !== '' || $oemail !== '')
       <div class="qz-meta">ID: <strong><?= (int)$id ?></strong><span class="dot">&bull;</span>Revision: <strong><?= (int)$revisionMeta['revision_number'] ?></strong> <span class="badge"><?= h(strtoupper($revisionState)) ?></span><span class="dot">&bull;</span>Owner: <strong><?= h($ownerLine) ?></strong><?php if ((int)($quiz['is_primary'] ?? 0) === 1): ?><span class="dot">&bull;</span><span class="badge ok">PRIMARY QUIZ</span><?php endif; ?></div>
     </div>
     <div class="qz-page-actions qz-toolbar">
-      <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/questions&amp;quiz_id=<?= (int)$id ?>">Manage Questions</a>
-      <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/master&amp;quiz_id=<?= (int)$id ?>">Master Builder</a>
+      <?php if ($canManageRevisions): ?><a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/quizzes/revisions&amp;id=<?= (int)$id ?>">Revision History</a><?php endif; ?>
+      <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/questions&amp;quiz_id=<?= (int)$id ?>"><?= $isReadOnly ? 'View Questions' : 'Manage Questions' ?></a>
+      <?php if (!$isReadOnly): ?><a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/master&amp;quiz_id=<?= (int)$id ?>">Master Builder</a><?php endif; ?>
+      <?php if ($canManageRevisions && $revisionState === 'draft'): ?>
+        <form method="post" action="<?= h($base) ?>/?page=admin/quiz/quizzes/publish_revision">
+          <input type="hidden" name="id" value="<?= (int)$id ?>">
+          <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+          <button class="adam-button" type="submit" data-confirm="Publish Revision <?= (int)$revisionMeta['revision_number'] ?>? New participants will use it while historical Attempts remain on their original revision.">Publish Revision</button>
+        </form>
+      <?php elseif ($canManageRevisions && $revisionState === 'current' && !$familyDraft): ?>
+        <form method="post" action="<?= h($base) ?>/?page=admin/quiz/quizzes/revise">
+          <input type="hidden" name="id" value="<?= (int)$id ?>">
+          <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+          <button class="adam-button" type="submit" data-confirm="Create a draft revision? Settings and Question content will be copied without Attempts.">Create Draft</button>
+        </form>
+      <?php elseif ($canManageRevisions && $revisionState === 'retired' && !$familyDraft): ?>
+        <form method="post" action="<?= h($base) ?>/?page=admin/quiz/quizzes/restore_revision">
+          <input type="hidden" name="id" value="<?= (int)$id ?>">
+          <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+          <button class="adam-button" type="submit" data-confirm="Restore Revision <?= (int)$revisionMeta['revision_number'] ?> as a new draft? The historical revision will remain unchanged.">Restore as Draft</button>
+        </form>
+      <?php endif; ?>
     </div>
   </header>
+
+  <?php if ($message !== ''): ?><div class="adam-alert success" role="status"><?= h($message) ?></div><?php endif; ?>
+  <?php if ($isReadOnly): ?><div class="qz-revision-readonly-notice" role="note"><strong>Read-only revision</strong><span><?= h($readOnlyReason) ?></span></div><?php endif; ?>
+  <?php if ($familyDraft && $revisionState !== 'draft'): ?><div class="qz-revision-draft-callout"><div><strong>Revision <?= (int)$familyDraft['revision_number'] ?> is already in progress</strong><span>Publish or delete the existing draft before creating another.</span></div><a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/quizzes/edit&amp;id=<?= (int)$familyDraft['quiz_id'] ?>">Continue Draft</a></div><?php endif; ?>
 
   <?php if ($errors): ?>
     <div class="adam-alert error" role="alert">
@@ -239,6 +306,10 @@ $ownerLine = ($owner !== '' || $oemail !== '')
 
   <form method="post" novalidate>
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+    <input type="hidden" name="expected_revision_state" value="<?= h($revisionState) ?>">
+    <input type="hidden" name="expected_revision_number" value="<?= (int)$revisionMeta['revision_number'] ?>">
+    <input type="hidden" name="expected_edit_token" value="<?= h($expectedEditToken) ?>">
+    <fieldset class="qz-revision-form-lock"<?= $isReadOnly ? ' disabled' : '' ?>>
 
     <fieldset class="qz-section group-box">
       <legend class="qz-section__head"><strong>Quiz Details</strong></legend>
@@ -358,8 +429,9 @@ $ownerLine = ($owner !== '' || $oemail !== '')
       </div>
     </fieldset>
 
+    </fieldset>
     <div class="qz-form-actions qz-editor-actions">
-      <button class="adam-button" type="submit">Save Changes</button>
+      <?php if (!$isReadOnly): ?><button class="adam-button" type="submit">Save Changes</button><?php endif; ?>
       <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/quizzes">Cancel</a>
     </div>
   </form>

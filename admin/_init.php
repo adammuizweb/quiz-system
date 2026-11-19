@@ -26,10 +26,12 @@ if (!function_exists('qz_route_permission')) {
             'admin/quiz/quizzes/collaborators' => 'plugin.quiz.content.manage-any',
             'admin/quiz/quizzes/add' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/edit' => 'plugin.quiz.quizzes.manage',
+            'admin/quiz/quizzes/revisions' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/delete' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/duplicate' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/revise' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/publish_revision' => 'plugin.quiz.quizzes.manage',
+            'admin/quiz/quizzes/restore_revision' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/quizzes/bulk_status' => 'plugin.quiz.quizzes.manage',
             'admin/quiz/attempts' => 'plugin.quiz.attempts.view',
             'admin/quiz/attempts/view' => 'plugin.quiz.attempts.view',
@@ -228,11 +230,47 @@ if (!function_exists('qz_lock_quiz_for_owner_mutation')) {
     }
 }
 
+if (!function_exists('qz_lock_quiz_for_instrument_mutation')) {
+    function qz_lock_quiz_for_instrument_mutation(PDO $pdo, int $quizId, int $userId): array {
+        if (!$pdo->inTransaction()) throw new RuntimeException('Quiz instrument authorization requires a transaction.');
+        if (!qz_user_can($pdo, $userId, 'plugin.quiz.quizzes.manage')) {
+            throw new RuntimeException('Quiz management permission is no longer valid.');
+        }
+        $stmt = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+        $stmt->execute([':id' => $quizId]);
+        $quiz = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$quiz) throw new RuntimeException('Quiz not found or unauthorized.');
+        $revision = quiz_revision_for_quiz($pdo, $quizId, true);
+        if (!$revision) throw new RuntimeException('Quiz revision metadata is unavailable.');
+        if ((int)($revision['instrument_created_by'] ?? 0) !== $userId && !qz_can_manage_any($pdo, $userId)) {
+            throw new RuntimeException('Only the Quiz instrument owner may perform this action.');
+        }
+        return $quiz;
+    }
+}
+
 if (!function_exists('qz_can_mutate_resource')) {
     function qz_can_mutate_resource(PDO $pdo, int $userId, array $quiz, array $resource): bool {
-        return qz_can_manage_any($pdo, $userId)
+        return qz_quiz_revision_is_mutable($pdo, (int)($quiz['id'] ?? 0))
+            && (qz_can_manage_any($pdo, $userId)
             || (int)($quiz['created_by'] ?? 0) === $userId
-            || (int)($resource['created_by'] ?? 0) === $userId;
+            || (int)($resource['created_by'] ?? 0) === $userId);
+    }
+}
+
+if (!function_exists('qz_quiz_revision_is_mutable')) {
+    function qz_quiz_revision_is_mutable(PDO $pdo, int $quizId): bool {
+        static $mutable = [];
+        if ($quizId <= 0) return false;
+        $key = spl_object_id($pdo) . ':' . $quizId;
+        if (array_key_exists($key, $mutable)) return $mutable[$key];
+        $revision = quiz_revision_for_quiz($pdo, $quizId);
+        if (!$revision || (string)$revision['state'] === 'retired') return $mutable[$key] = false;
+        if ((string)$revision['state'] === 'draft') return $mutable[$key] = true;
+        if ((int)$revision['revision_number'] > 1) return $mutable[$key] = false;
+        $stmt = $pdo->prepare('SELECT 1 FROM quiz_attempts WHERE quiz_id=:quiz_id LIMIT 1');
+        $stmt->execute([':quiz_id' => $quizId]);
+        return $mutable[$key] = $stmt->fetchColumn() === false;
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "quiz",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "title": "Quiz",
   "description": "Quiz, proctoring, and online test management.",
   "author": "Adam Muiz",
@@ -290,6 +290,16 @@
         "permission": "plugin.quiz.quizzes.manage"
       },
       {
+        "route": "admin/quiz/quizzes/revisions",
+        "file": "admin/quizzes/revisions.php",
+        "title": "Quiz Revision History",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.quizzes.manage"
+      },
+      {
         "route": "admin/quiz/quizzes/delete",
         "file": "admin/quizzes/delete.php",
         "title": "Delete Quiz",
@@ -321,6 +331,16 @@
         "route": "admin/quiz/quizzes/publish_revision",
         "file": "admin/quizzes/publish_revision.php",
         "title": "Publish Quiz Revision",
+        "roles": [
+          "admin"
+        ],
+        "hidden": true,
+        "permission": "plugin.quiz.quizzes.manage"
+      },
+      {
+        "route": "admin/quiz/quizzes/restore_revision",
+        "file": "admin/quizzes/restore_revision.php",
+        "title": "Restore Quiz Revision",
         "roles": [
           "admin"
         ],

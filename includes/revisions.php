@@ -44,6 +44,9 @@ function quiz_assert_revision_mutable(PDO $pdo, int $quizId): array {
     throw new RuntimeException('Retired Quiz revisions are read-only.');
   }
   if ((string)$revision['state'] === 'current') {
+    if ((int)$revision['revision_number'] > 1) {
+      throw new RuntimeException('Published Quiz revisions are read-only. Create a new revision.');
+    }
     $attempt = $pdo->prepare('SELECT id FROM quiz_attempts WHERE quiz_id=:quiz_id LIMIT 1 FOR UPDATE');
     $attempt->execute([':quiz_id' => $quizId]);
     if ($attempt->fetchColumn() !== false) {
@@ -220,31 +223,29 @@ function quiz_clone_revision_bank(PDO $pdo, int $sourceQuizId, int $targetQuizId
     ->execute([':question_count' => (int)$count->fetchColumn(), ':quiz_id' => $targetQuizId]);
 }
 
-function quiz_create_revision(PDO $pdo, int $sourceQuizId, int $actorId, bool $canManageAny = false): array {
+function quiz_lock_next_revision_number(PDO $pdo, int $instrumentId): int {
   if (!$pdo->inTransaction()) throw new RuntimeException('Quiz revision creation requires a transaction.');
-  $source = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
-  $source->execute([':id' => $sourceQuizId]);
-  $sourceQuiz = $source->fetch(PDO::FETCH_ASSOC);
-  if (!$sourceQuiz) throw new RuntimeException('Quiz revision source was not found.');
-
-  $sourceRevision = quiz_revision_for_quiz($pdo, $sourceQuizId, true);
-  if (!$sourceRevision || (string)$sourceRevision['state'] !== 'current'
-      || (int)$sourceRevision['current_quiz_id'] !== $sourceQuizId) {
-    throw new RuntimeException('Only the current Quiz revision can be revised.');
-  }
-  if ((int)$sourceRevision['instrument_created_by'] !== $actorId && !$canManageAny) {
-    throw new RuntimeException('Only the Quiz instrument owner may create a revision.');
-  }
-
   $revisionRows = $pdo->prepare('SELECT revision_number, state FROM quiz_instrument_revisions
     WHERE instrument_id=:instrument_id ORDER BY revision_number FOR UPDATE');
-  $revisionRows->execute([':instrument_id' => (int)$sourceRevision['instrument_id']]);
+  $revisionRows->execute([':instrument_id' => $instrumentId]);
   $rows = $revisionRows->fetchAll(PDO::FETCH_ASSOC) ?: [];
   foreach ($rows as $row) {
     if ((string)$row['state'] === 'draft') throw new RuntimeException('This Quiz already has a draft revision.');
   }
-  $nextRevision = $rows === [] ? 1 : max(array_map(static fn(array $row): int => (int)$row['revision_number'], $rows)) + 1;
+  return $rows === [] ? 1 : max(array_map(static fn(array $row): int => (int)$row['revision_number'], $rows)) + 1;
+}
 
+function quiz_clone_revision_as_draft(
+  PDO $pdo,
+  array $sourceQuiz,
+  array $sourceRevision,
+  int $supersedesQuizId,
+  int $collaboratorSourceQuizId,
+  int $actorId,
+  int $nextRevision
+): array {
+  if (!$pdo->inTransaction()) throw new RuntimeException('Quiz revision creation requires a transaction.');
+  $sourceQuizId = (int)$sourceQuiz['id'];
   $insertQuiz = $pdo->prepare('INSERT INTO quizzes
     (created_by, title, public_prefix, verification_required_override, require_fullscreen_override,
      pause_when_blur_override, block_context_menu_override, block_shortcuts_override,
@@ -284,7 +285,7 @@ function quiz_create_revision(PDO $pdo, int $sourceQuizId, int $actorId, bool $c
   quiz_clone_revision_bank($pdo, $sourceQuizId, $targetQuizId);
   $pdo->prepare('INSERT INTO quiz_collaborators (quiz_id, user_id, assigned_by)
       SELECT :target_quiz_id, user_id, :actor_id FROM quiz_collaborators WHERE quiz_id=:source_quiz_id')
-    ->execute([':target_quiz_id' => $targetQuizId, ':actor_id' => $actorId, ':source_quiz_id' => $sourceQuizId]);
+    ->execute([':target_quiz_id' => $targetQuizId, ':actor_id' => $actorId, ':source_quiz_id' => $collaboratorSourceQuizId]);
 
   $insertRevision = $pdo->prepare("INSERT INTO quiz_instrument_revisions
     (instrument_id, quiz_id, revision_number, state, current_marker, supersedes_quiz_id, created_by)
@@ -293,11 +294,71 @@ function quiz_create_revision(PDO $pdo, int $sourceQuizId, int $actorId, bool $c
     ':instrument_id' => (int)$sourceRevision['instrument_id'],
     ':quiz_id' => $targetQuizId,
     ':revision_number' => $nextRevision,
-    ':supersedes_quiz_id' => $sourceQuizId,
+    ':supersedes_quiz_id' => $supersedesQuizId,
     ':created_by' => $actorId,
   ]);
 
   return ['quiz_id' => $targetQuizId, 'instrument_id' => (int)$sourceRevision['instrument_id'], 'revision_number' => $nextRevision];
+}
+
+function quiz_create_revision(PDO $pdo, int $sourceQuizId, int $actorId, bool $canManageAny = false): array {
+  if (!$pdo->inTransaction()) throw new RuntimeException('Quiz revision creation requires a transaction.');
+  $source = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+  $source->execute([':id' => $sourceQuizId]);
+  $sourceQuiz = $source->fetch(PDO::FETCH_ASSOC);
+  if (!$sourceQuiz) throw new RuntimeException('Quiz revision source was not found.');
+
+  $sourceRevision = quiz_revision_for_quiz($pdo, $sourceQuizId, true);
+  if (!$sourceRevision || (string)$sourceRevision['state'] !== 'current'
+      || (int)$sourceRevision['current_quiz_id'] !== $sourceQuizId) {
+    throw new RuntimeException('Only the current Quiz revision can be revised.');
+  }
+  if ((int)$sourceRevision['instrument_created_by'] !== $actorId && !$canManageAny) {
+    throw new RuntimeException('Only the Quiz instrument owner may create a revision.');
+  }
+
+  $nextRevision = quiz_lock_next_revision_number($pdo, (int)$sourceRevision['instrument_id']);
+  return quiz_clone_revision_as_draft(
+    $pdo,
+    $sourceQuiz,
+    $sourceRevision,
+    $sourceQuizId,
+    $sourceQuizId,
+    $actorId,
+    $nextRevision
+  );
+}
+
+function quiz_restore_revision(PDO $pdo, int $sourceQuizId, int $actorId, bool $canManageAny = false): array {
+  if (!$pdo->inTransaction()) throw new RuntimeException('Quiz revision restoration requires a transaction.');
+  $source = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+  $source->execute([':id' => $sourceQuizId]);
+  $sourceQuiz = $source->fetch(PDO::FETCH_ASSOC);
+  if (!$sourceQuiz) throw new RuntimeException('Quiz revision source was not found.');
+
+  $sourceRevision = quiz_revision_for_quiz($pdo, $sourceQuizId, true);
+  if (!$sourceRevision || !in_array((string)$sourceRevision['state'], ['retired', 'current'], true)) {
+    throw new RuntimeException('Only a published Quiz revision can be restored.');
+  }
+  if ((int)$sourceRevision['instrument_created_by'] !== $actorId && !$canManageAny) {
+    throw new RuntimeException('Only the Quiz instrument owner may restore a revision.');
+  }
+
+  $currentRevision = quiz_instrument_current_revision($pdo, (int)$sourceRevision['instrument_id'], true);
+  if (!$currentRevision || (int)$currentRevision['instrument_id'] !== (int)$sourceRevision['instrument_id']) {
+    throw new RuntimeException('The current Quiz revision is invalid.');
+  }
+
+  $nextRevision = quiz_lock_next_revision_number($pdo, (int)$sourceRevision['instrument_id']);
+  return quiz_clone_revision_as_draft(
+    $pdo,
+    $sourceQuiz,
+    $sourceRevision,
+    (int)$currentRevision['quiz_id'],
+    (int)$currentRevision['quiz_id'],
+    $actorId,
+    $nextRevision
+  );
 }
 
 function quiz_publish_revision(PDO $pdo, int $targetQuizId, int $actorId, bool $canManageAny = false): array {

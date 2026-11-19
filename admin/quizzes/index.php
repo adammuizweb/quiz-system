@@ -89,11 +89,12 @@ try {
       q.is_active, q.is_primary,
       q.questions_per_attempt, q.duration_minutes,
       q.start_at, q.end_at, q.created_at,
-      q.created_by,
+      q.created_by, instrument.created_by AS instrument_created_by,
       revision.instrument_id, revision.revision_number, revision.state AS revision_state,
       revision.supersedes_quiz_id, instrument.current_quiz_id,
       u.name AS owner_name, u.email AS owner_email,
       (SELECT COUNT(*) FROM quiz_instrument_revisions family WHERE family.instrument_id=revision.instrument_id) AS revision_count,
+      (SELECT COUNT(*) FROM quiz_instrument_revisions family WHERE family.instrument_id=revision.instrument_id AND family.state='draft') AS draft_count,
       (SELECT COUNT(*) FROM quiz_attempts attempt WHERE attempt.quiz_id=q.id) AS attempt_count,
       (SELECT COUNT(*) FROM questions qq WHERE qq.quiz_id = q.id) AS question_count,
       (SELECT COUNT(*)
@@ -117,7 +118,7 @@ try {
     FROM quizzes q
     JOIN quiz_instrument_revisions revision ON revision.quiz_id=q.id
     JOIN quiz_instruments instrument ON instrument.id=revision.instrument_id
-    LEFT JOIN users u ON u.id = q.created_by
+    LEFT JOIN users u ON u.id = instrument.created_by
     {$whereSql}
     ORDER BY q.id DESC
     LIMIT {$perPage} OFFSET {$offset}
@@ -264,8 +265,8 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       $owner = trim((string)($qz['owner_name'] ?? ''));
       $oemail = trim((string)($qz['owner_email'] ?? ''));
       $ownerLine = ($owner !== '' || $oemail !== '')
-        ? (($owner !== '' ? $owner : 'User#'.(int)$qz['created_by']) . ($oemail !== '' ? " · {$oemail}" : ''))
-        : ('User#'.(int)$qz['created_by']);
+        ? (($owner !== '' ? $owner : 'User#'.(int)$qz['instrument_created_by']) . ($oemail !== '' ? " · {$oemail}" : ''))
+        : ('User#'.(int)$qz['instrument_created_by']);
       $ansTotal = (int)($qz['answer_count'] ?? 0);
       $badZero  = (int)($qz['choice_no_answer_count'] ?? 0);
       $missingAns = ($badZero > 0);
@@ -277,10 +278,13 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       $visualTheme = $visualThemeOverride ?? $globalVisualTheme;
       $visualThemeLabel = $visualThemeLabels[$visualTheme] ?? 'Default';
       $visualThemeSource = $visualThemeOverride === null ? 'Global' : 'Override';
-      $ownsInstrument = $user['can_manage_any'] || (int)$qz['created_by'] === (int)$user['id'];
+      $ownsInstrument = $user['can_manage_any'] || (int)$qz['instrument_created_by'] === (int)$user['id'];
       $canDelete = $user['can_manage_quizzes'] && $ownsInstrument
         && (int)($qz['attempt_count'] ?? 0) === 0
         && ($revisionState === 'draft' || ($revisionState === 'current' && (int)($qz['revision_count'] ?? 0) === 1));
+      $isRowMutable = $revisionState === 'current'
+        && $revisionNumber === 1 && (int)($qz['attempt_count'] ?? 0) === 0;
+      $canEditSettings = $revisionState === 'draft' || $isRowMutable;
 
       $quizJson = h((string)json_encode([
         'id' => $qid,
@@ -293,8 +297,10 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         'can_set_primary' => $canManagePrimary && $revisionState === 'current',
         'can_manage_collaborators' => $user['can_manage_any'],
         'can_manage_quizzes' => $user['can_manage_quizzes'],
+        'can_manage_revisions' => $user['can_manage_quizzes'] && $ownsInstrument,
+        'can_edit_settings' => $canEditSettings,
         'can_delete' => $canDelete,
-        'can_revise' => $user['can_manage_quizzes'] && $ownsInstrument && $revisionState === 'current',
+        'can_revise' => $user['can_manage_quizzes'] && $ownsInstrument && $revisionState === 'current' && (int)($qz['draft_count'] ?? 0) === 0,
         'can_publish_revision' => $user['can_manage_quizzes'] && $ownsInstrument && $revisionState === 'draft',
         'revision_number' => $revisionNumber,
         'revision_state' => $revisionState,
@@ -312,7 +318,7 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
       ]));
     ?>
     <tr class="qz-select-card">
-      <?php if ($user['can_manage_quizzes']): ?><td class="qz-question-select" data-label="Select"><input type="checkbox" name="ids[]" value="<?= $qid ?>" data-bulk-item aria-label="Select Quiz <?= h($qz['title']) ?>"></td><?php endif; ?>
+      <?php if ($user['can_manage_quizzes']): ?><td class="qz-question-select" data-label="Select"><input type="checkbox" name="ids[]" value="<?= $qid ?>" data-bulk-item aria-label="Select Quiz <?= h($qz['title']) ?>"<?= $isRowMutable ? '' : ' disabled title="Historical or attempted revisions are read-only"' ?>></td><?php endif; ?>
       <td class="qz-row-id" data-label="ID">#<?= $qid ?></td>
       <td class="qz-row-body qz-question-cell" data-label="Quiz">
         <div class="qz-row-title"><?= h($qz['title']) ?></div>
@@ -342,7 +348,15 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         </div>
       </td>
       <td class="qz-row-action qz-row-actions qz-question-actions" data-label="Actions">
-        <button type="button" class="qz-detail-btn" data-quiz='<?= $quizJson ?>' aria-label="View details for Quiz <?= h($qz['title']) ?>">Details</button>
+        <div class="qz-quiz-row-actions">
+          <?php if ($user['can_manage_quizzes'] && $ownsInstrument): ?><a class="qz-detail-btn" href="<?= h($base) ?>/?page=admin/quiz/quizzes/revisions&amp;id=<?= $qid ?>">Revision History</a><?php endif; ?>
+          <?php if ($revisionState === 'draft' && $user['can_manage_quizzes'] && $ownsInstrument): ?>
+            <a class="qz-detail-btn qz-detail-btn--primary" href="<?= h($base) ?>/?page=admin/quiz/quizzes/revisions&amp;id=<?= $qid ?>#revision-<?= $revisionNumber ?>">Publish Draft</a>
+          <?php elseif ($revisionState === 'current' && (int)($qz['draft_count'] ?? 0) === 0 && $user['can_manage_quizzes'] && $ownsInstrument): ?>
+            <a class="qz-detail-btn qz-detail-btn--primary" href="<?= h($base) ?>/?page=admin/quiz/quizzes/revisions&amp;id=<?= $qid ?>">Create Draft</a>
+          <?php endif; ?>
+          <button type="button" class="qz-detail-btn" data-quiz='<?= $quizJson ?>' aria-label="View details for Quiz <?= h($qz['title']) ?>">Details</button>
+        </div>
       </td>
     </tr>
     <?php endforeach; ?>

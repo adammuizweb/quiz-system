@@ -2685,6 +2685,71 @@ html.theme-dark #adam-main .qz-danger-zone{background:rgba(127,29,29,.14);border
 #adam-main .qz-quiz-list-page .qz-table-cell-stack{display:flex;align-items:center;gap:7px 9px;flex-wrap:wrap}
 #adam-main .qz-quiz-list-page .qz-table-cell-stack--questions>strong{min-width:22px;color:var(--adam-text,#101828);font-size:16px;line-height:1}
 #adam-main .qz-quiz-list-page .qz-table-cell-stack .badge{margin:0}
+#adam-main .qz-quiz-list-page .qz-quiz-row-actions{display:flex;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+#adam-main .qz-quiz-list-page .qz-quiz-row-actions .qz-detail-btn{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+#adam-main .qz-quiz-list-page .qz-detail-btn--primary{border-color:rgba(79,70,229,.42);background:#4f46e5;color:#fff}
+#adam-main .qz-quiz-list-page .qz-detail-btn--primary:hover{border-color:#4338ca;background:#4338ca;color:#fff}
+
+/* Revision management keeps publication history visible and immutable. */
+#adam-main .qz-revision-page .qz-page-head{margin-bottom:24px}
+#adam-main .qz-revision-page .qz-page-actions form,
+#adam-main .qz-quiz-editor .qz-page-actions form,
+#adam-main .qz-revision-actions form{margin:0}
+#adam-main .qz-revision-draft-callout,
+#adam-main .qz-revision-readonly-notice{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin:18px 0;
+  padding:16px 18px;
+  border:1px solid rgba(79,70,229,.24);
+  border-radius:14px;
+  background:linear-gradient(110deg,rgba(79,70,229,.1),rgba(34,184,207,.06));
+}
+#adam-main .qz-revision-draft-callout>div,
+#adam-main .qz-revision-readonly-notice{color:var(--adam-text,#101828)}
+#adam-main .qz-revision-draft-callout>div{display:grid;gap:4px}
+#adam-main .qz-revision-draft-callout span,
+#adam-main .qz-revision-readonly-notice span{color:var(--qz-subtle);font-size:12px;line-height:1.55}
+#adam-main .qz-revision-readonly-notice{justify-content:flex-start;border-color:#f6c566;background:#fff8e8}
+#adam-main .qz-revision-form-lock{display:contents;margin:0;padding:0;border:0}
+#adam-main .qz-revision-form-lock[disabled] .qz-section{opacity:.72}
+#adam-main .qz-revision-ledger{overflow:hidden;margin-top:22px}
+#adam-main .qz-revision-list{position:relative;display:grid;gap:0;padding-top:4px;padding-bottom:4px}
+#adam-main .qz-revision-list::before{content:"";position:absolute;top:36px;bottom:36px;left:48px;width:2px;background:linear-gradient(#4f46e5,#22b8cf,#cbd5e1)}
+#adam-main .qz-revision-entry{
+  position:relative;
+  display:grid;
+  grid-template-columns:52px minmax(0,1fr) minmax(150px,190px);
+  gap:16px;
+  padding:22px 0;
+  border-bottom:1px solid var(--qz-line);
+  scroll-margin-top:20px;
+}
+#adam-main .qz-revision-entry:last-child{border-bottom:0}
+#adam-main .qz-revision-entry[aria-current="true"]{margin-inline:-10px;padding-inline:10px;border-radius:14px;background:rgba(79,70,229,.045)}
+#adam-main .qz-revision-marker{position:relative;z-index:1;display:flex;justify-content:center}
+#adam-main .qz-revision-marker span{display:grid;width:34px;height:34px;place-items:center;border:4px solid var(--qz-panel);border-radius:50%;background:#64748b;color:#fff;font-size:12px;font-weight:850;box-shadow:0 0 0 2px #cbd5e1}
+#adam-main .qz-revision-entry--current .qz-revision-marker span{background:#047857;box-shadow:0 0 0 2px #6ee7b7}
+#adam-main .qz-revision-entry--draft .qz-revision-marker span{background:#4f46e5;box-shadow:0 0 0 2px #a5b4fc}
+#adam-main .qz-revision-copy{min-width:0}
+#adam-main .qz-revision-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+#adam-main .qz-revision-title-row>div{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+#adam-main .qz-revision-title-row h3{margin:0;color:var(--adam-text,#101828);font-size:18px;letter-spacing:-.02em}
+#adam-main .qz-revision-title-row h3 small{color:var(--qz-subtle);font-size:11px;font-weight:700;letter-spacing:0}
+#adam-main .qz-revision-title-row time{color:var(--qz-subtle);font-size:11px;white-space:nowrap}
+#adam-main .qz-revision-copy>p{margin:10px 0 14px;color:var(--qz-subtle);font-size:13px;line-height:1.55}
+#adam-main .qz-revision-state--current{background:#ecfdf3;color:#047857}
+#adam-main .qz-revision-state--draft{background:#eef2ff;color:#4338ca}
+#adam-main .qz-revision-state--retired{background:#f1f5f9;color:#64748b}
+#adam-main .qz-revision-facts{display:flex;gap:8px 20px;flex-wrap:wrap;margin:0}
+#adam-main .qz-revision-facts>div{display:grid;gap:2px;min-width:76px}
+#adam-main .qz-revision-facts dt{color:var(--qz-subtle);font-size:9px;font-weight:850;letter-spacing:.07em;text-transform:uppercase}
+#adam-main .qz-revision-facts dd{margin:0;color:var(--adam-text,#344054);font-size:12px;font-weight:720}
+#adam-main .qz-revision-actions{display:grid;align-content:start;gap:8px}
+#adam-main .qz-revision-actions .adam-button{box-sizing:border-box;width:100%;min-height:38px;justify-content:center;text-align:center}
+#adam-main .qz-revision-action-note{padding:9px 10px;border-radius:9px;background:var(--adam-surface-3,#f8fafc);color:var(--qz-subtle);font-size:10px;line-height:1.45;text-align:center}
 
 /* Quiz detail actions use purpose-led groups instead of one undifferentiated row. */
 #adam-main #quizDetailModal .modal-dialog{width:min(840px,100%)}
@@ -2801,6 +2866,10 @@ html.theme-dark #adam-main .qz-correction-key__item.is-positive .qz-correction-k
 html.theme-dark #adam-main .qz-correction-message{border-color:#7f1d1d;background:rgba(127,29,29,.22);color:#fecaca}
 html.theme-dark #adam-main .qz-correction-modal__foot{background:var(--adam-surface-2,#111827)}
 html.theme-dark #adam-main .qz-quiz-list-page .qz-row-theme{background:var(--adam-surface-2,#111827)}
+html.theme-dark #adam-main .qz-revision-readonly-notice{border-color:#854d0e;background:rgba(133,77,14,.22)}
+html.theme-dark #adam-main .qz-revision-state--current{background:rgba(6,78,59,.35);color:#a7f3d0}
+html.theme-dark #adam-main .qz-revision-state--draft{background:rgba(49,46,129,.42);color:#c7d2fe}
+html.theme-dark #adam-main .qz-revision-state--retired{background:#1e293b;color:#cbd5e1}
 html.theme-dark #adam-main #quizDetailModal .qdm-action-group{border-color:var(--qz-line);background:var(--adam-surface-2,#111827)}
 html.theme-dark #adam-main #quizDetailModal .qdm-action-group--content{background:linear-gradient(145deg,var(--adam-surface-2,#111827),rgba(91,93,240,.12))}
 @media(min-width:761px){html.theme-dark #adam-main .adam-card.qz-shell.qz-editor-page.qz-quiz-editor{background:var(--adam-surface-2,#111827)}}
@@ -2889,6 +2958,13 @@ html.theme-dark #adam-main #quizDetailModal .qdm-action-group--content{backgroun
   #adam-main .qz-correction-modal__foot{padding:13px 16px calc(15px + env(safe-area-inset-bottom))}
   #adam-main .qz-correction-modal__foot .adam-button{flex:1;justify-content:center}
   #adam-main #quizDetailModal .qdm-actions{grid-template-columns:1fr}
+  #adam-main .qz-revision-draft-callout{align-items:stretch;flex-direction:column}
+  #adam-main .qz-revision-entry{grid-template-columns:42px minmax(0,1fr)}
+  #adam-main .qz-revision-list::before{left:39px}
+  #adam-main .qz-revision-actions{grid-column:2;grid-template-columns:repeat(2,minmax(0,1fr))}
+  #adam-main .qz-revision-actions form:last-child:nth-child(odd),
+  #adam-main .qz-revision-actions>.adam-button:last-child:nth-child(odd){grid-column:1/-1}
+  #adam-main .qz-revision-title-row{align-items:flex-start;flex-direction:column;gap:7px}
   #adam-main #quizDetailModal .qdm-action-group__head{min-height:0}
   #adam-main #quizDetailModal{
     align-items:flex-end;
@@ -2933,6 +3009,10 @@ html.theme-dark #adam-main #quizDetailModal .qdm-action-group--content{backgroun
   #adam-main .qz-shell .qz-metric{min-height:86px}
   #adam-main .qz-shell .qz-metric:last-child:nth-child(odd){grid-column:auto}
   #adam-main .qz-shell .qz-page-head{padding:24px 19px}
+  #adam-main .qz-revision-entry{grid-template-columns:34px minmax(0,1fr);gap:10px}
+  #adam-main .qz-revision-list::before{left:31px}
+  #adam-main .qz-revision-marker span{width:28px;height:28px;border-width:3px}
+  #adam-main .qz-revision-actions{grid-template-columns:1fr}
   #adam-main .qz-shell .qz-support-link-row{grid-template-columns:1fr}
   #adam-main .qz-shell .qz-support-link-row .smallbtn{width:100%}
 }

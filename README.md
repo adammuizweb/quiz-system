@@ -2,7 +2,12 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.13.0`.
+Current release: `1.14.0`.
+
+Quiz `1.14.0` adds a dedicated Revision History workspace with visible draft,
+publish, and restore controls on the Quiz List and Edit Quiz screens. Historical
+revisions are clearly read-only, and restoring one creates a new auditable draft
+instead of rewriting publication history.
 
 Quiz `1.13.0` adds immutable Quiz instrument revisions. Administrators can
 clone the current settings and question bank into a draft, edit it without

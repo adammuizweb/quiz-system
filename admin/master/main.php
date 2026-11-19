@@ -25,6 +25,7 @@ $stmt = $pdo->prepare("SELECT id, title FROM quizzes WHERE id=:id LIMIT 1");
 $stmt->execute([':id'=>$quiz_id]);
 $quiz = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$quiz) { http_response_code(404); exit('Quiz not found'); }
+$quizRevisionMutable = qz_quiz_revision_is_mutable($pdo, $quiz_id);
 
 $csrf = csrf_token();
 $returnTo = $base . '/?page=admin/quiz/master';
@@ -86,6 +87,7 @@ $modal = [
          href="<?= e($base) ?>/?page=admin/quiz/questions&quiz_id=<?= (int)$quiz_id ?>">Question Bank</a>
     </div>
   </header>
+  <?php if (!$quizRevisionMutable): ?><div class="qz-revision-readonly-notice" role="note"><strong>Read-only Master Builder</strong><span>This historical or attempted revision is available for review only. Create or continue a draft from Revision History to edit content.</span></div><?php endif; ?>
 
   <div class="qz-master-mobile-nav" role="group" aria-label="Master Editor view">
     <button type="button" class="is-active" id="btnShowQuestions" aria-pressed="true">Questions <span id="qCountMobile">0</span></button>
@@ -110,8 +112,8 @@ $modal = [
             <input class="input" type="search" id="qSearch" placeholder="Search content, ID, or category...">
           </label>
           <div class="toolbar qz-question-toolbar">
-            <button class="btn small" type="button" id="btnAddQ">+ New Question</button>
-            <button class="btn small secondary" type="button" id="btnBulk">Bulk Import</button>
+            <button class="btn small" type="button" id="btnAddQ"<?= $quizRevisionMutable ? '' : ' disabled' ?>>+ New Question</button>
+            <button class="btn small secondary" type="button" id="btnBulk"<?= $quizRevisionMutable ? '' : ' disabled' ?>>Bulk Import</button>
           </div>
           <p class="muted">Select a question to edit. Drag items to change their order.</p>
         </div>
@@ -413,7 +415,7 @@ $modal = [
           <div class="muted">Create a Passage, then link it to a question using the dropdown.</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn small" id="btnPassageAdd">+ Passage</button>
+          <button class="btn small" id="btnPassageAdd"<?= $quizRevisionMutable ? '' : ' disabled' ?>>+ Passage</button>
           <button class="btn small secondary" id="passageClose">Close</button>
         </div>
       </div>
@@ -538,7 +540,7 @@ $modal = [
           <div class="muted">Categories group Passages and support per-category randomization rules.</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn small" id="btnCategoryAdd">+ Category</button>
+          <button class="btn small" id="btnCategoryAdd"<?= $quizRevisionMutable ? '' : ' disabled' ?>>+ Category</button>
           <button class="btn small secondary" id="categoryClose">Close</button>
         </div>
       </div>
@@ -621,6 +623,7 @@ $modal = [
   window.__QUIZ_MASTER_BUILDER_INIT__ = true;
 
   const QUIZ_ID = <?= (int)$quiz_id ?>;
+  const QUIZ_MUTABLE = <?= $quizRevisionMutable ? 'true' : 'false' ?>;
   const CSRF    = <?= json_encode($csrf) ?>;
   const API     = <?= json_encode($api) ?>;
   const MODAL   = <?= json_encode($modal) ?>;
@@ -1391,7 +1394,7 @@ $modal = [
 
     const hasText = !!(passageText && String(passageText.value || '').trim());
     const isEdit = !!(activeP && Number(activeP.id) > 0);
-    const canMutate = !!(activeP && (!isEdit || activeP.can_mutate === true));
+    const canMutate = QUIZ_MUTABLE && !!(activeP && (!isEdit || activeP.can_mutate === true));
 
     btnPassageSave.disabled = passageSaving || !canMutate || (!isEdit && !hasText);
     btnPassageDelete.disabled = passageSaving || !isEdit || !canMutate;
@@ -1405,7 +1408,7 @@ $modal = [
 
     const nameOk = !!(categoryName && String(categoryName.value || '').trim());
     const isEdit = !!(activeC && Number(activeC.id) > 0);
-    const canMutate = !!(activeC && (!isEdit || activeC.can_mutate === true));
+    const canMutate = QUIZ_MUTABLE && !!(activeC && (!isEdit || activeC.can_mutate === true));
 
     btnCategorySave.disabled = categorySaving || !canMutate || !nameOk;
     btnCategoryDelete.disabled = categorySaving || !isEdit || !canMutate;
@@ -1529,7 +1532,7 @@ $modal = [
   }
 
   function clearCategoryEditor(newMode=false){
-    activeC = newMode ? { id: 0, can_mutate: true } : null;
+    activeC = newMode && QUIZ_MUTABLE ? { id: 0, can_mutate: true } : null;
 
     if (categoryName) categoryName.value = '';
     if (categoryDesc) categoryDesc.value = '';
@@ -1881,7 +1884,7 @@ $modal = [
   }
 
   function clearPassageEditor(newMode=false){
-    activeP = newMode ? { id: 0, can_mutate: true } : null;
+    activeP = newMode && QUIZ_MUTABLE ? { id: 0, can_mutate: true } : null;
 
     if (passageTitle) passageTitle.value = '';
     if (passageText) passageText.value = '';

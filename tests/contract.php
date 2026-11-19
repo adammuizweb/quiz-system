@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.13.0', 'plugin version must be 1.13.0');
+$check(($manifest['version'] ?? null) === '1.14.0', 'plugin version must be 1.14.0');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -125,9 +125,9 @@ foreach ([
     'admin/quiz/master/api/category_delete', 'admin/quiz/master/api/category_order',
 ] as $route) $routePermissions[$route] = 'plugin.quiz.workspace.access';
 foreach ([
-    'admin/quiz/quizzes/add', 'admin/quiz/quizzes/edit', 'admin/quiz/quizzes/delete',
-    'admin/quiz/quizzes/duplicate', 'admin/quiz/quizzes/revise',
-    'admin/quiz/quizzes/publish_revision', 'admin/quiz/quizzes/bulk_status',
+    'admin/quiz/quizzes/add', 'admin/quiz/quizzes/edit', 'admin/quiz/quizzes/revisions',
+    'admin/quiz/quizzes/delete', 'admin/quiz/quizzes/duplicate', 'admin/quiz/quizzes/revise',
+    'admin/quiz/quizzes/publish_revision', 'admin/quiz/quizzes/restore_revision', 'admin/quiz/quizzes/bulk_status',
 ] as $route) $routePermissions[$route] = 'plugin.quiz.quizzes.manage';
 $routePermissions += [
     'admin/quiz' => 'plugin.quiz.dashboard.access',
@@ -889,19 +889,25 @@ $instrumentBackfill = strpos($pluginSource, 'quiz_backfill_instrument_revisions(
 $check($publicPrefixUpgrade !== false && $instrumentBackfill !== false && $publicPrefixUpgrade < $instrumentBackfill,
     'legacy upgrades must add the Quiz public-prefix column before instrument metadata is backfilled');
 $check(str_contains($revisionSource, 'function quiz_create_revision')
+    && str_contains($revisionSource, 'function quiz_restore_revision')
     && str_contains($revisionSource, 'function quiz_publish_revision')
     && str_contains($revisionSource, "VALUES (:instrument_id, :quiz_id, :revision_number, 'draft', NULL")
     && str_contains($revisionSource, "SET state='retired', current_marker=NULL")
     && str_contains($revisionSource, "SET state='current', current_marker=1")
     && str_contains($revisionSource, 'UPDATE quiz_instruments SET current_quiz_id=:quiz_id'),
-    'revision services must create drafts and atomically retire/current the instrument lineage during publication');
+    'revision services must create or restore drafts and atomically retire/current the instrument lineage during publication');
 $check(str_contains($revisionSource, 'INSERT INTO question_categories')
     && str_contains($revisionSource, 'INSERT INTO question_passages')
     && str_contains($revisionSource, 'INSERT INTO questions')
     && str_contains($revisionSource, 'INSERT INTO question_answers')
     && !str_contains($revisionSource, 'INSERT INTO quiz_attempts'),
     'revision cloning must copy the Question bank without copying historical Attempts');
+$check(str_contains($revisionSource, 'int $collaboratorSourceQuizId')
+    && str_contains($revisionSource, "':source_quiz_id' => \$collaboratorSourceQuizId")
+    && substr_count($revisionSource, "(int)\$currentRevision['quiz_id']") >= 2,
+    'restored content must inherit current collaborator assignments without reinstating historical access');
 $check(str_contains($revisionSource, "Published Quiz revisions with Attempts are read-only. Create a new revision.")
+    && str_contains($revisionSource, 'Published Quiz revisions are read-only. Create a new revision.')
     && str_contains($revisionSource, 'Quiz revisions with Attempts cannot be deleted.')
     && str_contains($revisionSource, 'Only a draft Quiz revision can be published.')
     && str_contains($revisionSource, 'The public URL prefix is locked after this Quiz instrument receives an Attempt.'),
@@ -1133,7 +1139,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1183,7 +1189,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1203,7 +1209,7 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.13.0'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
@@ -1227,7 +1233,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1319,7 +1325,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.13.0']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.0']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1347,7 +1353,7 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.13.0'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.0'
     || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
@@ -2439,6 +2445,11 @@ $check(str_contains($initSource, "\$GLOBALS['_plugin_current_route']") && str_co
 $check(str_contains($initSource, "plugin.quiz.content.manage-any") && !str_contains($initSource, "role === 'admin'"), 'cross-owner elevation uses only the explicit manage-any permission');
 $check(str_contains($initSource, 'qz_require_workspace_mutation_access') && str_contains($initSource, "user_can(\$pdo, \$userId, 'plugin.quiz.workspace.access')"), 'mutation workspace reauthorization must fail closed through Core user_can');
 $check(str_contains($initSource, 'qz_lock_quiz_for_owner_mutation') && str_contains($initSource, 'Only the quiz owner may perform this action.'), 'owner-level destructive actions remain unavailable to collaborators');
+$check(str_contains($initSource, 'qz_lock_quiz_for_instrument_mutation')
+    && str_contains($initSource, "revision['instrument_created_by']")
+    && str_contains($initSource, "qz_user_can(\$pdo, \$userId, 'plugin.quiz.quizzes.manage')")
+    && str_contains($initSource, 'Only the Quiz instrument owner may perform this action.'),
+    'revision actions must authorize the stable instrument owner rather than a cloned Quiz row owner');
 $check(str_contains($initSource, "['plugin.quiz.attempts.operate', 'plugin.quiz.attempts.delete', 'plugin.quiz.attempt-responses.correct']")
     && str_contains($initSource, 'qz_user_can($pdo, $userId, $permission)'),
     'attempt mutations must explicitly allowlist and transactionally reauthorize operate, delete, or response correction');
@@ -2546,8 +2557,12 @@ $sensitiveGuards = [
     'admin/quizzes/collaborators.php' => 'plugin.quiz.content.manage-any',
     'admin/quizzes/add.php' => 'plugin.quiz.quizzes.manage',
     'admin/quizzes/edit.php' => 'plugin.quiz.quizzes.manage',
+    'admin/quizzes/revisions.php' => 'plugin.quiz.quizzes.manage',
     'admin/quizzes/delete.php' => 'plugin.quiz.quizzes.manage',
     'admin/quizzes/duplicate.php' => 'plugin.quiz.quizzes.manage',
+    'admin/quizzes/revise.php' => 'plugin.quiz.quizzes.manage',
+    'admin/quizzes/publish_revision.php' => 'plugin.quiz.quizzes.manage',
+    'admin/quizzes/restore_revision.php' => 'plugin.quiz.quizzes.manage',
     'admin/quizzes/bulk_status.php' => 'plugin.quiz.quizzes.manage',
     'admin/student/attempts/index.php' => 'plugin.quiz.attempts.view',
     'admin/student/attempts/view.php' => 'plugin.quiz.attempts.view',
@@ -2692,6 +2707,8 @@ $check(str_contains($duplicateSource, '$catMap[$oldCategory]'), 'quiz duplicatio
 $check(str_contains($duplicateSource, "':created_by' => \$uid") && !str_contains($duplicateSource, "':created_by' => (int)\$srcQuiz['created_by']"), 'duplicated quizzes must belong to the actor');
 $check(str_contains($duplicateSource, 'qz_lock_quiz_for_workspace_mutation'), 'duplication must lock and re-authorize the source quiz');
 $quizEditSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/edit.php');
+$quizRevisionsSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/revisions.php');
+$quizRestoreSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/restore_revision.php');
 $quizDeleteSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/delete.php');
 $quizAddSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/add.php');
 $check(str_contains($quizAddSource, 'name="result_visibility"')
@@ -2727,6 +2744,52 @@ $check(str_contains($quizAddSource, 'qz-editor-page qz-quiz-editor')
     && str_contains($quizEditSource, 'class="small-hint qz-student-form-name">Use global/default behavior'),
     'Quiz add and edit pages must retain route-scoped desktop and mobile gutters while section guidance stays inside the padded form grid');
 $check(str_contains($quizDeleteSource, 'qz_lock_quiz_for_owner_mutation'), 'quiz deletion remains owner-or-manage-any only');
+$check(str_contains($quizIndex, 'Revision History') && str_contains($quizIndex, 'Create Draft')
+    && str_contains($quizEditSource, 'Revision History') && str_contains($quizEditSource, 'Restore as Draft')
+    && str_contains($quizRevisionsSource, 'Publication Ledger') && str_contains($quizRevisionsSource, 'Restore as Draft'),
+    'Quiz List, Edit Quiz, and Revision History must expose visible revision management controls');
+$check(str_contains($quizIndex, 'Historical or attempted revisions are read-only')
+    && str_contains($adminJs, "filter(function(item){ return !item.disabled; })"),
+    'bulk status selection must exclude immutable historical or attempted revisions');
+$check(str_contains($quizEditSource, 'qz-revision-form-lock') && str_contains($quizEditSource, "revisionState === 'retired'")
+    && str_contains($quizRevisionsSource, 'Published revisions remain immutable'),
+    'historical Quiz revisions must be visibly read-only in administration');
+$check(str_contains($quizEditSource, 'expected_revision_state')
+    && str_contains($quizEditSource, 'expected_revision_number')
+    && str_contains($quizEditSource, 'expected_edit_token')
+    && str_contains($quizEditSource, '$editRevisionToken($lockedQuiz, $lockedRevision)')
+    && strpos($quizEditSource, 'expected_revision_state') < strpos($quizEditSource, 'UPDATE quizzes'),
+    'Quiz edit must reject stale publication state and concurrent settings updates under lock');
+$check(str_contains($quizRevisionsSource, "selectedRevision['instrument_created_by']")
+    && str_contains($quizRevisionsSource, 'Only the Quiz instrument owner may view its revision history.'),
+    'Revision History must authorize the stable instrument before exposing its complete lineage');
+$check(str_contains($quizRestoreSource, "REQUEST_METHOD'] ?? '') !== 'POST'")
+    && str_contains($quizRestoreSource, 'csrf_check(')
+    && strpos($quizRestoreSource, 'beginTransaction()') < strpos($quizRestoreSource, 'qz_lock_quiz_for_instrument_mutation(')
+    && str_contains($quizRestoreSource, 'quiz_restore_revision('),
+    'revision restore must use POST, CSRF, transactional owner authorization, and the immutable restore service');
+$masterMainSource = (string)file_get_contents($pluginRoot . '/admin/master/main.php');
+$questionListSource = (string)file_get_contents($pluginRoot . '/admin/questions/index.php');
+$check(str_contains($initSource, 'function qz_quiz_revision_is_mutable')
+    && str_contains($initSource, "(string)\$revision['state'] === 'retired'")
+    && str_contains($initSource, 'FROM quiz_attempts WHERE quiz_id=:quiz_id LIMIT 1')
+    && str_contains($initSource, 'qz_quiz_revision_is_mutable($pdo, (int)($quiz[\'id\'] ?? 0))'),
+    'resource mutation metadata must treat retired and attempted Quiz revisions as read-only');
+$check(str_contains($masterMainSource, 'Read-only Master Builder')
+    && str_contains($masterMainSource, 'const QUIZ_MUTABLE =')
+    && str_contains($masterMainSource, 'const canMutate = QUIZ_MUTABLE')
+    && str_contains($masterMainSource, "id=\"btnAddQ\"<?= \$quizRevisionMutable ? '' : ' disabled' ?>")
+    && str_contains($questionListSource, 'Read-only question bank')
+    && str_contains($questionListSource, 'This Quiz revision is read-only.'),
+    'Master Builder and Question Bank must visibly disable creation for immutable revisions');
+$masterIndexSource = (string)file_get_contents($pluginRoot . '/admin/master/index.php');
+$check(str_contains($masterIndexSource, 'revision.state AS revision_state')
+    && str_contains($masterIndexSource, "revision_number'] === 1")
+    && str_contains($masterIndexSource, "' disabled'"),
+    'Master Builder chooser must exclude immutable revisions from bulk status selection');
+$check(str_contains($quizIndex, "'can_manage_revisions' => \$user['can_manage_quizzes'] && \$ownsInstrument")
+    && str_contains($adminJs, 'd.can_manage_revisions'),
+    'Quiz detail modal must expose Revision History only to the instrument owner or manage-any actor');
 foreach ([
     'quiz edit' => [$quizEditSource, 'qz_lock_quiz_for_workspace_mutation('],
     'quiz delete' => [$quizDeleteSource, 'qz_lock_quiz_for_owner_mutation('],

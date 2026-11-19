@@ -3,14 +3,21 @@ declare(strict_types=1);
 
 $pluginRoot = dirname(__DIR__);
 $bootstrap = trim((string)getenv('QUIZ_TEST_BOOTSTRAP'));
-if ($bootstrap === '' || !is_file($bootstrap)) {
-    fwrite(STDERR, "Set QUIZ_TEST_BOOTSTRAP to a trusted local bootstrap that provides a MySQL PDO connection.\n");
-    exit(2);
+if ($bootstrap !== '' && is_file($bootstrap)) {
+    require $bootstrap;
+} else {
+    $dsn = trim((string)getenv('QUIZ_TEST_DSN'));
+    if ($dsn === '') {
+        fwrite(STDERR, "Set QUIZ_TEST_BOOTSTRAP or QUIZ_TEST_DSN for a disposable MySQL integration connection.\n");
+        exit(2);
+    }
+    $pdo = new PDO($dsn, (string)getenv('QUIZ_TEST_DB_USER'), (string)getenv('QUIZ_TEST_DB_PASS'), [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
 }
-
-require $bootstrap;
 if (!isset($pdo) || !$pdo instanceof PDO || $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'mysql') {
-    fwrite(STDERR, "QUIZ_TEST_BOOTSTRAP must provide a MySQL PDO connection.\n");
+    fwrite(STDERR, "Quiz versioning integration requires a MySQL PDO connection.\n");
     exit(2);
 }
 
@@ -30,7 +37,7 @@ try {
     if (!is_string($schema) || trim($schema) === '' || $pdo->exec($schema) === false) {
         throw new RuntimeException('Quiz schema could not be installed.');
     }
-    $pdo->exec("INSERT INTO users (id, name) VALUES (1, 'Owner')");
+    $pdo->exec("INSERT INTO users (id, name) VALUES (1, 'Owner'), (2, 'Former Collaborator'), (3, 'Current Collaborator')");
     $pdo->exec('DROP TABLE quiz_instrument_revisions');
     $pdo->exec('DROP TABLE quiz_instruments');
     $pdo->exec("INSERT INTO quizzes (id, title, created_by, is_active, questions_per_attempt)
@@ -51,6 +58,7 @@ try {
     $questionId = (int)$pdo->lastInsertId();
     $pdo->exec("INSERT INTO question_answers (question_id, answer_text, score, sort_order, is_active)
         VALUES ({$questionId}, 'Answer', 1, 1, 1)");
+    $pdo->exec("INSERT INTO quiz_collaborators (quiz_id, user_id, assigned_by) VALUES (10, 2, 1)");
 
     require_once $pluginRoot . '/plugin.php';
     quiz_upgrade_schema($pdo);
@@ -94,7 +102,69 @@ try {
         'Historical Attempt must remain on its original revision.');
 
     $pdo->beginTransaction();
-    $currentRevision = quiz_revision_for_quiz($pdo, $draftQuizId, true);
+    $publishedMutationRejected = false;
+    try {
+        quiz_assert_revision_mutable($pdo, $draftQuizId);
+    } catch (RuntimeException) {
+        $publishedMutationRejected = true;
+    }
+    $pdo->rollBack();
+    $assert($publishedMutationRejected, 'Published Revision 2 must be immutable before its first Attempt.');
+
+    $pdo->exec("UPDATE quizzes SET title='Revision 2', duration_minutes=45 WHERE id={$draftQuizId}");
+    $pdo->exec("UPDATE questions SET question_text='Revision 2 Question?' WHERE quiz_id={$draftQuizId}");
+    $pdo->exec("DELETE FROM quiz_collaborators WHERE quiz_id={$draftQuizId} AND user_id=2");
+    $pdo->exec("INSERT INTO quiz_collaborators (quiz_id, user_id, assigned_by) VALUES ({$draftQuizId}, 3, 1)");
+
+    $pdo->beginTransaction();
+    $restored = quiz_restore_revision($pdo, 10, 1);
+    $pdo->commit();
+    $restoredQuizId = (int)$restored['quiz_id'];
+    $assert((int)$restored['revision_number'] === 3, 'Restoring Revision 1 must create Revision 3.');
+    $assert((int)$pdo->query("SELECT supersedes_quiz_id FROM quiz_instrument_revisions WHERE quiz_id={$restoredQuizId}")->fetchColumn() === $draftQuizId,
+        'Restored draft must supersede the instrument current Quiz.');
+    $assert((string)$pdo->query("SELECT state FROM quiz_instrument_revisions WHERE quiz_id={$restoredQuizId}")->fetchColumn() === 'draft',
+        'Restored revision must remain a draft until publication.');
+    $assert((int)$pdo->query("SELECT current_quiz_id FROM quiz_instruments WHERE id={$instrumentId}")->fetchColumn() === $draftQuizId,
+        'Restore must preserve the instrument current pointer.');
+    $assert((string)$pdo->query('SELECT state FROM quiz_instrument_revisions WHERE quiz_id=10')->fetchColumn() === 'retired',
+        'Restore must not modify the retired source revision.');
+    $assert((string)$pdo->query("SELECT state FROM quiz_instrument_revisions WHERE quiz_id={$draftQuizId}")->fetchColumn() === 'current',
+        'Restore must not modify the current revision.');
+    $restoredQuiz = $pdo->query("SELECT title, duration_minutes FROM quizzes WHERE id={$restoredQuizId}")->fetch(PDO::FETCH_ASSOC);
+    $assert(is_array($restoredQuiz) && (string)$restoredQuiz['title'] === 'Versioned Quiz'
+        && $restoredQuiz['duration_minutes'] === null,
+        'Restored draft must clone Revision 1 settings rather than current settings.');
+    $assert((string)$pdo->query("SELECT question_text FROM questions WHERE quiz_id={$restoredQuizId}")->fetchColumn() === 'Question?',
+        'Restored draft must clone the selected Question bank.');
+    $assert((int)$pdo->query("SELECT COUNT(*) FROM quiz_collaborators WHERE quiz_id={$restoredQuizId} AND user_id=2")->fetchColumn() === 0
+        && (int)$pdo->query("SELECT COUNT(*) FROM quiz_collaborators WHERE quiz_id={$restoredQuizId} AND user_id=3")->fetchColumn() === 1,
+        'Restored draft must preserve current access assignments without reinstating historical collaborators.');
+
+    $pdo->beginTransaction();
+    $secondDraftRejected = false;
+    try {
+        quiz_restore_revision($pdo, 10, 1);
+    } catch (RuntimeException) {
+        $secondDraftRejected = true;
+    }
+    $pdo->rollBack();
+    $assert($secondDraftRejected, 'Restore must reject an instrument that already has a draft.');
+
+    $pdo->beginTransaction();
+    $restoredPublished = quiz_publish_revision($pdo, $restoredQuizId, 1);
+    $pdo->commit();
+    $assert((int)$restoredPublished['retired_quiz_id'] === $draftQuizId,
+        'Publishing a restored revision must retire Revision 2.');
+    $assert((int)$pdo->query("SELECT current_quiz_id FROM quiz_instruments WHERE id={$instrumentId}")->fetchColumn() === $restoredQuizId,
+        'Instrument must point to published Revision 3.');
+    $assert((string)$pdo->query("SELECT state FROM quiz_instrument_revisions WHERE quiz_id={$draftQuizId}")->fetchColumn() === 'retired',
+        'Revision 2 must be retired after restored Revision 3 is published.');
+    $assert((string)$pdo->query("SELECT state FROM quiz_instrument_revisions WHERE quiz_id={$restoredQuizId}")->fetchColumn() === 'current',
+        'Published restored Revision 3 must become current.');
+
+    $pdo->beginTransaction();
+    $currentRevision = quiz_revision_for_quiz($pdo, $restoredQuizId, true);
     $prefixLocked = false;
     try {
         quiz_assert_instrument_prefix_mutable($pdo, $currentRevision ?? [], 'renamed-prefix');
@@ -105,7 +175,7 @@ try {
     $assert($prefixLocked, 'Stable prefix must lock after any instrument revision receives an Attempt.');
 
     $pdo->beginTransaction();
-    quiz_lock_current_revision_for_attempt($pdo, $draftQuizId);
+    quiz_lock_current_revision_for_attempt($pdo, $restoredQuizId);
     $pdo->rollBack();
     $pdo->beginTransaction();
     $historicalRejected = false;

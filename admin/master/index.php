@@ -51,7 +51,12 @@ if ($quiz_id <= 0) {
   $pageNum = min($pageNum, $totalPages);
   $offset = ($pageNum - 1) * $perPage;
 
-  $sql = "SELECT q.id, q.title, q.description, q.is_primary, q.is_active FROM quizzes q{$whereSql} ORDER BY q.is_primary DESC, q.id DESC LIMIT {$perPage} OFFSET {$offset}";
+  $sql = "SELECT q.id, q.title, q.description, q.is_primary, q.is_active,
+      revision.state AS revision_state, revision.revision_number,
+      (SELECT COUNT(*) FROM quiz_attempts attempt WHERE attempt.quiz_id=q.id) AS attempt_count
+    FROM quizzes q
+    JOIN quiz_instrument_revisions revision ON revision.quiz_id=q.id
+    {$whereSql} ORDER BY q.is_primary DESC, q.id DESC LIMIT {$perPage} OFFSET {$offset}";
   $stmt = $pdo->prepare($sql);
   $stmt->execute($params);
   $quizzes = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
@@ -138,9 +143,10 @@ if ($quiz_id <= 0) {
           <button class="adam-button" type="submit" data-bulk-submit disabled>Apply</button>
         </div><?php endif; ?>
         <div class="quiz-pick-grid">
-          <?php foreach ($quizzes as $quiz): ?>
+            <?php foreach ($quizzes as $quiz): $isMutable = (string)$quiz['revision_state'] === 'current'
+              && (int)$quiz['revision_number'] === 1 && (int)$quiz['attempt_count'] === 0; ?>
             <article class="quiz-pick-card qz-select-card">
-              <?php if ($user['can_manage_quizzes']): ?><label class="qz-card-select"><input type="checkbox" name="ids[]" value="<?= (int)$quiz['id'] ?>" data-bulk-item> Select</label><?php endif; ?>
+              <?php if ($user['can_manage_quizzes']): ?><label class="qz-card-select"><input type="checkbox" name="ids[]" value="<?= (int)$quiz['id'] ?>" data-bulk-item<?= $isMutable ? '' : ' disabled' ?>> <?= $isMutable ? 'Select' : 'Read only' ?></label><?php endif; ?>
               <a class="quiz-pick-link" href="<?=h($base)?>/?page=<?=$pluginPage?>&quiz_id=<?=(int)$quiz['id']?>&return=<?= rawurlencode($redirectBack) ?>">
                 <div class="quiz-pick-title"><?=h($quiz['title'])?></div>
                 <?php if (!empty($quiz['description'])): ?><div class="quiz-pick-desc"><?= h(mb_strimwidth((string)$quiz['description'], 0, 120, '…', 'UTF-8')) ?></div><?php endif; ?>

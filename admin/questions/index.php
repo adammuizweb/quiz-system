@@ -45,6 +45,7 @@ $quiz = $st->fetch(\PDO::FETCH_ASSOC);
 if (!$quiz) { echo '<p>Quiz not found.</p>'; return; }
 $user = qz_admin_user($pdo);
 $canViewAllContentMetadata = $user['can_manage_any'] || (int)$quiz['created_by'] === (int)$user['id'];
+$quizRevisionMutable = qz_quiz_revision_is_mutable($pdo, $quiz_id);
 
 $on = trim((string)($quiz['owner_name'] ?? ''));
 $oe = trim((string)($quiz['owner_email'] ?? ''));
@@ -56,13 +57,16 @@ $masterUrl = "$base/?page=admin/quiz/master&quiz_id=$quiz_id";
 
 $do = trim((string)($_POST['do'] ?? $_GET['do'] ?? ''));
 $isNewQuestion = $do === 'add';
+if ($isNewQuestion && !$quizRevisionMutable) {
+  quiz_redirect($listUrl . '&err=' . urlencode('This Quiz revision is read-only. Create or continue a draft to add Questions.'));
+}
 $editResource = null;
-$canEditQuestion = $isNewQuestion;
+$canEditQuestion = $isNewQuestion && $quizRevisionMutable;
 if ($do === 'edit') {
   $editId = (int)($_GET['id'] ?? 0);
   if ($editId <= 0) { http_response_code(400); exit('Missing ID.'); }
   $editResource = qz_require_question_access($pdo, $quiz_id, $editId);
-  $canEditQuestion = qz_can_mutate_resource($pdo, (int)$user['id'], $quiz, $editResource);
+  $canEditQuestion = $quizRevisionMutable && qz_can_mutate_resource($pdo, (int)$user['id'], $quiz, $editResource);
   if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$canEditQuestion) { http_response_code(403); exit('Question is read-only.'); }
 }
 
@@ -423,14 +427,16 @@ $hasFilters = $search !== '' || $typeFilter !== '' || $statusFilter !== '' || $c
     <div class="qz-page-head__copy">
       <div class="qz-kicker qz-eyebrow">Question bank</div>
       <h1 class="qz-page-title"><?=h($quiz['title'])?></h1>
-      <p class="qz-meta qz-page-description">Manage questions, answers, statuses, and contributors <span class="dot">•</span> <strong>Quiz ID: <?=$quiz_id?></strong> <span class="dot">•</span> <?=$ownerLine?></p>
+      <p class="qz-meta qz-page-description"><?= $quizRevisionMutable ? 'Manage' : 'Review' ?> questions, answers, statuses, and contributors <span class="dot">•</span> <strong>Quiz ID: <?=$quiz_id?></strong> <span class="dot">•</span> <?=$ownerLine?></p>
     </div>
     <div class="qz-toolbar qz-page-actions">
-      <a class="adam-button" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=add&quiz_id=<?=$quiz_id?>">+ Add Question</a>
-      <a class="adam-button ghost" href="<?=h($masterUrl)?>">Open Master Builder</a>
+      <?php if ($quizRevisionMutable): ?><a class="adam-button" href="<?=h($base)?>/?page=<?=$pluginPage?>&do=add&quiz_id=<?=$quiz_id?>">+ Add Question</a><?php endif; ?>
+      <a class="adam-button ghost" href="<?=h($masterUrl)?>"><?= $quizRevisionMutable ? 'Open Master Builder' : 'View Master Builder' ?></a>
       <a class="adam-button ghost" href="<?=h($base)?>/?page=admin/quiz/quizzes">Quiz List</a>
     </div>
   </header>
+
+  <?php if (!$quizRevisionMutable): ?><div class="qz-revision-readonly-notice" role="note"><strong>Read-only question bank</strong><span>This historical or attempted revision cannot be changed. Create or continue a draft from Revision History to edit content.</span></div><?php endif; ?>
 
   <div class="qz-stats qz-metric-grid" aria-label="Question bank summary">
     <div class="qz-stat qz-metric"><span>Total Questions</span><strong><?=(int)($stats['total']??0)?></strong></div>
@@ -453,7 +459,7 @@ $hasFilters = $search !== '' || $typeFilter !== '' || $statusFilter !== '' || $c
     <div class="qz-filterbar__actions qz-form-actions"><button class="adam-button" type="submit">Apply</button><?php if($hasFilters):?><a class="adam-button ghost" href="<?=h($listUrl)?>">Reset</a><?php endif;?></div>
   </form>
 
-  <form id="question-bulk-form" class="qz-bulkbar qz-question-bulkbar" method="post" action="<?=h($base)?>/?page=admin/quiz/questions/bulk" data-question-bulk-form>
+  <?php if ($quizRevisionMutable): ?><form id="question-bulk-form" class="qz-bulkbar qz-question-bulkbar" method="post" action="<?=h($base)?>/?page=admin/quiz/questions/bulk" data-question-bulk-form>
     <input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>">
     <input type="hidden" name="quiz_id" value="<?=$quiz_id?>">
     <input type="hidden" name="q" value="<?=h($search)?>">
@@ -472,7 +478,7 @@ $hasFilters = $search !== '' || $typeFilter !== '' || $statusFilter !== '' || $c
       <option value="delete">Delete</option>
     </select>
     <button class="adam-button" type="submit" data-question-bulk-submit disabled>Apply</button>
-  </form>
+  </form><?php endif; ?>
 
   <section class="qz-section qz-question-results" aria-labelledby="question-results-title">
   <div class="qz-resultbar qz-section__head">
@@ -491,9 +497,9 @@ $hasFilters = $search !== '' || $typeFilter !== '' || $statusFilter !== '' || $c
       <th width="64">Actions</th>
     </tr></thead>
     <tbody>
-    <?php if (!$questions): ?><tr><td colspan="6" class="qz-empty-cell"><div class="qz-empty-state"><strong><?=$hasFilters?'No matching questions':'No questions yet'?></strong><div><?=$hasFilters?'Change or reset the filters to see other questions.':'Add the first question to start building this quiz question bank.'?></div><a class="adam-button <?=$hasFilters?'ghost':''?>" href="<?=h($hasFilters?$listUrl:$base.'/?page='.$pluginPage.'&do=add&quiz_id='.$quiz_id)?>"><?=$hasFilters?'Reset filters':'Add Question'?></a></div></td></tr>
+    <?php if (!$questions): ?><tr><td colspan="6" class="qz-empty-cell"><div class="qz-empty-state"><strong><?=$hasFilters?'No matching questions':'No questions yet'?></strong><div><?=$hasFilters?'Change or reset the filters to see other questions.':($quizRevisionMutable?'Add the first question to start building this quiz question bank.':'This read-only revision has no Questions.')?></div><?php if($hasFilters||$quizRevisionMutable):?><a class="adam-button <?=$hasFilters?'ghost':''?>" href="<?=h($hasFilters?$listUrl:$base.'/?page='.$pluginPage.'&do=add&quiz_id='.$quiz_id)?>"><?=$hasFilters?'Reset filters':'Add Question'?></a><?php endif;?></div></td></tr>
     <?php else: foreach ($questions as $qq):
-      $canMutate = qz_can_mutate_resource($pdo, (int)$user['id'], $quiz, $qq);
+      $canMutate = $quizRevisionMutable && qz_can_mutate_resource($pdo, (int)$user['id'], $quiz, $qq);
       $canShowContext = $canViewAllContentMetadata || $canMutate;
       $excerpt = qz_plain_excerpt((string)($qq['question_text']??''),200);
       $metadata = [];

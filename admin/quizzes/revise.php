@@ -18,8 +18,8 @@ try {
   if (!qz_user_can($pdo, (int)$user['id'], 'plugin.quiz.quizzes.manage')) {
     throw new RuntimeException('Quiz management permission is no longer valid.');
   }
-  qz_lock_quiz_for_owner_mutation($pdo, $quizId, (int)$user['id'], false);
-  $revision = quiz_create_revision($pdo, $quizId, (int)$user['id'], (bool)$user['can_manage_any']);
+  qz_lock_quiz_for_instrument_mutation($pdo, $quizId, (int)$user['id']);
+  $revision = quiz_create_revision($pdo, $quizId, (int)$user['id'], qz_can_manage_any($pdo, (int)$user['id']));
   $pdo->commit();
   qz_redirect($base . '/?page=admin/quiz/master&quiz_id=' . (int)$revision['quiz_id']
     . '&msg=' . urlencode('Draft Revision ' . (int)$revision['revision_number'] . ' created.'));
