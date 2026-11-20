@@ -294,7 +294,10 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         && ($revisionState === 'draft' || ($revisionState === 'current' && (int)($qz['revision_count'] ?? 0) === 1));
       $isRowMutable = $revisionState === 'current'
         && $revisionNumber === 1 && (int)($qz['attempt_count'] ?? 0) === 0;
-      $canEditSettings = $revisionState === 'draft' || $isRowMutable;
+      $settingsEditScope = $revisionState === 'retired'
+        ? 'none'
+        : (($revisionState === 'draft' || $isRowMutable) ? 'full' : 'live');
+      $canEditSettings = $settingsEditScope !== 'none';
 
       $quizJson = h((string)json_encode([
         'id' => $qid,
@@ -309,6 +312,7 @@ $hasFilters = $q !== '' || $status !== '' || $primary !== '';
         'can_manage_quizzes' => $user['can_manage_quizzes'],
         'can_manage_revisions' => $user['can_manage_quizzes'] && $ownsInstrument,
         'can_edit_settings' => $canEditSettings,
+        'settings_edit_scope' => $settingsEditScope,
         'can_delete' => $canDelete,
         'can_revise' => $user['can_manage_quizzes'] && $ownsInstrument && $revisionState === 'current' && (int)($qz['draft_count'] ?? 0) === 0,
         'can_publish_revision' => $user['can_manage_quizzes'] && $ownsInstrument && $revisionState === 'draft',

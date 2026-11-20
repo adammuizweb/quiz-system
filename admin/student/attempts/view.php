@@ -43,7 +43,8 @@ $otpColumns = $user['can_view_attempt_otp']
   : 'NULL AS email_verification_code, NULL AS otp_email_sent_at, NULL AS otp_wa_sent_at,';
 $stmt = $pdo->prepare("
   SELECT
-    a.id, a.attempt_alias, a.nomor_test, a.status, a.delivery_mode,
+    a.id, a.attempt_alias, a.quiz_id, a.nomor_test, a.status, a.delivery_mode,
+    a.live_setting_change_baseline_id,
     a.identity_locked, a.contact_name, a.contact_email, a.contact_phone,
     a.email_verified_at, a.verified_via, a.reset_count,
     a.created_at, a.started_at, a.submitted_at, a.elapsed_seconds, a.last_activity_at,
@@ -67,6 +68,36 @@ $alias = (string)($A['attempt_alias'] ?? '');
 $attemptLabel = $alias !== '' ? $alias : '#' . $attempt_id;
 $manualVerificationEligible = in_array((string)($A['status'] ?? ''), ['registered', 'verified'], true)
   && empty($A['started_at']) && empty($A['submitted_at']);
+$liveSettingChanges = [];
+$changedLiveSettingLabels = [];
+$liveSettingChange = $pdo->prepare('SELECT change_log.changed_fields, change_log.changed_at,
+    change_log.changed_by, actor.name AS actor_name
+  FROM quiz_live_setting_changes change_log
+  LEFT JOIN users actor ON actor.id=change_log.changed_by
+  WHERE change_log.quiz_id=:quiz_id AND change_log.id>:baseline_id
+  ORDER BY change_log.changed_at DESC, change_log.id DESC
+  LIMIT 101');
+$liveSettingChange->execute([
+  ':quiz_id' => (int)$A['quiz_id'],
+  ':baseline_id' => (int)$A['live_setting_change_baseline_id'],
+]);
+$liveSettingChanges = $liveSettingChange->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$liveSettingChangesTruncated = count($liveSettingChanges) > 100;
+if ($liveSettingChangesTruncated) $liveSettingChanges = array_slice($liveSettingChanges, 0, 100);
+$liveSettingLabels = quiz_live_setting_labels();
+foreach ($liveSettingChanges as $change) {
+  try {
+    $fields = json_decode((string)($change['changed_fields'] ?? ''), true, 16, JSON_THROW_ON_ERROR);
+  } catch (Throwable) {
+    $fields = [];
+  }
+  if (!is_array($fields)) continue;
+  foreach ($fields as $field) {
+    if (is_string($field) && isset($liveSettingLabels[$field])) {
+      $changedLiveSettingLabels[$field] = $liveSettingLabels[$field];
+    }
+  }
+}
 
 /* =========================
    Identity (source of truth)
@@ -340,6 +371,15 @@ $showAttemptOperations = $user['can_operate_attempts'] || $user['can_delete_atte
   <?php if ($errors): ?>
     <div class="adam-alert error">
       <?php foreach ($errors as $e): ?><div><?= h($e) ?></div><?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+  <?php if ($liveSettingChanges):
+    $latestLiveChange = $liveSettingChanges[0];
+    $latestLiveActor = trim((string)($latestLiveChange['actor_name'] ?? ''));
+  ?>
+    <div class="qz-revision-readonly-notice" role="note">
+      <strong>Live Quiz settings changed</strong>
+      <span>Per-Quiz Overrides or Student Results changed after this Attempt was created. <?= $liveSettingChangesTruncated ? 'Recent affected settings' : 'Affected settings' ?>: <?= h($changedLiveSettingLabels ? implode(', ', $changedLiveSettingLabels) : 'live settings') ?>. Latest change: <?= h((string)$latestLiveChange['changed_at']) ?><?= $latestLiveActor !== '' ? ' by ' . h($latestLiveActor) : '' ?>.<?= $liveSettingChangesTruncated ? ' More than 100 audited changes exist; the field list covers the latest 100.' : '' ?> These settings may affect subsequent verification steps, proctoring, appearance, or participant result access without revoking completed verification or changing the Attempt's Question and score snapshots.</span>
     </div>
   <?php endif; ?>
 

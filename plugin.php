@@ -140,6 +140,20 @@ function quiz_upgrade_schema(\PDO $pdo): void {
       CONSTRAINT fk_quiz_instrument_revisions_owner FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS quiz_live_setting_changes (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      quiz_id INT UNSIGNED NOT NULL,
+      changed_by INT UNSIGNED NULL,
+      changed_fields VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      before_values VARCHAR(1024) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      after_values VARCHAR(1024) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      changed_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+      KEY idx_quiz_live_setting_changes_quiz (quiz_id, changed_at, id),
+      KEY idx_quiz_live_setting_changes_actor (changed_by),
+      CONSTRAINT fk_quiz_live_setting_changes_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes (id) ON DELETE CASCADE,
+      CONSTRAINT fk_quiz_live_setting_changes_actor FOREIGN KEY (changed_by) REFERENCES users (id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
     $column = $pdo->prepare(
         "SELECT COUNT(*) FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quiz_attempts' AND COLUMN_NAME = 'delivery_mode'"
@@ -209,6 +223,7 @@ function quiz_upgrade_schema(\PDO $pdo): void {
     $addColumn('quizzes', 'result_visibility', "ENUM('hidden','summary','categories') NOT NULL DEFAULT 'hidden' AFTER allow_mark_for_review");
     quiz_backfill_instrument_revisions($pdo);
     $addColumn('quiz_attempts', 'elapsed_seconds', 'INT UNSIGNED NULL AFTER submitted_at');
+    $addColumn('quiz_attempts', 'live_setting_change_baseline_id', 'BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER delivery_mode');
     $addColumn('attempt_questions', 'marked_for_review', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER seq');
     $addColumn('attempt_questions', 'marked_at', 'DATETIME NULL AFTER marked_for_review');
     $addColumn('attempt_questions', 'available_score_snapshot', 'INT UNSIGNED NULL AFTER marked_at');
@@ -439,7 +454,7 @@ function quiz_backfill_attempt_question_snapshots(\PDO $pdo, ?callable $snapshot
 // --- Idempotent schema installation on Quiz requests ---
 function quiz_install_schema(\PDO $pdo): bool {
     try {
-        $schemaRevision = '20261118-quiz-instrument-revisions';
+        $schemaRevision = '20261120-quiz-live-settings-audit';
         $manifest = plugin_manifest('quiz');
         $version = is_array($manifest) && is_string($manifest['version'] ?? null)
             ? $manifest['version']
@@ -485,7 +500,7 @@ function quiz_schema_is_ready(\PDO $pdo): bool {
     $version = is_array($manifest) ? (string)($manifest['version'] ?? '') : '';
     return $version !== ''
         && settings_get($pdo, 'quiz_test_version', '') === $version
-        && settings_get($pdo, 'quiz_schema_revision', '') === '20261118-quiz-instrument-revisions';
+        && settings_get($pdo, 'quiz_schema_revision', '') === '20261120-quiz-live-settings-audit';
 }
 
 // Shared helpers are required before public routes are registered.
@@ -647,8 +662,8 @@ add_action('admin_head', function (): void {
     if (!quiz_is_admin_request()) return;
     $cssHash = hash_file('sha256', __DIR__ . '/assets/admin.css');
     $jsHash = hash_file('sha256', __DIR__ . '/assets/admin.js');
-    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.14.1';
-    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.14.1';
+    $cssVersion = is_string($cssHash) ? substr($cssHash, 0, 12) : '1.14.2';
+    $jsVersion = is_string($jsHash) ? substr($jsHash, 0, 12) : '1.14.2';
     echo '<link rel="stylesheet" href="/static/plugins/quiz/admin.css?v=' . $cssVersion . '">' . PHP_EOL;
     echo '<script src="/static/plugins/quiz/admin.js?v=' . $jsVersion . '" defer></script>' . PHP_EOL;
 });
@@ -728,6 +743,7 @@ add_action('plugin_uninstall', function(string $name): void {
         'question_categories',
         'quiz_attempts',
         'quiz_collaborators',
+        'quiz_live_setting_changes',
         'quiz_instrument_revisions',
         'quiz_instruments',
         'quiz_operation_locks',

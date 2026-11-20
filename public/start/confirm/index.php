@@ -430,6 +430,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!$postErrors) try {
     $pdo->beginTransaction();
 
+    // Live verification policy is authoritative at POST time, not page-render time.
+    $policyLock = $pdo->prepare('SELECT verification_required_override FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+    $policyLock->execute([':id' => $quiz_id]);
+    $lockedVerificationOverride = $policyLock->fetchColumn();
+    if ($lockedVerificationOverride === false) throw new RuntimeException('Quiz settings are unavailable.');
+    $verificationRequired = $lockedVerificationOverride === null
+      ? true
+      : (int)$lockedVerificationOverride === 1;
+    $liveSettingBaseline = $pdo->prepare('SELECT COALESCE(MAX(id),0) FROM quiz_live_setting_changes WHERE quiz_id=:quiz_id');
+    $liveSettingBaseline->execute([':quiz_id' => $quiz_id]);
+    $liveSettingChangeBaselineId = (int)$liveSettingBaseline->fetchColumn();
+
     // lock row (re-check)
     $A = null;
     if ($attempt) {
@@ -646,7 +658,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
            identity_locked, contact_name, contact_email, contact_phone,
            token_hash, user_agent_hash,
            email_verification_code, email_verified_at,
-           delivery_mode,
+           delivery_mode, live_setting_change_baseline_id,
            status, started_at, last_activity_at, ip_address,
            otp_email_sent_at, otp_wa_sent_at, otp_try_count, otp_locked_at,
            created_at, updated_at)
@@ -655,7 +667,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
            1, :nm, :em, :ph,
            :th, :ua,
            :otp, NULL,
-           :delivery_mode,
+           :delivery_mode, :live_setting_change_baseline_id,
            'registered', NULL, NOW(), :ip,
            NULL, NULL, 0, NULL,
            NOW(), NOW())
@@ -671,6 +683,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ':ua'=>$uaH,
         ':otp'=>$otp,
         ':delivery_mode'=>$deliveryMode,
+        ':live_setting_change_baseline_id'=>$liveSettingChangeBaselineId,
         ':ip'=>$ip,
       ]);
 

@@ -77,6 +77,8 @@ try {
         JOIN quiz_instrument_revisions revision ON revision.instrument_id=instrument.id
         WHERE revision.quiz_id=9')->fetchColumn() === null,
         'A dangling legacy owner must be normalized to nullable instrument audit metadata.');
+    $assert(quiz_revision_settings_edit_scope($pdo, 10) === 'full',
+        'Current Revision 1 without Attempts must remain fully editable.');
 
     $primaryChanged = quiz_set_primary($pdo, 12);
     $assert($primaryChanged['changed'] === true
@@ -94,6 +96,68 @@ try {
     $pdo->exec("INSERT INTO quiz_attempts
         (attempt_alias, quiz_id, student_id, token_hash, user_agent_hash, status)
         VALUES ('a_primary', 12, 1, 'token', 'agent', 'registered')");
+
+    $assert(quiz_revision_settings_edit_scope($pdo, 10) === 'live',
+        'An attempted current revision must permit only live settings edits.');
+    $liveSettings = [
+        'verification_required_override' => '0',
+        'require_fullscreen_override' => '1',
+        'pause_when_blur_override' => '',
+        'block_context_menu_override' => '1',
+        'block_shortcuts_override' => '0',
+        'devtools_detect_override' => '1',
+        'show_exam_badge_override' => '0',
+        'visual_theme_override' => 'studio',
+        'result_visibility' => 'summary',
+    ];
+    $pdo->beginTransaction();
+    $lockedLiveQuiz = $pdo->query('SELECT * FROM quizzes WHERE id=10 FOR UPDATE')->fetch(PDO::FETCH_ASSOC);
+    $liveUpdate = quiz_apply_live_settings($pdo, is_array($lockedLiveQuiz) ? $lockedLiveQuiz : [], $liveSettings, 1);
+    $pdo->commit();
+    $updatedLiveQuiz = $pdo->query('SELECT title, duration_minutes, verification_required_override,
+        require_fullscreen_override, visual_theme_override, result_visibility FROM quizzes WHERE id=10')->fetch(PDO::FETCH_ASSOC);
+    $assert($liveUpdate['changed'] === true
+        && is_array($updatedLiveQuiz)
+        && (string)$updatedLiveQuiz['title'] === 'Versioned Quiz'
+        && $updatedLiveQuiz['duration_minutes'] === null
+        && (int)$updatedLiveQuiz['verification_required_override'] === 0
+        && (int)$updatedLiveQuiz['require_fullscreen_override'] === 1
+        && (string)$updatedLiveQuiz['visual_theme_override'] === 'studio'
+        && (string)$updatedLiveQuiz['result_visibility'] === 'summary',
+        'Live settings updates must change only the explicit override and Student Results allowlist.');
+    $assert((int)$pdo->query("SELECT COUNT(*) FROM quiz_live_setting_changes change_log
+        JOIN quiz_attempts attempt ON attempt.quiz_id=change_log.quiz_id
+        WHERE attempt.id={$historicalAttemptId} AND change_log.id>attempt.live_setting_change_baseline_id")->fetchColumn() === 1,
+        'A live settings update must create an audit event after the affected Attempt was created.');
+    $changedFields = json_decode((string)$pdo->query('SELECT changed_fields FROM quiz_live_setting_changes WHERE quiz_id=10')->fetchColumn(), true);
+    $assert(is_array($changedFields) && in_array('result_visibility', $changedFields, true)
+        && in_array('verification_required_override', $changedFields, true),
+        'The live settings audit must identify the fields that actually changed.');
+    $auditValues = $pdo->query('SELECT before_values, after_values FROM quiz_live_setting_changes WHERE quiz_id=10')->fetch(PDO::FETCH_ASSOC);
+    $auditBefore = json_decode((string)($auditValues['before_values'] ?? ''), true);
+    $auditAfter = json_decode((string)($auditValues['after_values'] ?? ''), true);
+    $assert(is_array($auditBefore) && is_array($auditAfter)
+        && ($auditBefore['result_visibility'] ?? null) === 'hidden'
+        && ($auditAfter['result_visibility'] ?? null) === 'summary',
+        'The live settings audit must retain the exact before and after values.');
+    $pdo->beginTransaction();
+    $lockedLiveQuiz = $pdo->query('SELECT * FROM quizzes WHERE id=10 FOR UPDATE')->fetch(PDO::FETCH_ASSOC);
+    $unchangedLiveUpdate = quiz_apply_live_settings($pdo, is_array($lockedLiveQuiz) ? $lockedLiveQuiz : [], $liveSettings, 1);
+    $pdo->commit();
+    $assert($unchangedLiveUpdate['changed'] === false
+        && (int)$pdo->query('SELECT COUNT(*) FROM quiz_live_setting_changes WHERE quiz_id=10')->fetchColumn() === 1,
+        'An unchanged live settings save must not create an audit event.');
+
+    $extraLiveFieldRejected = false;
+    $pdo->beginTransaction();
+    try {
+        $lockedLiveQuiz = $pdo->query('SELECT * FROM quizzes WHERE id=10 FOR UPDATE')->fetch(PDO::FETCH_ASSOC);
+        quiz_apply_live_settings($pdo, is_array($lockedLiveQuiz) ? $lockedLiveQuiz : [], $liveSettings + ['duration_minutes' => 90], 1);
+    } catch (RuntimeException) {
+        $extraLiveFieldRejected = true;
+    }
+    $pdo->rollBack();
+    $assert($extraLiveFieldRejected, 'Live settings updates must reject fields outside the exact allowlist.');
 
     $immutableTargetRejected = false;
     try {
@@ -121,6 +185,8 @@ try {
     $pdo->commit();
     $draftQuizId = (int)$draft['quiz_id'];
     $assert((int)$draft['revision_number'] === 2, 'Draft must be Revision 2.');
+    $assert(quiz_revision_settings_edit_scope($pdo, $draftQuizId) === 'full',
+        'A draft revision must remain fully editable.');
     $assert((int)$pdo->query("SELECT COUNT(*) FROM questions WHERE quiz_id={$draftQuizId}")->fetchColumn() === 1,
         'Draft must clone the Question bank.');
     $assert((int)$pdo->query("SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id={$draftQuizId}")->fetchColumn() === 0,
@@ -136,10 +202,40 @@ try {
         'Source revision must be retired.');
     $assert((string)$pdo->query("SELECT state FROM quiz_instrument_revisions WHERE quiz_id={$draftQuizId}")->fetchColumn() === 'current',
         'Draft must become current.');
+    $assert(quiz_revision_settings_edit_scope($pdo, $draftQuizId) === 'live',
+        'Published Revision 2 must permit live settings edits while core revision fields remain immutable.');
+    $revisionTwoSettings = $liveSettings;
+    $revisionTwoSettings['result_visibility'] = 'categories';
+    $pdo->beginTransaction();
+    $revisionTwoQuiz = $pdo->query("SELECT * FROM quizzes WHERE id={$draftQuizId} FOR UPDATE")->fetch(PDO::FETCH_ASSOC);
+    quiz_apply_live_settings($pdo, is_array($revisionTwoQuiz) ? $revisionTwoQuiz : [], $revisionTwoSettings, 1);
+    $pdo->commit();
+    $preAttemptAuditId = (int)$pdo->query("SELECT MAX(id) FROM quiz_live_setting_changes WHERE quiz_id={$draftQuizId}")->fetchColumn();
+    $pdo->exec("INSERT INTO students (id, cookie_id, name) VALUES
+        (2, '22222222-2222-4222-8222-222222222222', 'Later Participant')");
+    $pdo->exec("INSERT INTO quiz_attempts
+        (attempt_alias, quiz_id, student_id, token_hash, user_agent_hash, live_setting_change_baseline_id, status)
+        VALUES ('a_after_audit', {$draftQuizId}, 2, 'token', 'agent', {$preAttemptAuditId}, 'registered')");
+    $laterAttemptId = (int)$pdo->lastInsertId();
+    $assert((int)$pdo->query("SELECT COUNT(*) FROM quiz_live_setting_changes change_log
+        JOIN quiz_attempts attempt ON attempt.quiz_id=change_log.quiz_id
+        WHERE attempt.id={$laterAttemptId} AND change_log.id>attempt.live_setting_change_baseline_id")->fetchColumn() === 0,
+        'Audit events at or before the Attempt baseline must not produce a warning.');
+    $revisionTwoSettings['result_visibility'] = 'hidden';
+    $pdo->beginTransaction();
+    $revisionTwoQuiz = $pdo->query("SELECT * FROM quizzes WHERE id={$draftQuizId} FOR UPDATE")->fetch(PDO::FETCH_ASSOC);
+    quiz_apply_live_settings($pdo, is_array($revisionTwoQuiz) ? $revisionTwoQuiz : [], $revisionTwoSettings, 1);
+    $pdo->commit();
+    $assert((int)$pdo->query("SELECT COUNT(*) FROM quiz_live_setting_changes change_log
+        JOIN quiz_attempts attempt ON attempt.quiz_id=change_log.quiz_id
+        WHERE attempt.id={$laterAttemptId} AND change_log.id>attempt.live_setting_change_baseline_id")->fetchColumn() === 1,
+        'Only a live settings event after the Attempt baseline must produce a warning.');
     $assert((string)$pdo->query("SELECT public_prefix FROM quizzes WHERE id={$draftQuizId}")->fetchColumn() === 'versioned-quiz',
         'Stable prefix must transfer to the new revision.');
     $assert((int)$pdo->query("SELECT quiz_id FROM quiz_attempts WHERE id={$historicalAttemptId}")->fetchColumn() === 10,
         'Historical Attempt must remain on its original revision.');
+    $assert(quiz_revision_settings_edit_scope($pdo, 10) === 'none',
+        'A retired revision must reject all settings edits.');
 
     $pdo->beginTransaction();
     $publishedMutationRejected = false;

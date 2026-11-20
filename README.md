@@ -2,7 +2,12 @@
 
 Quiz, proctoring, and online test management plugin for Jyavani CMS.
 
-Current release: `1.14.1`.
+Current release: `1.14.2`.
+
+Quiz `1.14.2` keeps published Questions and core Attempt rules immutable while
+allowing Per-Quiz Overrides and Student Results to be adjusted on the current
+revision. Every live change is audited and appears as a warning on Attempt
+details when it occurred after that Attempt was created.
 
 Quiz `1.14.1` prevents the global Primary Quiz action from changing a published
 or attempted revision, keeping revision immutability consistent across every
@@ -17,8 +22,9 @@ Quiz `1.13.0` adds immutable Quiz instrument revisions. Administrators can
 clone the current settings and question bank into a draft, edit it without
 copying Attempts, and publish it behind the same stable public URL. Publication
 retires the previous revision while preserving its participant access, answer
-snapshots, scores, and audit history. Attempted and retired revisions are
-read-only, and legacy Quizzes are backfilled as Revision 1.
+snapshots, scores, and audit history. Attempted revisions keep their Questions
+and core Attempt rules read-only, retired revisions are fully read-only, and
+legacy Quizzes are backfilled as Revision 1.
 
 Quiz `1.12.0` adds a simple, print-friendly Word question-bank export alongside
 the complete Excel workbook. Both formats support all-category and

@@ -22,7 +22,7 @@ if (!csrf_check($csrf)) {
 }
 try {
   $pdo->beginTransaction();
-  $quiz = qz_lock_quiz_for_owner_mutation($pdo, $id, (int)$routeUser['id'], false);
+  $quiz = qz_lock_quiz_for_instrument_mutation($pdo, $id, (int)$routeUser['id']);
   $revision = quiz_assert_quiz_deletable($pdo, $id);
   $params = [':id' => $id];
   $title = (string)$quiz['title'];

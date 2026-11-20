@@ -236,15 +236,39 @@ if (!function_exists('qz_lock_quiz_for_instrument_mutation')) {
         if (!qz_user_can($pdo, $userId, 'plugin.quiz.quizzes.manage')) {
             throw new RuntimeException('Quiz management permission is no longer valid.');
         }
+        $revision = quiz_revision_for_quiz($pdo, $quizId, true);
+        if (!$revision) throw new RuntimeException('Quiz revision metadata is unavailable.');
         $stmt = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
         $stmt->execute([':id' => $quizId]);
         $quiz = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$quiz) throw new RuntimeException('Quiz not found or unauthorized.');
-        $revision = quiz_revision_for_quiz($pdo, $quizId, true);
-        if (!$revision) throw new RuntimeException('Quiz revision metadata is unavailable.');
         if ((int)($revision['instrument_created_by'] ?? 0) !== $userId && !qz_can_manage_any($pdo, $userId)) {
             throw new RuntimeException('Only the Quiz instrument owner may perform this action.');
         }
+        return $quiz;
+    }
+}
+
+if (!function_exists('qz_lock_quiz_for_settings_mutation')) {
+    function qz_lock_quiz_for_settings_mutation(PDO $pdo, int $quizId, int $userId, bool $lockInstrument = false): array {
+        if (!$pdo->inTransaction()) throw new RuntimeException('Quiz settings authorization requires a transaction.');
+        if (!qz_user_can($pdo, $userId, 'plugin.quiz.quizzes.manage')) {
+            throw new RuntimeException('Quiz management permission is no longer valid.');
+        }
+        if ($lockInstrument && !quiz_revision_for_quiz($pdo, $quizId, true)) {
+            throw new RuntimeException('Quiz revision metadata is unavailable.');
+        }
+
+        $stmt = $pdo->prepare('SELECT * FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+        $stmt->execute([':id' => $quizId]);
+        $quiz = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$quiz) throw new RuntimeException('Quiz not found or unauthorized.');
+        if (qz_can_manage_any($pdo, $userId) || (int)$quiz['created_by'] === $userId) return $quiz;
+
+        $collaborator = $pdo->prepare('SELECT user_id FROM quiz_collaborators
+            WHERE quiz_id=:quiz_id AND user_id=:user_id LIMIT 1 FOR UPDATE');
+        $collaborator->execute([':quiz_id' => $quizId, ':user_id' => $userId]);
+        if (!$collaborator->fetchColumn()) throw new RuntimeException('Quiz not found or unauthorized.');
         return $quiz;
     }
 }

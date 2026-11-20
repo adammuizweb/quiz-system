@@ -76,7 +76,7 @@ $confirmUrl = quiz_public_url('start/confirm', ['quiz' => $quiz_id]);
 $now = date('Y-m-d H:i:s');
 
 $stmt = $pdo->prepare("
-  SELECT id, title, description, is_active, start_at, end_at, questions_per_attempt
+  SELECT id, title, description, is_active, start_at, end_at, questions_per_attempt, verification_required_override
   FROM quizzes
   WHERE id=:id
   LIMIT 1
@@ -181,6 +181,36 @@ $content_html = '
 $attempt_id    = (int)$attempt['id'];
 $attempt_alias = trim((string)($attempt['attempt_alias'] ?? ''));
 
+if ($quiz['verification_required_override'] !== null && (int)$quiz['verification_required_override'] === 0) {
+  try {
+    $pdo->beginTransaction();
+    $policyLock = $pdo->prepare('SELECT verification_required_override FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+    $policyLock->execute([':id' => $quiz_id]);
+    $lockedOverride = $policyLock->fetchColumn();
+    $attemptLock = $pdo->prepare('SELECT status, email_verified_at, attempt_alias, started_at
+      FROM quiz_attempts WHERE id=:id LIMIT 1 FOR UPDATE');
+    $attemptLock->execute([':id' => $attempt_id]);
+    $lockedAttempt = $attemptLock->fetch(PDO::FETCH_ASSOC);
+    if ($lockedOverride !== false && $lockedOverride !== null && (int)$lockedOverride === 0
+        && is_array($lockedAttempt) && (string)$lockedAttempt['status'] === 'registered'
+        && empty($lockedAttempt['email_verified_at'])) {
+      $pdo->prepare("UPDATE quiz_attempts SET email_verified_at=NOW(), status='verified',
+          verified_via='quiz_override', last_activity_at=NOW() WHERE id=:id AND status='registered' LIMIT 1")
+        ->execute([':id' => $attempt_id]);
+      $lockedAttempt['status'] = 'verified';
+      $lockedAttempt['email_verified_at'] = date('Y-m-d H:i:s');
+    }
+    $pdo->commit();
+    if (is_array($lockedAttempt) && (!empty($lockedAttempt['email_verified_at'])
+        || in_array((string)$lockedAttempt['status'], ['verified', 'in_progress'], true))) {
+      qz_public_enter_quiz((string)($lockedAttempt['attempt_alias'] ?? $attempt_alias), $lockedAttempt['started_at'] ?? null);
+    }
+  } catch (Throwable $error) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    error_log('[quiz/verify] live verification policy error: ' . get_class($error));
+  }
+}
+
 // identity source of truth (attempt snapshot)
 $contact_name  = trim((string)($attempt['contact_name']  ?? ''));
 $contact_email = trim((string)($attempt['contact_email'] ?? ''));
@@ -240,6 +270,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
     try {
       $pdo->beginTransaction();
 
+      $policyLock = $pdo->prepare('SELECT verification_required_override FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+      $policyLock->execute([':id' => $quiz_id]);
+      $lockedOverride = $policyLock->fetchColumn();
+
       // lock row attempt untuk anti double submit / multi tab
       $stmt = $pdo->prepare("
         SELECT id, status, email_verification_code, email_verified_at, otp_try_count, otp_locked_at, attempt_alias, started_at
@@ -258,6 +292,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['otp'])) {
         $verified_db = !empty($row['email_verified_at']);
         $tries = (int)($row['otp_try_count'] ?? 0);
         $lockedAt = $row['otp_locked_at'] ?? null;
+
+        if ($lockedOverride !== false && $lockedOverride !== null && (int)$lockedOverride === 0
+            && $status_db === 'registered' && !$verified_db) {
+          $pdo->prepare("UPDATE quiz_attempts SET email_verified_at=NOW(), status='verified',
+              verified_via='quiz_override', last_activity_at=NOW() WHERE id=:id AND status='registered' LIMIT 1")
+            ->execute([':id' => $attempt_id]);
+          $pdo->commit();
+          qz_public_enter_quiz((string)($row['attempt_alias'] ?? $attempt_alias), $row['started_at'] ?? null);
+        }
 
         // kalau sudah verified/in_progress, jangan proses OTP lagi
         if ($verified_db || in_array($status_db, ['verified','in_progress','submitted'], true)) {

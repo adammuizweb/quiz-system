@@ -34,7 +34,7 @@ $check(is_array($manifest), 'plugin.json must contain valid JSON');
 if (!is_array($manifest)) $manifest = [];
 
 $repository = 'https://github.com/adammuizweb/quiz-system';
-$check(($manifest['version'] ?? null) === '1.14.1', 'plugin version must be 1.14.1');
+$check(($manifest['version'] ?? null) === '1.14.2', 'plugin version must be 1.14.2');
 $check(($manifest['plugin_uri'] ?? null) === $repository, 'plugin_uri must use the canonical repository');
 $check(($manifest['homepage'] ?? null) === $repository, 'homepage must use the canonical repository');
 $check(($manifest['github_url'] ?? null) === $repository, 'github_url must use the canonical repository');
@@ -229,6 +229,8 @@ $check(
 $check(!preg_match('/\bALTER\s+TABLE\b/i', $schemaSource), 'schema must not contain speculative ALTER statements');
 $check(preg_match('/`title`\s+VARCHAR\(255\)\s+NOT\s+NULL/i', $schemaSource) === 1, 'passage title schema contract must remain non-null');
 $check(preg_match('/`delivery_mode`\s+VARCHAR\(20\)\s+NULL/i', $schemaSource) === 1, 'new installs must include nullable delivery mode');
+$check(str_contains($schemaSource, '`live_setting_change_baseline_id` BIGINT UNSIGNED NOT NULL DEFAULT 0'),
+    'new Attempts must pin the latest visible live-setting audit event without relying on timestamp precision');
 $check(str_contains($schemaSource, 'UNIQUE KEY `uq_quiz_student` (`quiz_id`, `student_id`)'), 'new installs must enforce one attempt per quiz and student');
 $check(str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `quiz_collaborators`'), 'new installs must create the collaborator table idempotently');
 $check(str_contains($schemaSource, 'PRIMARY KEY (`quiz_id`, `user_id`)'), 'collaborators must be unique per quiz and user');
@@ -269,6 +271,15 @@ $check(str_contains($schemaSource, "`state` ENUM('draft','current','retired') NO
     && str_contains($schemaSource, 'CONSTRAINT `fk_quiz_instrument_revisions_quiz`')
     && str_contains($schemaSource, 'REFERENCES `quizzes` (`id`) ON DELETE RESTRICT'),
     'revision metadata must preserve historical Quiz rows while cascading only instrument metadata');
+$check(str_contains($schemaSource, 'CREATE TABLE IF NOT EXISTS `quiz_live_setting_changes`')
+    && str_contains($schemaSource, '`changed_fields` VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL')
+    && str_contains($schemaSource, '`before_values` VARCHAR(1024) CHARACTER SET ascii COLLATE ascii_bin NOT NULL')
+    && str_contains($schemaSource, '`after_values` VARCHAR(1024) CHARACTER SET ascii COLLATE ascii_bin NOT NULL')
+    && str_contains($schemaSource, '`changed_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)')
+    && str_contains($schemaSource, 'KEY `idx_quiz_live_setting_changes_quiz` (`quiz_id`, `changed_at`, `id`)')
+    && str_contains($schemaSource, 'CONSTRAINT `fk_quiz_live_setting_changes_quiz`')
+    && str_contains($schemaSource, 'CONSTRAINT `fk_quiz_live_setting_changes_actor`'),
+    'new installs must retain an actor-attributed audit of exact live setting changes');
 preg_match('/CREATE TABLE IF NOT EXISTS `quiz_instruments` \((.*?)\n\) ENGINE=/s', $schemaSource, $instrumentTableMatch);
 $instrumentTableSchema = (string)($instrumentTableMatch[1] ?? '');
 $check(str_contains($instrumentTableSchema, '`created_by` INT UNSIGNED NULL')
@@ -881,8 +892,8 @@ $check(str_contains($extensionSource, 'function quiz_extension_subscribe')
 $check(str_contains($pluginSource, "require_once \$extensionFile")
     && !str_contains($pluginSource, "do_action('quiz_loaded'")
     && !str_contains($pluginSource, "do_action_isolated('quiz_loaded'"), 'Quiz publishes a load-order-safe callable extension API');
-$check(str_contains($pluginSource, "\$schemaRevision = '20261118-quiz-instrument-revisions'")
-    && str_contains($pluginSource, "settings_get(\$pdo, 'quiz_schema_revision', '') === '20261118-quiz-instrument-revisions'"),
+$check(str_contains($pluginSource, "\$schemaRevision = '20261120-quiz-live-settings-audit'")
+    && str_contains($pluginSource, "settings_get(\$pdo, 'quiz_schema_revision', '') === '20261120-quiz-live-settings-audit'"),
     'the Quiz instrument revision schema must gate both migration and frontend readiness');
 $publicPrefixUpgrade = strpos($pluginSource, "\$addColumn('quizzes', 'public_prefix'");
 $instrumentBackfill = strpos($pluginSource, 'quiz_backfill_instrument_revisions($pdo)');
@@ -912,6 +923,15 @@ $check(str_contains($revisionSource, "Published Quiz revisions with Attempts are
     && str_contains($revisionSource, 'Only a draft Quiz revision can be published.')
     && str_contains($revisionSource, 'The public URL prefix is locked after this Quiz instrument receives an Attempt.'),
     'revision services must keep attempted and historical revisions immutable');
+$check(str_contains($revisionSource, 'function quiz_revision_settings_edit_scope')
+    && str_contains($revisionSource, "return 'none'")
+    && str_contains($revisionSource, "return 'full'")
+    && str_contains($revisionSource, "return 'live'")
+    && str_contains($revisionSource, 'function quiz_apply_live_settings')
+    && str_contains($revisionSource, 'INSERT INTO quiz_live_setting_changes')
+    && str_contains($revisionSource, "'result_visibility'")
+    && str_contains($revisionSource, "'visual_theme_override'"),
+    'revision services must expose a narrow current-revision live settings scope and audit every effective change');
 $confirmSource = (string)file_get_contents($pluginRoot . '/public/start/confirm/index.php');
 $attemptInsert = strpos($confirmSource, 'INSERT INTO quiz_attempts');
 $attemptRevisionLock = strpos($confirmSource, 'quiz_lock_current_revision_for_attempt($pdo, $quiz_id)');
@@ -919,6 +939,15 @@ $check($attemptRevisionLock !== false && $attemptInsert !== false && $attemptRev
     && str_contains($confirmSource, '$isHistoricalRevision && !$attempt')
     && str_contains($confirmSource, 'quiz_public_route_accepts_quiz($quiz_id, $pdo)'),
     'attempt confirmation must lock the current revision only before insertion and admit historical routes only for existing Attempts');
+$policyLock = strpos($confirmSource, 'SELECT verification_required_override FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+$attemptRowLock = strpos($confirmSource, 'SELECT * FROM quiz_attempts WHERE id=:id FOR UPDATE');
+$check($policyLock !== false && $attemptRowLock !== false && $policyLock < $attemptRowLock
+    && str_contains($confirmSource, '$lockedVerificationOverride === null'),
+    'attempt confirmation must lock and re-read the live OTP policy before evaluating an existing or new Attempt');
+$check(str_contains($confirmSource, 'SELECT COALESCE(MAX(id),0) FROM quiz_live_setting_changes WHERE quiz_id=:quiz_id')
+    && str_contains($confirmSource, 'live_setting_change_baseline_id')
+    && str_contains($confirmSource, "':live_setting_change_baseline_id'=>\$liveSettingChangeBaselineId"),
+    'Attempt creation must pin the latest live-setting audit ID while the Quiz row is locked');
 $resumeSource = (string)file_get_contents($pluginRoot . '/public/_guard_resume.php');
 $check(str_contains($resumeSource, "(string)\$att['status'] === 'registered'")
     && str_contains($resumeSource, "quiz_public_route_context()['instrument_id']")
@@ -931,12 +960,14 @@ $check(str_contains($reviseRouteSource, "qz_user_can(\$pdo, (int)\$user['id'], '
     && str_contains($publishRouteSource, "qz_user_can(\$pdo, (int)\$user['id'], 'plugin.quiz.quizzes.manage')"),
     'revision creation and publication must reauthorize Quiz management inside their transactions');
 $uninstallSource = substr($pluginSource, (int)strpos($pluginSource, "add_action('plugin_uninstall'"));
+$uninstallLiveSettings = strpos($uninstallSource, "'quiz_live_setting_changes'");
 $uninstallRevision = strpos($uninstallSource, "'quiz_instrument_revisions'");
 $uninstallInstrument = strpos($uninstallSource, "'quiz_instruments'");
 $uninstallQuizzes = strpos($uninstallSource, "'quizzes'");
-$check($uninstallRevision !== false && $uninstallInstrument !== false && $uninstallQuizzes !== false
+$check($uninstallLiveSettings !== false && $uninstallRevision !== false && $uninstallInstrument !== false && $uninstallQuizzes !== false
+    && $uninstallLiveSettings < $uninstallQuizzes
     && $uninstallRevision < $uninstallInstrument && $uninstallInstrument < $uninstallQuizzes,
-    'uninstall must drop revision and instrument metadata before the referenced Quiz rows');
+    'uninstall must drop live-setting audit, revision, and instrument metadata before the referenced Quiz rows');
 $check(str_contains($pluginSource, "'public_prefix', 'VARCHAR(63) CHARACTER SET ascii COLLATE ascii_bin NULL AFTER title'")
     && str_contains($pluginSource, 'ADD UNIQUE KEY uq_quizzes_public_prefix (public_prefix)'), 'existing installs must add and uniquely index the optional public prefix');
 $check(str_contains($schemaSource, 'KEY `idx_quizzes_primary` (`is_primary`, `id`)')
@@ -1148,7 +1179,7 @@ $assetScript = <<<'PHP'
 $GLOBALS['contract_hooks'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void { $GLOBALS['contract_hooks'][$hook][] = $callback; }
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 require $argv[1];
@@ -1198,7 +1229,7 @@ $migrationScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class ContractPDO extends PDO {
@@ -1218,14 +1249,14 @@ quiz_install_schema($pdo);
 if ($GLOBALS['contract_settings'] !== [] || $pdo->executions !== 1) exit(21);
 $pdo->fail = false;
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.1'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
+if (($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.2'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261120-quiz-live-settings-audit'
     || $pdo->executions !== 2) exit(22);
 quiz_install_schema($pdo);
 if ($pdo->executions !== 2) exit(23);
 unset($GLOBALS['contract_settings']['quiz_schema_revision']);
 quiz_install_schema($pdo);
-if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
+if (($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261120-quiz-live-settings-audit'
     || $pdo->executions !== 2) exit(24);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -1242,7 +1273,7 @@ $check($migrationStatus === 0, 'schema migration must record only success and re
 $backfillScript = <<<'PHP'
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { return true; }
 final class BackfillStatement extends PDOStatement {
@@ -1334,7 +1365,7 @@ $migrationGateScript = <<<'PHP'
 $GLOBALS['contract_settings'] = [];
 function add_action(string $hook, callable $callback, int $priority = 10): void {}
 function register_frontend_route(string $prefix, callable|string $handler, array $options = []): bool { return true; }
-function plugin_manifest(string $name): ?array { return ['version' => '1.14.1']; }
+function plugin_manifest(string $name): ?array { return ['version' => '1.14.2']; }
 function settings_get(PDO $pdo, string $key, ?string $default = null): ?string { return $GLOBALS['contract_settings'][$key] ?? $default; }
 function settings_set(PDO $pdo, string $key, ?string $value, int $autoload = 1): bool { $GLOBALS['contract_settings'][$key] = (string)$value; return true; }
 final class MigrationGateStatement extends PDOStatement {
@@ -1362,8 +1393,8 @@ if (quiz_install_schema($pdo) !== false || $GLOBALS['contract_settings'] !== [] 
 $ddlExecutions = $pdo->executions;
 $pdo->globalIncomplete = 0;
 if (quiz_install_schema($pdo) !== true
-    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.1'
-    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261118-quiz-instrument-revisions'
+    || ($GLOBALS['contract_settings']['quiz_test_version'] ?? '') !== '1.14.2'
+    || ($GLOBALS['contract_settings']['quiz_schema_revision'] ?? '') !== '20261120-quiz-live-settings-audit'
     || $pdo->executions <= $ddlExecutions) exit(72);
 PHP;
 $process = proc_open([PHP_BINARY, '-r', $migrationGateScript, $pluginRoot . '/plugin.php'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -2442,8 +2473,11 @@ $check(str_contains($adminJs, ".qz-settings-form .settings-section-toggle") && s
 
 $bulkSource = (string)file_get_contents($pluginRoot . '/admin/quizzes/bulk_status.php');
 $check(str_contains($bulkSource, 'count($ids) > 100'), 'bulk status mutation must cap selected IDs');
-$check(str_contains($bulkSource, 'FOR UPDATE') && str_contains($bulkSource, 'qz_lock_quiz_for_workspace_mutation'), 'bulk status mutation must lock and authorize every selected quiz');
-$check(strpos($bulkSource, 'beginTransaction()') < strpos($bulkSource, 'qz_lock_quiz_for_workspace_mutation('), 'bulk status must reauthorize workspace access after beginning its transaction');
+$check(str_contains($bulkSource, 'FOR UPDATE') && str_contains($bulkSource, 'qz_lock_quiz_for_settings_mutation')
+    && str_contains($bulkSource, 'quiz_assert_revision_mutable'),
+    'bulk status mutation must use metadata-first settings authorization and full revision mutability for every selected Quiz');
+$check(strpos($bulkSource, 'beginTransaction()') < strpos($bulkSource, 'qz_lock_quiz_for_settings_mutation('),
+    'bulk status must reauthorize Quiz management after beginning its transaction');
 $check(!str_contains($bulkSource, '$changed < 1') && str_contains($bulkSource, "' Quiz records processed; '") && str_contains($bulkSource, "' rows changed.'"), 'bulk status must accept authorized no-ops with a truthful changed-row message');
 $check(str_contains($bulkSource, "is_primary'] === 1"), 'bulk status mutation must protect the primary quiz from deactivation');
 $check(!str_contains($bulkSource, 'user_role'), 'bulk status mutation must rely on dynamic permission and owner guards');
@@ -2744,7 +2778,7 @@ $check(str_contains($quizAddSource, "define('QUIZ_REQUIRED_PERMISSION', 'plugin.
 $check(strpos($quizAddSource, 'beginTransaction()') < strpos($quizAddSource, 'qz_require_workspace_mutation_access(')
     && str_contains($quizAddSource, "INSERT INTO quizzes (created_by")
     && str_contains($quizAddSource, "':uid' => \$uid"), 'quiz creation must reauthorize workspace access and stamp the actor inside its transaction');
-$check(str_contains($quizEditSource, 'qz_lock_quiz_for_workspace_mutation'), 'quiz edit mutation must authorize owner or collaborator against a locked quiz');
+$check(str_contains($quizEditSource, 'qz_lock_quiz_for_settings_mutation'), 'quiz edit mutation must reauthorize quizzes.manage and owner or collaborator access against a locked quiz');
 $check(str_contains($quizAddSource, 'qz-editor-page qz-quiz-editor')
     && str_contains($quizEditSource, 'qz-editor-page qz-quiz-editor')
     && str_contains($adminCss, '.adam-card.qz-shell.qz-editor-page.qz-quiz-editor{')
@@ -2752,7 +2786,7 @@ $check(str_contains($quizAddSource, 'qz-editor-page qz-quiz-editor')
     && str_contains($adminCss, 'padding:0 12px calc(14px + env(safe-area-inset-bottom));')
     && str_contains($quizEditSource, 'class="small-hint qz-student-form-name">Use global/default behavior'),
     'Quiz add and edit pages must retain route-scoped desktop and mobile gutters while section guidance stays inside the padded form grid');
-$check(str_contains($quizDeleteSource, 'qz_lock_quiz_for_owner_mutation'), 'quiz deletion remains owner-or-manage-any only');
+$check(str_contains($quizDeleteSource, 'qz_lock_quiz_for_instrument_mutation'), 'quiz deletion remains instrument-owner-or-manage-any only and follows metadata-first lock ordering');
 $check(str_contains($quizIndex, 'Revision History') && str_contains($quizIndex, 'Create Draft')
     && str_contains($quizEditSource, 'Revision History') && str_contains($quizEditSource, 'Restore as Draft')
     && str_contains($quizRevisionsSource, 'Publication Ledger') && str_contains($quizRevisionsSource, 'Restore as Draft'),
@@ -2772,15 +2806,27 @@ $check(str_contains($quizIndex, "'can_set_primary' => \$canManagePrimary && \$pr
     && strpos($revisionSource, '$assertMutable($primaryId)')
         < strpos($revisionSource, "UPDATE quizzes SET is_primary=0"),
     'Primary Quiz mutation must reject immutable target and previous primary revisions while their Quiz rows are locked');
-$check(str_contains($quizEditSource, 'qz-revision-form-lock') && str_contains($quizEditSource, "revisionState === 'retired'")
-    && str_contains($quizRevisionsSource, 'Published revisions remain immutable'),
-    'historical Quiz revisions must be visibly read-only in administration');
+$check(str_contains($quizEditSource, '$isFullyReadOnly')
+    && str_contains($quizEditSource, 'Limited revision editing')
+    && str_contains($quizEditSource, 'Save Live Settings')
+    && str_contains($quizRevisionsSource, 'Published Questions and core Attempt rules remain immutable'),
+    'administration must keep historical revisions read-only while clearly exposing live settings on the current revision');
 $check(str_contains($quizEditSource, 'expected_revision_state')
     && str_contains($quizEditSource, 'expected_revision_number')
+    && str_contains($quizEditSource, 'expected_edit_scope')
     && str_contains($quizEditSource, 'expected_edit_token')
-    && str_contains($quizEditSource, '$editRevisionToken($lockedQuiz, $lockedRevision)')
+    && str_contains($quizEditSource, '$editRevisionToken($lockedQuiz, $lockedRevision, $lockedScope)')
     && strpos($quizEditSource, 'expected_revision_state') < strpos($quizEditSource, 'UPDATE quizzes'),
     'Quiz edit must reject stale publication state and concurrent settings updates under lock');
+$check(str_contains($quizEditSource, 'quiz_apply_live_settings($pdo, $lockedQuiz, $liveValues')
+    && str_contains($quizEditSource, "if (\$lockedScope === 'live')")
+    && strpos($quizEditSource, "if (\$lockedScope === 'live')") < strpos($quizEditSource, 'UPDATE quizzes'),
+    'limited saves must use the exact live settings service before the full revision update path');
+$check(str_contains($attemptViewSource, 'FROM quiz_live_setting_changes change_log')
+    && str_contains($attemptViewSource, 'change_log.id>:baseline_id')
+    && str_contains($attemptViewSource, 'Live Quiz settings changed')
+    && str_contains($attemptViewSource, 'quiz_live_setting_labels()'),
+    'Attempt details must warn only when an audited live setting change occurred after the Attempt was created');
 $check(str_contains($quizRevisionsSource, "selectedRevision['instrument_created_by']")
     && str_contains($quizRevisionsSource, 'Only the Quiz instrument owner may view its revision history.'),
     'Revision History must authorize the stable instrument before exposing its complete lineage');
@@ -2812,8 +2858,8 @@ $check(str_contains($quizIndex, "'can_manage_revisions' => \$user['can_manage_qu
     && str_contains($adminJs, 'd.can_manage_revisions'),
     'Quiz detail modal must expose Revision History only to the instrument owner or manage-any actor');
 foreach ([
-    'quiz edit' => [$quizEditSource, 'qz_lock_quiz_for_workspace_mutation('],
-    'quiz delete' => [$quizDeleteSource, 'qz_lock_quiz_for_owner_mutation('],
+    'quiz edit' => [$quizEditSource, 'qz_lock_quiz_for_settings_mutation('],
+    'quiz delete' => [$quizDeleteSource, 'qz_lock_quiz_for_instrument_mutation('],
     'quiz duplicate' => [$duplicateSource, 'qz_lock_quiz_for_workspace_mutation('],
 ] as $label => [$source, $authorizationHelper]) {
     $transactionPosition = strpos($source, 'beginTransaction()');
@@ -3146,6 +3192,18 @@ $check(str_contains($confirmSource, 'verification_required_override')
     && str_contains($confirmSource, "verified_via='quiz_override'")
     && str_contains($confirmSource, 'qz_public_enter_quiz($attempt_alias);'),
     'OTP override must atomically verify new attempts and continue with their exact alias');
+$check(str_contains($verifySource, 'SELECT verification_required_override FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE')
+    && str_contains($verifySource, "verified_via='quiz_override'")
+    && str_contains($sendOtpSource, 'SELECT verification_required_override FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE')
+    && str_contains($sendOtpSource, "verified_via='quiz_override'"),
+    'disabling the live OTP override must atomically bypass pending verification requests and OTP sends');
+$sendOtpTokenCheck = strpos($sendOtpSource, "hash_equals((string)\$A['token_hash']");
+$sendOtpLiveBypass = strpos($sendOtpSource, "verified_via='quiz_override'");
+$check($sendOtpTokenCheck !== false && $sendOtpLiveBypass !== false && $sendOtpTokenCheck < $sendOtpLiveBypass,
+    'live OTP bypass must preserve token and user-agent authentication before mutating the Attempt');
+$check(str_contains($quizEditSource, 'completed verification is not revoked')
+    && str_contains($attemptViewSource, 'without revoking completed verification'),
+    'live OTP copy must state that completed verification is not retroactively revoked');
 $check(str_contains($publicSecuritySource, 'function qz_public_post_redirect(string $action, array $fields): never')
     && str_contains($publicSecuritySource, '<form id="qz-auto-start" method="post"')
     && str_contains($publicSecuritySource, "['csrf_token' => qz_public_csrf_token()]")

@@ -43,7 +43,8 @@ if (!$revisionMeta) {
   exit('Quiz revision metadata is unavailable.');
 }
 $revisionState = (string)$revisionMeta['state'];
-$editRevisionToken = static function (array $quizRow, array $revisionRow): string {
+$editScope = quiz_revision_settings_edit_scope($pdo, $id);
+$editRevisionToken = static function (array $quizRow, array $revisionRow, string $scope): string {
   $fields = [
     'title', 'public_prefix', 'description', 'questions_per_attempt', 'duration_minutes',
     'shuffle_answers', 'timer_warning_seconds', 'allow_mark_for_review', 'result_visibility',
@@ -58,13 +59,11 @@ $editRevisionToken = static function (array $quizRow, array $revisionRow): strin
     'revision_id' => (int)($revisionRow['id'] ?? 0),
     'revision_number' => (int)($revisionRow['revision_number'] ?? 0),
     'state' => (string)($revisionRow['state'] ?? ''),
+    'scope' => $scope,
     'quiz' => $values,
   ], JSON_THROW_ON_ERROR));
 };
-$expectedEditToken = $editRevisionToken($quiz, $revisionMeta);
-$attemptStmt = $pdo->prepare('SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id=:quiz_id');
-$attemptStmt->execute([':quiz_id' => $id]);
-$attemptCount = (int)$attemptStmt->fetchColumn();
+$expectedEditToken = $editRevisionToken($quiz, $revisionMeta, $editScope);
 $draftStmt = $pdo->prepare("SELECT quiz_id, revision_number FROM quiz_instrument_revisions
   WHERE instrument_id=:instrument_id AND state='draft' LIMIT 1");
 $draftStmt->execute([':instrument_id' => (int)$revisionMeta['instrument_id']]);
@@ -72,11 +71,14 @@ $familyDraft = $draftStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 $ownsInstrument = $routeUser['can_manage_any']
   || (int)($revisionMeta['instrument_created_by'] ?? 0) === (int)$routeUser['id'];
 $canManageRevisions = $routeUser['can_manage_quizzes'] && $ownsInstrument;
-$isReadOnly = $revisionState === 'retired'
-  || ($revisionState === 'current' && ((int)$revisionMeta['revision_number'] > 1 || $attemptCount > 0));
-$readOnlyReason = $revisionState === 'retired'
+$isReadOnly = $editScope !== 'full';
+$isFullyReadOnly = $editScope === 'none';
+$canEditLiveSettings = $editScope === 'full' || $editScope === 'live';
+$readOnlyReason = $isFullyReadOnly
   ? 'Retired revisions are immutable historical records. Restore this revision as a new draft to reuse its settings and Questions.'
-  : ($isReadOnly ? 'Published revisions are read-only. Create a draft to make changes safely.' : '');
+  : ($editScope === 'live'
+    ? 'Questions and core Attempt rules are read-only. Per-Quiz Overrides and Student Results remain editable for subsequent participant requests; completed verification and immutable snapshots are not rewritten.'
+    : '');
 
 $errors = [];
 $message = trim((string)($_GET['msg'] ?? ''));
@@ -103,16 +105,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors[] = 'Invalid CSRF token.';
   }
 
-  $title = trim((string)($_POST['title'] ?? ''));
-  $public_prefix = trim((string)($_POST['public_prefix'] ?? ''));
-  $description = trim((string)($_POST['description'] ?? ''));
-  $questions_per_attempt = (int)($_POST['questions_per_attempt'] ?? 25);
-  $duration_minutes = trim((string)($_POST['duration_minutes'] ?? ''));
-  $timer_warning_minutes = trim((string)($_POST['timer_warning_minutes'] ?? ''));
-  $is_active = (int)($_POST['is_active'] ?? 1);
-  $start_at = trim((string)($_POST['start_at'] ?? ''));
-  $end_at = trim((string)($_POST['end_at'] ?? ''));
-  $visual_theme_override = trim((string)($_POST['visual_theme_override'] ?? ''));
+  if ($editScope === 'none') $errors[] = 'This Quiz revision is read-only.';
+  foreach (array_merge($overrideFields, ['visual_theme_override', 'result_visibility']) as $liveField) {
+    if (!array_key_exists($liveField, $_POST) || !is_scalar($_POST[$liveField])) {
+      $errors[] = 'Live Quiz settings payload is incomplete.';
+      break;
+    }
+  }
+  $visual_theme_override = is_scalar($_POST['visual_theme_override'] ?? null)
+    ? trim((string)$_POST['visual_theme_override'])
+    : '';
   if ($visual_theme_override !== '') {
     try {
       $visual_theme_override = quiz_normalize_visual_theme($visual_theme_override);
@@ -122,53 +124,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
   foreach ($overrideFields as $field) {
-    $value = (string)($_POST[$field] ?? '');
+    $value = is_scalar($_POST[$field] ?? null) ? (string)$_POST[$field] : '';
     if (!in_array($value, ['', '0', '1'], true)) $errors[] = 'Invalid per-Quiz override.';
     $overrides[$field] = $value;
   }
 
   try {
-    $is_active = quiz_normalize_bool($_POST['is_active'] ?? null, 1);
-    $shuffle_answers = quiz_normalize_bool($_POST['shuffle_answers'] ?? null, 1);
-    $allow_mark_for_review = quiz_normalize_bool($_POST['allow_mark_for_review'] ?? null, 0);
-    $result_visibility = quiz_normalize_result_visibility($_POST['result_visibility'] ?? '');
-    $timerWarningSeconds = quiz_timer_warning_minutes_to_seconds($timer_warning_minutes);
-    $normalizedPublicPrefix = $revisionState === 'draft' ? null : quiz_validate_public_prefix(
-      $pdo,
-      $public_prefix,
-      $id,
-      quiz_normalize_public_prefix($revisionMeta['instrument_public_prefix'] ?? null)
+    $result_visibility = quiz_normalize_result_visibility(
+      is_scalar($_POST['result_visibility'] ?? null) ? $_POST['result_visibility'] : ''
     );
   } catch (InvalidArgumentException $error) {
     $errors[] = $error->getMessage();
-    $timerWarningSeconds = [];
-    $normalizedPublicPrefix = null;
   }
 
-  if ($title === '') $errors[] = 'Title is required.';
-  if ($questions_per_attempt <= 0 || $questions_per_attempt > 200) $errors[] = 'Questions per Attempt must be between 1 and 200.';
-  if ($duration_minutes !== '' && (!ctype_digit($duration_minutes) || (int)$duration_minutes <= 0)) $errors[] = 'Duration must be a positive number of minutes.';
-  if ($timerWarningSeconds !== [] && ($duration_minutes === '' || max($timerWarningSeconds) > (int)$duration_minutes * 60)) $errors[] = 'Timer warnings must fall within the Quiz duration.';
-  if (!is_valid_dt($start_at)) $errors[] = 'Start time format: YYYY-MM-DD HH:MM:SS';
-  if (!is_valid_dt($end_at)) $errors[] = 'End time format: YYYY-MM-DD HH:MM:SS';
+  $timerWarningSeconds = quiz_safe_timer_warning_seconds($quiz['timer_warning_seconds'] ?? null);
+  $normalizedPublicPrefix = null;
+  if ($editScope === 'full') {
+    $title = trim((string)($_POST['title'] ?? ''));
+    $public_prefix = trim((string)($_POST['public_prefix'] ?? ''));
+    $description = trim((string)($_POST['description'] ?? ''));
+    $questions_per_attempt = (int)($_POST['questions_per_attempt'] ?? 25);
+    $duration_minutes = trim((string)($_POST['duration_minutes'] ?? ''));
+    $timer_warning_minutes = trim((string)($_POST['timer_warning_minutes'] ?? ''));
+    $start_at = trim((string)($_POST['start_at'] ?? ''));
+    $end_at = trim((string)($_POST['end_at'] ?? ''));
+    try {
+      $is_active = quiz_normalize_bool($_POST['is_active'] ?? null, 1);
+      $shuffle_answers = quiz_normalize_bool($_POST['shuffle_answers'] ?? null, 1);
+      $allow_mark_for_review = quiz_normalize_bool($_POST['allow_mark_for_review'] ?? null, 0);
+      $timerWarningSeconds = quiz_timer_warning_minutes_to_seconds($timer_warning_minutes);
+      $normalizedPublicPrefix = $revisionState === 'draft' ? null : quiz_validate_public_prefix(
+        $pdo,
+        $public_prefix,
+        $id,
+        quiz_normalize_public_prefix($revisionMeta['instrument_public_prefix'] ?? null)
+      );
+    } catch (InvalidArgumentException $error) {
+      $errors[] = $error->getMessage();
+      $timerWarningSeconds = [];
+      $normalizedPublicPrefix = null;
+    }
+
+    if ($title === '') $errors[] = 'Title is required.';
+    if ($questions_per_attempt <= 0 || $questions_per_attempt > 200) $errors[] = 'Questions per Attempt must be between 1 and 200.';
+    if ($duration_minutes !== '' && (!ctype_digit($duration_minutes) || (int)$duration_minutes <= 0)) $errors[] = 'Duration must be a positive number of minutes.';
+    if ($timerWarningSeconds !== [] && ($duration_minutes === '' || max($timerWarningSeconds) > (int)$duration_minutes * 60)) $errors[] = 'Timer warnings must fall within the Quiz duration.';
+    if (!is_valid_dt($start_at)) $errors[] = 'Start time format: YYYY-MM-DD HH:MM:SS';
+    if (!is_valid_dt($end_at)) $errors[] = 'End time format: YYYY-MM-DD HH:MM:SS';
+  }
 
   if (!$errors) {
     $prefixLocked = false;
     try {
-      if (!quiz_public_prefix_lock($pdo)) throw new RuntimeException('Public URL namespace is busy.');
-      $prefixLocked = true;
+      if ($editScope === 'full') {
+        if (!quiz_public_prefix_lock($pdo)) throw new RuntimeException('Public URL namespace is busy.');
+        $prefixLocked = true;
+      }
       $pdo->beginTransaction();
-      $lockedQuiz = qz_lock_quiz_for_workspace_mutation($pdo, $id, (int)$routeUser['id']);
-      $lockedRevision = quiz_revision_for_quiz($pdo, $id, true);
+      $lockedQuiz = qz_lock_quiz_for_settings_mutation(
+        $pdo,
+        $id,
+        (int)$routeUser['id'],
+        $editScope === 'full'
+      );
+      $lockedRevision = quiz_revision_for_quiz($pdo, $id);
       if (!$lockedRevision) throw new RuntimeException('Quiz revision metadata is unavailable.');
+      $lockedScope = quiz_revision_settings_edit_scope($pdo, $id, true);
       if ((string)($_POST['expected_revision_state'] ?? '') !== (string)$lockedRevision['state']
-          || (int)($_POST['expected_revision_number'] ?? 0) !== (int)$lockedRevision['revision_number']) {
+          || (int)($_POST['expected_revision_number'] ?? 0) !== (int)$lockedRevision['revision_number']
+          || (string)($_POST['expected_edit_scope'] ?? '') !== $lockedScope) {
         throw new RuntimeException('Quiz revision state changed. Reload before editing.');
       }
       $submittedEditToken = (string)($_POST['expected_edit_token'] ?? '');
-      if ($submittedEditToken === '' || !hash_equals($editRevisionToken($lockedQuiz, $lockedRevision), $submittedEditToken)) {
+      if ($submittedEditToken === '' || !hash_equals($editRevisionToken($lockedQuiz, $lockedRevision, $lockedScope), $submittedEditToken)) {
         throw new RuntimeException('Quiz settings changed. Reload before editing.');
       }
+
+      $liveValues = [
+        'verification_required_override' => $overrides['verification_required_override'],
+        'require_fullscreen_override' => $overrides['require_fullscreen_override'],
+        'pause_when_blur_override' => $overrides['pause_when_blur_override'],
+        'block_context_menu_override' => $overrides['block_context_menu_override'],
+        'block_shortcuts_override' => $overrides['block_shortcuts_override'],
+        'devtools_detect_override' => $overrides['devtools_detect_override'],
+        'show_exam_badge_override' => $overrides['show_exam_badge_override'],
+        'visual_theme_override' => $visual_theme_override,
+        'result_visibility' => $result_visibility,
+      ];
+      if ($lockedScope === 'live') {
+        $liveUpdate = quiz_apply_live_settings($pdo, $lockedQuiz, $liveValues, (int)$routeUser['id']);
+        $pdo->commit();
+        qz_redirect($base . '/?page=admin/quiz/quizzes&msg=' . urlencode(
+          $liveUpdate['changed'] ? 'Live Quiz settings updated.' : 'Quiz settings were unchanged.'
+        ));
+        return;
+      }
+      if ($lockedScope !== 'full') throw new RuntimeException('This Quiz revision is read-only.');
       $normalizedPublicPrefix = (string)$lockedRevision['state'] === 'draft' ? null : quiz_validate_public_prefix(
         $pdo,
         $public_prefix,
@@ -295,8 +346,8 @@ $ownerLine = ($owner !== '' || $oemail !== '')
   </header>
 
   <?php if ($message !== ''): ?><div class="adam-alert success" role="status"><?= h($message) ?></div><?php endif; ?>
-  <?php if ($isReadOnly): ?><div class="qz-revision-readonly-notice" role="note"><strong>Read-only revision</strong><span><?= h($readOnlyReason) ?></span></div><?php endif; ?>
-  <?php if ($familyDraft && $revisionState !== 'draft'): ?><div class="qz-revision-draft-callout"><div><strong>Revision <?= (int)$familyDraft['revision_number'] ?> is already in progress</strong><span>Publish or delete the existing draft before creating another.</span></div><a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/quizzes/edit&amp;id=<?= (int)$familyDraft['quiz_id'] ?>">Continue Draft</a></div><?php endif; ?>
+  <?php if ($isReadOnly): ?><div class="qz-revision-readonly-notice" role="note"><strong><?= $isFullyReadOnly ? 'Read-only revision' : 'Limited revision editing' ?></strong><span><?= h($readOnlyReason) ?></span></div><?php endif; ?>
+  <?php if ($familyDraft && $revisionState !== 'draft'): ?><div class="qz-revision-draft-callout"><div><strong>Revision <?= (int)$familyDraft['revision_number'] ?> is already in progress</strong><span><?= $editScope === 'live' ? 'Live changes on this current revision do not update the open draft. Review the draft before publishing it.' : 'Publish or delete the existing draft before creating another.' ?></span></div><a class="adam-button" href="<?= h($base) ?>/?page=admin/quiz/quizzes/edit&amp;id=<?= (int)$familyDraft['quiz_id'] ?>">Continue Draft</a></div><?php endif; ?>
 
   <?php if ($errors): ?>
     <div class="adam-alert error" role="alert">
@@ -308,10 +359,10 @@ $ownerLine = ($owner !== '' || $oemail !== '')
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
     <input type="hidden" name="expected_revision_state" value="<?= h($revisionState) ?>">
     <input type="hidden" name="expected_revision_number" value="<?= (int)$revisionMeta['revision_number'] ?>">
+    <input type="hidden" name="expected_edit_scope" value="<?= h($editScope) ?>">
     <input type="hidden" name="expected_edit_token" value="<?= h($expectedEditToken) ?>">
-    <fieldset class="qz-revision-form-lock"<?= $isReadOnly ? ' disabled' : '' ?>>
 
-    <fieldset class="qz-section group-box">
+    <fieldset class="qz-section group-box"<?= $editScope !== 'full' ? ' disabled' : '' ?>>
       <legend class="qz-section__head"><strong>Quiz Details</strong></legend>
       <div class="qz-section__body">
         <div class="qz-field">
@@ -333,7 +384,7 @@ $ownerLine = ($owner !== '' || $oemail !== '')
       </div>
     </fieldset>
 
-    <fieldset class="qz-section group-box">
+    <fieldset class="qz-section group-box"<?= $isFullyReadOnly ? ' disabled' : '' ?>>
       <legend class="qz-section__head"><strong>Per-Quiz Overrides</strong></legend>
       <div class="qz-section__body qz-form-grid qz-student-form-grid">
         <div class="qz-field">
@@ -355,11 +406,11 @@ $ownerLine = ($owner !== '' || $oemail !== '')
           </select>
         </div>
       <?php endforeach; ?>
-        <div class="small-hint qz-student-form-name">Use global/default behavior unless this Quiz needs a specific visual, verification, or proctor policy.</div>
+        <div class="small-hint qz-student-form-name">Use global/default behavior unless this Quiz needs a specific visual, verification, or proctor policy. Changes are live for subsequent requests and are recorded for affected Attempts; completed verification is not revoked.</div>
       </div>
     </fieldset>
 
-    <fieldset class="qz-section group-box">
+    <fieldset class="qz-section group-box"<?= $editScope !== 'full' ? ' disabled' : '' ?>>
       <legend class="qz-section__head"><strong>Attempt Rules</strong></legend>
       <div class="qz-section__body qz-form-grid qz-student-form-grid">
       <div class="qz-field">
@@ -393,19 +444,25 @@ $ownerLine = ($owner !== '' || $oemail !== '')
         </select>
         <div class="small-hint" id="quiz-allow-review-help">Allows Students to mark Questions for review.</div>
       </div>
-      <div class="qz-field">
-        <label for="quiz-result-visibility"><strong>Student Results</strong></label>
-        <select class="adam-input" id="quiz-result-visibility" name="result_visibility" aria-describedby="quiz-result-help">
-          <option value="hidden" <?= $result_visibility==='hidden'?'selected':'' ?>>Hidden (default)</option>
-          <option value="summary" <?= $result_visibility==='summary'?'selected':'' ?>>Summary</option>
-          <option value="categories" <?= $result_visibility==='categories'?'selected':'' ?>>Summary + Categories</option>
-        </select>
-        <div class="small-hint" id="quiz-result-help">Hidden disables the Student results page. Summary shows the total; Categories adds a breakdown.</div>
-      </div>
       </div>
     </fieldset>
 
-    <fieldset class="qz-section group-box">
+    <fieldset class="qz-section group-box"<?= $isFullyReadOnly ? ' disabled' : '' ?>>
+      <legend class="qz-section__head"><strong>Student Results</strong></legend>
+      <div class="qz-section__body">
+        <div class="qz-field">
+          <label for="quiz-result-visibility"><strong>Result visibility</strong></label>
+          <select class="adam-input" id="quiz-result-visibility" name="result_visibility" aria-describedby="quiz-result-help">
+            <option value="hidden" <?= $result_visibility==='hidden'?'selected':'' ?>>Hidden (default)</option>
+            <option value="summary" <?= $result_visibility==='summary'?'selected':'' ?>>Summary</option>
+            <option value="categories" <?= $result_visibility==='categories'?'selected':'' ?>>Summary + Categories</option>
+          </select>
+          <div class="small-hint" id="quiz-result-help">This is a live setting. Hidden disables the Student results page. Summary shows the total; Categories adds a breakdown.</div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="qz-section group-box"<?= $editScope !== 'full' ? ' disabled' : '' ?>>
       <legend class="qz-section__head"><strong>Publication and Schedule</strong></legend>
       <div class="qz-section__body qz-form-grid qz-student-form-grid">
       <div class="qz-field">
@@ -429,9 +486,8 @@ $ownerLine = ($owner !== '' || $oemail !== '')
       </div>
     </fieldset>
 
-    </fieldset>
     <div class="qz-form-actions qz-editor-actions">
-      <?php if (!$isReadOnly): ?><button class="adam-button" type="submit">Save Changes</button><?php endif; ?>
+      <?php if ($canEditLiveSettings): ?><button class="adam-button" type="submit"><?= $editScope === 'live' ? 'Save Live Settings' : 'Save Changes' ?></button><?php endif; ?>
       <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/quizzes">Cancel</a>
     </div>
   </form>

@@ -96,7 +96,18 @@ try {
   $sid = (int)($student['id'] ?? 0);
   if ($sid <= 0) go($registerStartUrl);
 
+  $attemptQuiz = $pdo->prepare('SELECT quiz_id FROM quiz_attempts
+    WHERE attempt_alias=:alias AND student_id=:student_id LIMIT 1');
+  $attemptQuiz->execute([':alias' => $alias, ':student_id' => $sid]);
+  $quiz_id = (int)$attemptQuiz->fetchColumn();
+  if ($quiz_id <= 0) go(quiz_public_url('start', ['err' => 'Attempt not found. Restart from Start.']));
+
   $pdo->beginTransaction();
+
+  $policyLock = $pdo->prepare('SELECT verification_required_override FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+  $policyLock->execute([':id' => $quiz_id]);
+  $lockedVerificationOverride = $policyLock->fetchColumn();
+  if ($lockedVerificationOverride === false) throw new RuntimeException('Quiz settings are unavailable.');
 
   // lock attempt row
   $st = $pdo->prepare("
@@ -119,18 +130,15 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
     go(quiz_public_url('start', ['err' => 'Attempt not found. Restart from Start.']));
   }
 
-  $quiz_id = (int)$A['quiz_id'];
+  if ((int)$A['quiz_id'] !== $quiz_id) {
+    $pdo->rollBack();
+    go(quiz_public_url('start', ['err' => 'Attempt changed. Restart from Start.']));
+  }
   if (!quiz_public_route_accepts_quiz($quiz_id)) {
     $pdo->rollBack();
     quiz_render_core_404();
   }
   $status  = (string)($A['status'] ?? '');
-
-  $methodEnabled = $via === 'email' ? $email_enabled : $whatsapp_enabled;
-  if (!$methodEnabled) {
-    $pdo->commit();
-    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'This OTP request method is disabled. Please use an available method or contact admin.']));
-  }
 
   // kalau sudah berjalan / selesai, jangan kirim OTP lagi
   if (in_array($status, ['in_progress','verified','submitted'], true) || !empty($A['email_verified_at'] ?? null)) {
@@ -155,6 +163,21 @@ SELECT id, quiz_id, student_id, status, email_verified_at,
   ) {
     $pdo->commit();
     go(quiz_public_url('start/confirm', ['quiz' => $quiz_id, 'err' => 'Invalid access. Please use the same browser/device.']));
+  }
+
+  if ($lockedVerificationOverride !== null && (int)$lockedVerificationOverride === 0
+      && $status === 'registered' && empty($A['email_verified_at'] ?? null)) {
+    $pdo->prepare("UPDATE quiz_attempts SET email_verified_at=NOW(), status='verified',
+        verified_via='quiz_override', last_activity_at=NOW() WHERE id=:id AND status='registered' LIMIT 1")
+      ->execute([':id' => (int)$A['id']]);
+    $pdo->commit();
+    go(quiz_public_url('take', ['a' => $alias]));
+  }
+
+  $methodEnabled = $via === 'email' ? $email_enabled : $whatsapp_enabled;
+  if (!$methodEnabled) {
+    $pdo->commit();
+    go(quiz_public_url('verify', ['quiz' => $quiz_id, 'err' => 'This OTP request method is disabled. Please use an available method or contact admin.']));
   }
 
   $MAX_TRIES = 10;

@@ -56,8 +56,8 @@ try {
   $pdo->beginTransaction();
   sort($ids, SORT_NUMERIC);
   foreach ($ids as $id) {
-    qz_lock_quiz_for_workspace_mutation($pdo, $id, $user['id']);
-    $revision = quiz_revision_for_quiz($pdo, $id, true);
+    qz_lock_quiz_for_settings_mutation($pdo, $id, $user['id'], true);
+    $revision = quiz_assert_revision_mutable($pdo, $id);
     if (!$revision || (string)$revision['state'] !== 'current') {
       throw new RuntimeException('Only current Quiz revisions can change publication status.');
     }

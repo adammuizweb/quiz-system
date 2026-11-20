@@ -36,9 +36,135 @@ function quiz_instrument_revision_quiz_ids(PDO $pdo, int $instrumentId): array {
   return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
 }
 
+function quiz_live_setting_fields(): array {
+  return [
+    'verification_required_override',
+    'require_fullscreen_override',
+    'pause_when_blur_override',
+    'block_context_menu_override',
+    'block_shortcuts_override',
+    'devtools_detect_override',
+    'show_exam_badge_override',
+    'visual_theme_override',
+    'result_visibility',
+  ];
+}
+
+function quiz_live_setting_labels(): array {
+  return [
+    'verification_required_override' => 'OTP verification',
+    'require_fullscreen_override' => 'Require fullscreen',
+    'pause_when_blur_override' => 'Pause when tab/window loses focus',
+    'block_context_menu_override' => 'Block right-click',
+    'block_shortcuts_override' => 'Block copy, paste, shortcuts',
+    'devtools_detect_override' => 'Detect DevTools',
+    'show_exam_badge_override' => 'Show exam mode badge',
+    'visual_theme_override' => 'Visual theme',
+    'result_visibility' => 'Student Results',
+  ];
+}
+
+function quiz_revision_settings_edit_scope(PDO $pdo, int $quizId, bool $lock = false): string {
+  if ($lock && !$pdo->inTransaction()) {
+    throw new RuntimeException('Quiz settings scope validation requires a transaction.');
+  }
+  if ($lock) {
+    $quizLock = $pdo->prepare('SELECT id FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+    $quizLock->execute([':id' => $quizId]);
+    if ($quizLock->fetchColumn() === false) return 'none';
+  }
+  $revision = quiz_revision_for_quiz($pdo, $quizId);
+  if (!$revision || (string)$revision['state'] === 'retired') return 'none';
+  if ((string)$revision['state'] === 'draft') return 'full';
+  if ((string)$revision['state'] !== 'current') return 'none';
+  if ((int)$revision['revision_number'] > 1) return 'live';
+
+  $attempt = $pdo->prepare('SELECT id FROM quiz_attempts WHERE quiz_id=:quiz_id LIMIT 1');
+  $attempt->execute([':quiz_id' => $quizId]);
+  return $attempt->fetchColumn() === false ? 'full' : 'live';
+}
+
+function quiz_apply_live_settings(PDO $pdo, array $lockedQuiz, array $values, int $actorId): array {
+  if (!$pdo->inTransaction()) throw new RuntimeException('Live Quiz settings update requires a transaction.');
+  $quizId = (int)($lockedQuiz['id'] ?? 0);
+  if ($quizId <= 0 || $actorId <= 0) throw new RuntimeException('Live Quiz settings update is invalid.');
+
+  $fields = quiz_live_setting_fields();
+  $submittedFields = array_keys($values);
+  sort($fields, SORT_STRING);
+  sort($submittedFields, SORT_STRING);
+  if ($submittedFields !== $fields) throw new RuntimeException('Live Quiz settings payload is incomplete.');
+  if (quiz_revision_settings_edit_scope($pdo, $quizId, true) !== 'live') {
+    throw new RuntimeException('Only a published current revision can use live-only settings updates.');
+  }
+
+  $booleanFields = array_slice(quiz_live_setting_fields(), 0, 7);
+  $normalize = static function (string $field, mixed $value) use ($booleanFields): mixed {
+    if (in_array($field, $booleanFields, true)) {
+      if ($value === null || $value === '') return null;
+      if ((string)$value !== '0' && (string)$value !== '1') {
+        throw new InvalidArgumentException('Invalid per-Quiz override.');
+      }
+      return (int)$value;
+    }
+    if ($field === 'visual_theme_override') {
+      if ($value === null || $value === '') return null;
+      return quiz_normalize_visual_theme((string)$value);
+    }
+    if ($field === 'result_visibility') return quiz_normalize_result_visibility($value);
+    throw new InvalidArgumentException('Unsupported live Quiz setting.');
+  };
+
+  $normalized = [];
+  $changedFields = [];
+  $beforeValues = [];
+  $afterValues = [];
+  foreach (quiz_live_setting_fields() as $field) {
+    $normalized[$field] = $normalize($field, $values[$field]);
+    $before = $normalize($field, $lockedQuiz[$field] ?? null);
+    if ($before !== $normalized[$field]) {
+      $changedFields[] = $field;
+      $beforeValues[$field] = $before;
+      $afterValues[$field] = $normalized[$field];
+    }
+  }
+  if ($changedFields === []) return ['changed' => false, 'changed_fields' => []];
+
+  $update = $pdo->prepare('UPDATE quizzes SET
+      verification_required_override=:verification_required_override,
+      require_fullscreen_override=:require_fullscreen_override,
+      pause_when_blur_override=:pause_when_blur_override,
+      block_context_menu_override=:block_context_menu_override,
+      block_shortcuts_override=:block_shortcuts_override,
+      devtools_detect_override=:devtools_detect_override,
+      show_exam_badge_override=:show_exam_badge_override,
+      visual_theme_override=:visual_theme_override,
+      result_visibility=:result_visibility
+    WHERE id=:id LIMIT 1');
+  $update->execute($normalized + [':id' => $quizId]);
+  if ($update->rowCount() !== 1) throw new RuntimeException('Live Quiz settings were not updated.');
+
+  $audit = $pdo->prepare('INSERT INTO quiz_live_setting_changes
+      (quiz_id, changed_by, changed_fields, before_values, after_values, changed_at)
+    VALUES (:quiz_id, :changed_by, :changed_fields, :before_values, :after_values, CURRENT_TIMESTAMP(6))');
+  $audit->execute([
+    ':quiz_id' => $quizId,
+    ':changed_by' => $actorId,
+    ':changed_fields' => json_encode($changedFields, JSON_THROW_ON_ERROR),
+    ':before_values' => json_encode($beforeValues, JSON_THROW_ON_ERROR),
+    ':after_values' => json_encode($afterValues, JSON_THROW_ON_ERROR),
+  ]);
+  if ($audit->rowCount() !== 1) throw new RuntimeException('Live Quiz settings audit was not recorded.');
+
+  return ['changed' => true, 'changed_fields' => $changedFields];
+}
+
 function quiz_assert_revision_mutable(PDO $pdo, int $quizId): array {
   if (!$pdo->inTransaction()) throw new RuntimeException('Quiz revision mutability validation requires a transaction.');
-  $revision = quiz_revision_for_quiz($pdo, $quizId, true);
+  $quizLock = $pdo->prepare('SELECT id FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+  $quizLock->execute([':id' => $quizId]);
+  if ($quizLock->fetchColumn() === false) throw new RuntimeException('Quiz revision metadata is unavailable.');
+  $revision = quiz_revision_for_quiz($pdo, $quizId);
   if (!$revision) throw new RuntimeException('Quiz revision metadata is unavailable.');
   if ((string)$revision['state'] === 'retired') {
     throw new RuntimeException('Retired Quiz revisions are read-only.');
@@ -47,7 +173,7 @@ function quiz_assert_revision_mutable(PDO $pdo, int $quizId): array {
     if ((int)$revision['revision_number'] > 1) {
       throw new RuntimeException('Published Quiz revisions are read-only. Create a new revision.');
     }
-    $attempt = $pdo->prepare('SELECT id FROM quiz_attempts WHERE quiz_id=:quiz_id LIMIT 1 FOR UPDATE');
+    $attempt = $pdo->prepare('SELECT id FROM quiz_attempts WHERE quiz_id=:quiz_id LIMIT 1');
     $attempt->execute([':quiz_id' => $quizId]);
     if ($attempt->fetchColumn() !== false) {
       throw new RuntimeException('Published Quiz revisions with Attempts are read-only. Create a new revision.');
@@ -131,7 +257,10 @@ function quiz_set_primary(PDO $pdo, int $targetQuizId, ?callable $authorize = nu
 
 function quiz_lock_current_revision_for_attempt(PDO $pdo, int $quizId): array {
   if (!$pdo->inTransaction()) throw new RuntimeException('Quiz attempt revision validation requires a transaction.');
-  $revision = quiz_revision_for_quiz($pdo, $quizId, true);
+  $quizLock = $pdo->prepare('SELECT id FROM quizzes WHERE id=:id LIMIT 1 FOR UPDATE');
+  $quizLock->execute([':id' => $quizId]);
+  if ($quizLock->fetchColumn() === false) throw new RuntimeException('The Quiz revision changed before the Attempt was created.');
+  $revision = quiz_revision_for_quiz($pdo, $quizId);
   if (!$revision || (string)$revision['state'] !== 'current'
       || (int)$revision['current_quiz_id'] !== $quizId || (int)$revision['current_marker'] !== 1) {
     throw new RuntimeException('The Quiz revision changed before the Attempt was created.');

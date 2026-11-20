@@ -74,6 +74,20 @@ CREATE TABLE IF NOT EXISTS `quiz_instrument_revisions` (
   CONSTRAINT `fk_quiz_instrument_revisions_owner` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `quiz_live_setting_changes` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `quiz_id` INT UNSIGNED NOT NULL,
+  `changed_by` INT UNSIGNED NULL,
+  `changed_fields` VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  `before_values` VARCHAR(1024) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  `after_values` VARCHAR(1024) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  `changed_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  KEY `idx_quiz_live_setting_changes_quiz` (`quiz_id`, `changed_at`, `id`),
+  KEY `idx_quiz_live_setting_changes_actor` (`changed_by`),
+  CONSTRAINT `fk_quiz_live_setting_changes_quiz` FOREIGN KEY (`quiz_id`) REFERENCES `quizzes` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_quiz_live_setting_changes_actor` FOREIGN KEY (`changed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `quiz_collaborators` (
   `quiz_id` INT UNSIGNED NOT NULL,
   `user_id` INT UNSIGNED NOT NULL,
@@ -191,6 +205,7 @@ CREATE TABLE IF NOT EXISTS `quiz_attempts` (
   `verified_by` INT UNSIGNED NULL,
   `verified_note` TEXT NULL,
   `delivery_mode` VARCHAR(20) NULL,
+  `live_setting_change_baseline_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `status` VARCHAR(50) NOT NULL DEFAULT 'registered',
   `started_at` DATETIME NULL,
   `submitted_at` DATETIME NULL,

@@ -1430,7 +1430,7 @@
     if (d.can_manage_quizzes) {
       quizManageActions = (d.can_manage_revisions
         ? '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/quizzes/revisions&id=' + d.id + '">Revision History</a>'
-        : '') + '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/quizzes/edit&id=' + d.id + '">' + (d.can_edit_settings ? 'Edit settings' : 'View settings') + '</a>' +
+        : '') + '<a class="btn-soft" href="' + baseUrl + '/?page=admin/quiz/quizzes/edit&id=' + d.id + '">' + (d.settings_edit_scope === 'live' ? 'Edit live settings' : (d.can_edit_settings ? 'Edit settings' : 'View settings')) + '</a>' +
         '<form method="post" action="' + baseUrl + '/?page=admin/quiz/quizzes/duplicate" class="qdm-inline-form">' +
           '<input type="hidden" name="id" value="' + d.id + '">' +
           '<input type="hidden" name="csrf_token" value="' + escHtml(csrf) + '">' +

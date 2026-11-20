@@ -72,7 +72,7 @@ $publicPrefix = trim((string)($current['public_prefix'] ?? ''));
     <div class="qz-page-head__copy">
       <div class="qz-eyebrow qz-kicker">Instrument #<?= $instrumentId ?></div>
       <h1 class="qz-page-title">Revision History</h1>
-      <p class="qz-page-description">Manage the publication lineage for <strong><?= h($current['title']) ?></strong>. Published revisions remain immutable for audit integrity.</p>
+      <p class="qz-page-description">Manage the publication lineage for <strong><?= h($current['title']) ?></strong>. Published Questions and core Attempt rules remain immutable; live Overrides and Student Results can be adjusted on the current revision.</p>
       <div class="qz-meta">Current: <strong>Revision <?= (int)$current['revision_number'] ?></strong><span class="dot">&bull;</span>Owner: <strong><?= h($ownerLine) ?></strong><?php if ($publicPrefix !== ''): ?><span class="dot">&bull;</span>Public URL: <strong>/<?= h($publicPrefix) ?>/</strong><?php endif; ?></div>
     </div>
     <div class="qz-page-actions qz-toolbar">
@@ -128,7 +128,7 @@ $publicPrefix = trim((string)($current['public_prefix'] ?? ''));
           </dl>
         </div>
         <div class="qz-revision-actions">
-          <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/quizzes/edit&amp;id=<?= $rowQuizId ?>"><?= $rowMutable ? 'Edit Settings' : 'View Settings' ?></a>
+          <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/quizzes/edit&amp;id=<?= $rowQuizId ?>"><?= $rowMutable ? 'Edit Settings' : ($state === 'current' ? 'Edit Live Settings' : 'View Settings') ?></a>
           <a class="adam-button ghost" href="<?= h($base) ?>/?page=admin/quiz/questions&amp;quiz_id=<?= $rowQuizId ?>">View Questions</a>
           <?php if ($canManageRevisions && $state === 'draft'): ?>
             <form method="post" action="<?= h($base) ?>/?page=admin/quiz/quizzes/publish_revision">
